@@ -72,11 +72,11 @@ function historyCard(r) {
       comment: r.order.treasurer_notes,
       kind: 'ordered',
     });
-    if (r.order.received_date) {
+    if (r.order.received_date || r.status === STATUS.RECEIVED) {
       events.push({
         when: r.order.received_date,
         dateOnly: true,
-        text: '<strong>Received</strong>',
+        text: `<strong>Received</strong>${r.order.received_date ? '' : ' <span class="muted small">(date not recorded)</span>'}`,
         comment: r.order.received_notes,
         kind: 'received',
       });
@@ -98,6 +98,9 @@ function historyCard(r) {
   </section>`;
 }
 
+/** CE or Treasurer: sees every queue, so explain which role can act. */
+const isLead = () => auth.can('request.review') || auth.can('request.order');
+
 const waitingCard = (title, text) => `<section class="card action-card"><h2>${title}</h2><p class="muted">${text}</p></section>`;
 
 function actionPanel(r, config) {
@@ -114,7 +117,7 @@ function actionPanel(r, config) {
   }
 
   if (r.status === STATUS.SUBMITTED) {
-    if (!auth.can('request.review')) return waitingCard('Awaiting approval', 'A Chief Engineer will review this request.');
+    if (!auth.can('request.review')) return waitingCard('Awaiting approval', isLead() ? 'View only — only a <strong>Chief Engineer</strong> can approve, reject, or request changes.' : 'A Chief Engineer will review this request.');
     return `<section class="card action-card">
       <h2>Review</h2>
       <form id="review-form" novalidate>
@@ -134,7 +137,7 @@ function actionPanel(r, config) {
   }
 
   if (r.status === STATUS.APPROVED) {
-    if (!auth.can('request.order')) return waitingCard('Ready to order', 'The Treasurer will place this order.');
+    if (!auth.can('request.order')) return waitingCard('Ready to order', isLead() ? 'View only — only the <strong>Treasurer</strong> can mark this as Ordered.' : 'The Treasurer will place this order.');
     return `<section class="card action-card">
       <h2>Place order</h2>
       <form id="order-form" novalidate>
@@ -157,7 +160,7 @@ function actionPanel(r, config) {
   }
 
   if (r.status === STATUS.ORDERED) {
-    if (!auth.can('request.order')) return waitingCard('Ordered', 'Waiting for delivery.');
+    if (!auth.can('request.order')) return waitingCard('Ordered', isLead() ? 'View only — only the <strong>Treasurer</strong> can mark this as Received.' : 'Waiting for delivery.');
     return `<section class="card action-card">
       <h2>Delivery</h2>
       <form id="receive-form" novalidate>

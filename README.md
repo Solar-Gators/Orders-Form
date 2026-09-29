@@ -17,13 +17,14 @@ Everyone creates their own account with a UF email and starts as a **Member**. A
 | | Member | Chief Engineer | Treasurer |
 | --- | :-: | :-: | :-: |
 | Create, edit, and submit your own requests | ✓ | ✓ | ✓ |
-| View all requests, export to Excel | ✓ | ✓ | ✓ |
+| View all requests, search the Archive, export to Excel | ✓ | ✓ | ✓ |
+| See the Approvals and Treasurer queues | | ✓ | ✓ |
 | Approve / request changes / reject | | ✓ | |
-| Edit settings (subsystems, priorities, team info) | | ✓ | ✓ |
+| Edit settings and form fields, import spreadsheets | | ✓ | ✓ |
 | Change other people's roles | | ✓ | ✓ |
 | Mark requests **Ordered** and **Received** | | | ✓ |
 
-Nobody can change their own role, so the team can't lock itself out by accident.
+Nobody can change their own role, so the team can't lock itself out by accident. Chief Engineers and the Treasurer see every tab, but the other role's queue is **view only** (the page says so). Members only see the tabs they can use.
 
 The permissions are stored in the database (`role_permissions` table), not in code. To change what a role can do, add or remove rows in that table in Supabase's Table Editor.
 
@@ -111,6 +112,8 @@ js/
   views/                 One file per page (login, account, admin, requests, …)
 supabase/migrations/     Database changes, in order: tables, security, permissions, workflow
 js/formFields.js         Form field definitions, inputs, and display (used by form, detail, export)
+js/sheetImport.js        Reads old Excel order sheets (archive + this-season import)
+assets/                  Solar Gators logo
 tests/db.test.mjs        Database security + workflow tests
 tools/dev-server.mjs     Local static server (+ --fake mode)
 tools/fake-supabase.js   Fake backend for local development
@@ -145,6 +148,23 @@ Chief Engineers and Treasurers can change the request form from **Admin → Form
 
 **Locked** fields (request title, item name, quantity, unit price) are always shown and required because approvals and totals depend on them. Hidden fields keep their saved answers, which come back if you show the field again. The Excel export always matches the current form.
 
+## Archive and importing old spreadsheets
+
+**Archive tab** (everyone): every past season's order sheet, searchable. Type any words (item, vendor, part number, person, ticket) and filter by season, subteam, or status. Click a row to see **every column exactly as it was in the sheet**, even columns that changed between years.
+
+**Admin → Import** (Chief Engineer and Treasurer):
+1. Choose an `.xlsx` file. The app reads it in your browser and picks the sheet with the orders.
+2. Choose where it goes:
+   - **Archive (past season):** enter the season, e.g. `2024-2025`. It's guessed from the file name. All columns are kept as-is.
+   - **This season's requests:** rows become real requests.
+     - **Grouping:** rows with the same requester, date, subteam, ticket #, and status become one request.
+     - **History:** CE Approval, Order Status, and Ticket Number become the approval and order history.
+     - **Subteam names** that aren't in your list can be mapped ("Batt Pack" → Battery) or added.
+     - **Extra columns** (Shipping, From China, Scholarship) become item fields.
+3. Check the preview, then click **Import**. A requests import is all-or-nothing, so a failed import never leaves half a sheet behind.
+
+A past season imported by mistake can be deleted from the same page. The spreadsheets themselves are never committed to GitHub (`.gitignore` excludes them); the data lives only in Supabase, visible to signed-in team members.
+
 ## Database updates
 
 New features sometimes need a database change. These live in `supabase/migrations/` as numbered files. When one is added, leads see a yellow **"Database update needed"** banner naming the file. To apply it:
@@ -164,7 +184,6 @@ Chief Engineers and Treasurers can edit these from **Admin → Settings**, with 
 
 ## Roadmap
 
-- **Next:** an **Archive** tab with past seasons' order sheets, imported from Excel and searchable.
 - **Later:** budget tracking, vendor batching, attachments (Supabase Storage), notifications, and automatic CE routing by subsystem.
 
 **Free-tier note:** Supabase pauses free projects after about a week with no activity. Normal team use prevents this. If it does pause, a lead can restore it from the Supabase dashboard.

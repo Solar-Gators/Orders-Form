@@ -1,5 +1,6 @@
 /** Treasurer: approved requests to order, and ordered requests awaiting delivery. */
 import { api } from '../api.js';
+import { auth } from '../auth.js';
 import { STATUS, fmtMoney, requestTable, COLUMNS, bindRowLinks, takeFlash } from '../ui.js';
 
 export async function renderTreasurer(el) {
@@ -17,6 +18,7 @@ export async function renderTreasurer(el) {
         <p class="subtitle">${toOrder.length} to order (${sum(toOrder)}) · ${inTransit.length} awaiting delivery (${sum(inTransit)})</p>
       </div>
     </div>
+    ${auth.can('request.order') ? '' : '<div class="alert alert-info">View only — only the <strong>Treasurer</strong> can mark requests as Ordered or Received.</div>'}
 
     <h2 class="section-title">To order</h2>
     ${requestTable(

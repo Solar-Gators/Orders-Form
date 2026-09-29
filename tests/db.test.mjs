@@ -269,7 +269,7 @@ await test('the website cannot change the schema version', async () => {
   const general = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
   await as(ce, () => rpc('update_settings', ['general', { ...general, schemaVersion: 99 }]));
   const after = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
-  assert.equal(after.schemaVersion, 2);
+  assert.equal(after.schemaVersion, 3);
 });
 
 console.log('Form fields');
@@ -350,6 +350,71 @@ await test('renamed built-in labels appear in error messages', async () => {
     rejects(rpc('save_request', [null, { title: 'x' }, [{ item_name: 'x', quantity: '-2', unit_price: 1 }], 'draft']), /fix/)
   );
   assert.match(err.detail, /Item 1: How many must be a positive number/);
+});
+
+console.log('Archive & import');
+
+const archiveRows = [
+  { row_number: 2, fields: { Requestor: 'Ethan Wright', Date: '2024-09-12', 'Gross Cost': '138.03', 'Date Received': '' },
+    order_date: '2024-09-12', requester: 'Ethan Wright', subteam: 'Brakes', item: 'Steel sheet', status: 'Received', ticket: '3272', cost: 138.03 },
+  { row_number: 3, fields: { Requestor: 'Youssef', Date: 'not yet' }, order_date: 'not yet', requester: 'Youssef', cost: 'n/a' },
+];
+
+let importId;
+await test('members cannot import; leads can import a past season', async () => {
+  await as(member, () => rejects(rpc('import_archive', ['2024-2025', 'budget.xlsx', 'Orders', ['Requestor', 'Date'], archiveRows]), /does not allow/));
+  const { rows } = await as(treasurer, () => rpc('import_archive', ['2024-2025', 'budget.xlsx', 'Orders', ['Requestor', 'Date'], archiveRows]));
+  importId = rows[0].result;
+  const saved = await db.query(`select row_number, order_date::text, cost::float, fields from archive_orders where import_id = $1 order by row_number`, [importId]);
+  assert.equal(saved.rows.length, 2);
+  assert.deepEqual([saved.rows[0].order_date, saved.rows[0].cost], ['2024-09-12', 138.03]);
+  assert.deepEqual([saved.rows[1].order_date, saved.rows[1].cost], [null, null]); // messy values don't break the import
+  assert.equal(saved.rows[1].fields.Date, 'not yet'); // …and the original text is kept
+});
+
+await test('every signed-in user can read the archive; anon cannot', async () => {
+  const { rows } = await as(member, () => db.query(`select count(*)::int as n from archive_orders`));
+  assert.equal(rows[0].n, 2);
+  await as(null, () => rejects(db.query(`select * from archive_orders`), /permission denied/));
+  await as(member, () => rejects(db.query(`delete from archive_orders`), /permission denied/));
+});
+
+await test('deleting an import removes its rows', async () => {
+  await as(member, () => rejects(rpc('delete_archive_import', [importId]), /does not allow/));
+  await as(ce, () => rpc('delete_archive_import', [importId]));
+  assert.equal((await db.query(`select count(*)::int as n from archive_orders`)).rows[0].n, 0);
+});
+
+await test('import this season\'s sheet as requests with history', async () => {
+  const sheet = [
+    { title: 'Loctite glue (+3 more)', requester: 'Bella N', subsystem: 'Battery', priority: 'High', justification: 'Plug',
+      date: '2026-08-25', status: 'Received', approver: 'Griffin', ticket: '5985', received_notes: 'Received, in office',
+      items: [{ item_name: 'Loctite', vendor: 'lowes.com', quantity: '4', unit_price: '7.38', notes: '', data: { c_from_china: 'No' } }] },
+    { title: 'Fuse', requester: 'Josh', subsystem: 'Battery', date: '2026-09-08', status: 'Ordered', approver: 'Josh', ticket: '6157',
+      items: [{ item_name: 'Fuse', quantity: '1', unit_price: '29.99' }] },
+    { title: 'Waiting', requester: 'Zach', subsystem: 'Battery', date: '2026-09-10', status: 'Submitted', items: [{ item_name: 'Cells', quantity: '2', unit_price: '5' }] },
+  ];
+  await as(member, () => rejects(rpc('import_requests', [sheet]), /does not allow/));
+  const { rows } = await as(ce, () => rpc('import_requests', [sheet]));
+  assert.equal(rows[0].result, 3);
+  const got = await db.query(`
+    select r.title, r.status, r.created_at::date::text as day, r.created_by,
+           (select approver from approvals a where a.request_id = r.id) as approver,
+           o.department_order_number as ticket, o.received_notes
+    from requests r left join order_information o on o.request_id = r.id
+    where r.requester in ('Bella N', 'Josh', 'Zach') order by r.created_at`);
+  assert.deepEqual(got.rows.map((r) => [r.status, r.day, r.approver, r.ticket, r.created_by]), [
+    ['Received', '2026-08-25', 'Griffin', '5985', null],
+    ['Ordered', '2026-09-08', 'Josh', '6157', null],
+    ['Submitted', '2026-09-10', null, null, null],
+  ]);
+  assert.equal(got.rows[0].received_notes, 'Received, in office');
+});
+
+await test('treasurer can mark an imported order as received', async () => {
+  const { rows } = await db.query(`select id from requests where requester = 'Josh' and title = 'Fuse'`);
+  await as(treasurer, () => rpc('mark_received', [rows[0].id, '2026-09-30', 'In office']));
+  assert.equal((await db.query(`select status from requests where id = $1`, [rows[0].id])).rows[0].status, 'Received');
 });
 
 console.log(`\n${passed} passed${process.exitCode ? ', some FAILED' : ''}`);

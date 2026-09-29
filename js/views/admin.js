@@ -3,17 +3,19 @@
  *   #/admin/users     — see everyone, change roles
  *   #/admin/settings  — team info and form dropdown options
  *   #/admin/fields    — the request form's fields (see js/formFields.js)
+ *   #/admin/import    — import old spreadsheets (js/views/importPage.js)
  */
 import { api } from '../api.js';
 import { auth } from '../auth.js';
 import { esc, fmtDate, errorBox, setFlash, takeFlash } from '../ui.js';
 import { FIELD_TYPES, LOCKED, LIST_FIELDS, requestFields, itemFields, typeLabel, makeKey } from '../formFields.js';
 
-function tabs(active) {
+export function adminTabs(active) {
   const items = [
     ['users', 'Users & roles', 'users.manage'],
     ['fields', 'Form fields', 'settings.edit'],
     ['settings', 'Settings', 'settings.edit'],
+    ['import', 'Import', 'settings.edit'],
   ].filter(([, , perm]) => auth.can(perm));
   return `<nav class="tabs">${items
     .map(([key, label]) => `<a href="#/admin/${key}" class="${key === active ? 'active' : ''}">${label}</a>`)
@@ -38,7 +40,7 @@ export async function renderUsers(el, { rerender }) {
           .join(' · ')}</p>
       </div>
     </div>
-    ${tabs('users')}
+    ${adminTabs('users')}
     <div class="alert alert-info small">
       New members create their own account from the sign-in page and start as <strong>Member</strong>.
       Change their role here. Only a <strong>Chief Engineer</strong> can approve requests; only the
@@ -103,7 +105,7 @@ export async function renderSettings(el, { rerender, reloadConfig }) {
   el.innerHTML = `
     ${takeFlash()}
     <div class="page-header"><div><h1>Admin</h1></div></div>
-    ${tabs('settings')}
+    ${adminTabs('settings')}
     <div id="settings-errors"></div>
     <form id="settings-form" novalidate>
       <div class="two-col">
@@ -252,7 +254,7 @@ export async function renderFormFields(el, { rerender, reloadConfig }) {
       </div>
       <a class="btn" href="#/new" target="_blank" rel="noopener">Preview form ↗</a>
     </div>
-    ${tabs('fields')}
+    ${adminTabs('fields')}
     <div id="fields-errors"></div>
     ${section('request', 'Request fields', 'Asked once per request.')}
     ${section('item', 'Item fields', 'Asked for every item (one row each). The item total is always Quantity × Unit price.')}

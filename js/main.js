@@ -8,8 +8,8 @@ import { STATUS, STATUSES, EDITABLE_STATUSES, esc, errorBox } from './ui.js';
 const app = document.getElementById('app');
 
 // Bump when adding a file to supabase/migrations/ (the migration sets general.schemaVersion).
-const REQUIRED_SCHEMA_VERSION = 2;
-const MIGRATIONS = { 2: '002_form_fields.sql' };
+const REQUIRED_SCHEMA_VERSION = 3;
+const MIGRATIONS = { 2: '002_form_fields.sql', 3: '003_archive_and_import.sql' };
 
 /** Shared config object handed to every view. Mutated in place on reload. */
 const config = {};
@@ -29,7 +29,6 @@ async function reloadConfig() {
     statuses: STATUSES,
     editableStatuses: EDITABLE_STATUSES,
   });
-  document.getElementById('brand-name').textContent = `${config.teamName} Orders`;
   document.title = `${config.teamName} Orders`;
   document.getElementById('footer').textContent = `${config.teamName} · ${config.season} season`;
 }
@@ -64,8 +63,9 @@ async function refreshNavCounts() {
     badge.hidden = !n;
   };
   try {
-    if (auth.can('request.review')) set('count-approvals', await api.countByStatus(STATUS.SUBMITTED));
-    if (auth.can('request.order')) set('count-treasurer', await api.countByStatus(STATUS.APPROVED));
+    const lead = auth.can('request.review') || auth.can('request.order');
+    if (lead) set('count-approvals', await api.countByStatus(STATUS.SUBMITTED));
+    if (lead) set('count-treasurer', await api.countByStatus(STATUS.APPROVED));
   } catch {
     /* counts are a nice-to-have */
   }

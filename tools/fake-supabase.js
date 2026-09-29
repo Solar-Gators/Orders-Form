@@ -22,7 +22,7 @@ export const siteUrl = () => `${location.origin}${location.pathname}`;
 
 const DB_NAME = 'idb://sg-orders-fake';
 // Keep in sync with the files in supabase/migrations/.
-const MIGRATIONS = ['001_initial.sql', '002_form_fields.sql'];
+const MIGRATIONS = ['001_initial.sql', '002_form_fields.sql', '003_archive_and_import.sql'];
 const SESSION_KEY = 'sg-orders-fake-session';
 
 const STUB = `
@@ -121,6 +121,10 @@ class Query {
     this.orders.push(`t.${col} ${ascending ? 'asc' : 'desc'}`);
     return this;
   }
+  range(from, to) {
+    this.limit = ` limit ${Number(to) - Number(from) + 1} offset ${Number(from)}`;
+    return this;
+  }
   maybeSingle() {
     this.mode = 'maybeSingle';
     return this;
@@ -140,7 +144,7 @@ class Query {
     });
     const where = this.filters.length ? ` where ${this.filters.join(' and ')}` : '';
     const order = this.orders.length ? ` order by ${this.orders.join(', ')}` : '';
-    return `select ${parts.join(', ')} from ${this.table} t${where}${order}`;
+    return `select ${parts.join(', ')} from ${this.table} t${where}${order}${this.limit || ''}`;
   }
   async run() {
     try {

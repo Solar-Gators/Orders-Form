@@ -1,5 +1,6 @@
 /** Chief Engineer queue: every Submitted request, most urgent first. */
 import { api } from '../api.js';
+import { auth } from '../auth.js';
 import { STATUS, fmtMoney, requestTable, COLUMNS, bindRowLinks, takeFlash } from '../ui.js';
 
 export async function renderApprovals(el) {
@@ -15,6 +16,7 @@ export async function renderApprovals(el) {
         <p class="subtitle">${rows.length} request${rows.length === 1 ? '' : 's'} awaiting review · ${fmtMoney(total)} total. Sorted by needed-by date.</p>
       </div>
     </div>
+    ${auth.can('request.review') ? '' : '<div class="alert alert-info">View only — only a <strong>Chief Engineer</strong> can approve, reject, or request changes.</div>'}
     ${requestTable(
       rows,
       [COLUMNS.id, COLUMNS.title, COLUMNS.requester, COLUMNS.subsystem, COLUMNS.total, COLUMNS.neededBy],

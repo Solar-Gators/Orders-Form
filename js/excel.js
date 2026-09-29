@@ -62,7 +62,7 @@ export function buildColumns(config) {
 }
 
 let loading = null;
-function loadExcelJS() {
+export function loadExcelJS() {
   if (window.ExcelJS) return Promise.resolve(window.ExcelJS);
   loading ??= new Promise((resolve, reject) => {
     const s = document.createElement('script');

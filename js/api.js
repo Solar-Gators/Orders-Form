@@ -101,6 +101,44 @@ export const api = {
     unwrap(await supabase.rpc('mark_received', { p_id: id, p_received_date: received_date || null, p_notes: received_notes }));
   },
 
+  // ---- Archive & import -----------------------------------------------------
+
+  async listArchiveImports() {
+    return unwrap(await supabase.from('archive_imports').select('*').order('season', { ascending: false }).order('imported_at'));
+  },
+
+  /** Every archived row (fetched 1000 at a time — the API's page size). */
+  async listArchive() {
+    const all = [];
+    for (let from = 0; ; from += 1000) {
+      const page = unwrap(
+        await supabase
+          .from('archive_orders')
+          .select('*')
+          .order('season', { ascending: false })
+          .order('row_number')
+          .range(from, from + 999)
+      );
+      all.push(...page);
+      if (page.length < 1000) return all;
+    }
+  },
+
+  async importArchive({ season, sourceFile, sheet, columns, rows }) {
+    return unwrap(
+      await supabase.rpc('import_archive', { p_season: season, p_source_file: sourceFile, p_sheet: sheet, p_columns: columns, p_rows: rows })
+    );
+  },
+
+  async deleteArchiveImport(id) {
+    unwrap(await supabase.rpc('delete_archive_import', { p_id: id }));
+  },
+
+  /** Create requests from this season's sheet. Returns how many were created. */
+  async importRequests(requests) {
+    return unwrap(await supabase.rpc('import_requests', { p_requests: requests }));
+  },
+
   // ---- People ---------------------------------------------------------------
 
   async listProfiles() {
