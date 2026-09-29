@@ -1,0 +1,14 @@
+{
+  "name": "solar-gators-orders",
+  "version": "2.0.0",
+  "description": "Solar Gators purchase order requests: static site (GitHub Pages) + Supabase",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node tools/dev-server.mjs",
+    "test:db": "node tests/db.test.mjs"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8"
+  }
+}

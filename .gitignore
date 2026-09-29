@@ -1,0 +1,13 @@
+node_modules/
+
+# Everything committed here is published on GitHub Pages.
+# Keep real order sheets (names, purchases) out of the repo.
+*.xlsx
+*.xls
+*.csv
+
+# Old V1 (Node server) local data file.
+data/
+
+# Local editor/tool settings
+.claude/

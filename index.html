@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Solar Gators Orders</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='5' fill='%23f26b1d'/%3E%3C/svg%3E">
+  <!-- Relative paths so the site works under a GitHub Pages sub-path (/<repo>/). -->
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body class="signed-out">
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="#/requests">
+        <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="4.5" fill="currentColor"/>
+          <g stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <path d="M12 1.5v3M12 19.5v3M1.5 12h3M19.5 12h3M4.6 4.6l2.1 2.1M17.3 17.3l2.1 2.1M4.6 19.4l2.1-2.1M17.3 6.7l2.1-2.1"/>
+          </g>
+        </svg>
+        <span id="brand-name">Solar Gators Orders</span>
+      </a>
+
+      <nav class="nav signed-in-only" aria-label="Main">
+        <a href="#/new" data-nav="new">New Request</a>
+        <a href="#/requests" data-nav="requests">Requests</a>
+        <a href="#/approvals" data-nav="approvals" data-perm="request.review" hidden>Approvals <span class="nav-count" id="count-approvals" hidden></span></a>
+        <a href="#/treasurer" data-nav="treasurer" data-perm="request.order" hidden>Treasurer <span class="nav-count" id="count-treasurer" hidden></span></a>
+        <a href="#/export" data-nav="export">Export</a>
+        <a href="#/admin" data-nav="admin" data-perm="users.manage settings.edit" hidden>Admin</a>
+      </nav>
+
+      <a class="account-link signed-in-only" id="account-link" href="#/account" data-nav="account" title="My account"></a>
+    </div>
+  </header>
+
+  <main id="app" class="container" tabindex="-1"></main>
+
+  <footer class="footer container" id="footer"></footer>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
