@@ -347,3 +347,82 @@ code { background: var(--surface-2); border: 1px solid var(--border); border-rad
   .brand-logo { height: 30px; }
   .map-grid { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* ---- Phones ------------------------------------------------------------------
+ * Header: logo + account on one row, tabs in one swipeable row.
+ * .stack-mobile tables become one card per row (cells labelled via data-label).
+ * .stack-form (item entry) becomes one card per item with stacked inputs.
+ */
+.only-mobile { display: none; }
+
+@media (max-width: 640px) {
+  .only-mobile { display: inline; }
+  .hide-mobile { display: none !important; }
+
+  .topbar-inner { padding: 8px 16px 0; gap: 4px 12px; min-height: 0; }
+  .brand { order: 1; flex: 1; font-size: 15px; gap: 8px; }
+  .brand-logo { height: 28px; }
+  .brand-divider { height: 20px; }
+  .account-link { order: 2; margin-left: auto; align-items: flex-end; padding: 4px 6px; }
+  .account-name { font-size: 12px; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .account-role { font-size: 10px; }
+  .nav {
+    order: 3; flex: none; width: calc(100% + 32px); margin: 0 -16px; padding: 4px 12px 6px;
+    flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch;
+  }
+  .nav::-webkit-scrollbar { display: none; }
+  .nav a { flex: none; padding: 7px 10px; }
+
+  h1 { font-size: 20px; }
+  .page-header { margin-bottom: 14px; }
+  .page-header .btn { width: 100%; }
+  .toolbar input[type="search"] { max-width: none; min-width: 0; flex-basis: 100%; }
+  .toolbar select { flex: 1 1 40%; }
+
+  /* Table → cards */
+  .table.stack-mobile thead { display: none; }
+  .table.stack-mobile, .table.stack-mobile tbody, .table.stack-mobile tfoot,
+  .table.stack-mobile tr, .table.stack-mobile td { display: block; width: 100%; }
+  .table.stack-mobile tbody tr { display: flex; flex-direction: column; padding: 12px 14px; border-bottom: 1px solid var(--border-soft); }
+  .table.stack-mobile tbody tr.archive-detail { display: block; }
+  .table.stack-mobile tbody tr:last-child { border-bottom: none; }
+  .table.stack-mobile td {
+    border: none; padding: 2px 0; display: flex; justify-content: space-between; align-items: baseline;
+    gap: 12px; text-align: right; white-space: normal;
+  }
+  .table.stack-mobile td::before {
+    content: attr(data-label); flex: none; text-align: left; color: var(--muted);
+    font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em;
+  }
+  .table.stack-mobile td.cell-primary { order: -1; display: block; text-align: left; padding: 0 0 6px; font-size: 15px; }
+  .table.stack-mobile td.cell-primary::before, .table.stack-mobile td[data-label=""]::before { content: none; }
+  .table.stack-mobile td.cell-primary .mono { font-size: 12.5px; }
+  .table.stack-mobile tfoot td { display: flex; justify-content: space-between; padding: 10px 14px; }
+  .table.stack-mobile tfoot td:empty, .table.stack-mobile tfoot td[colspan] { padding-right: 0; }
+  .table.stack-mobile .archive-detail td { display: block; text-align: left; }
+  .table.stack-mobile .archive-detail td::before { content: none; }
+  .detail-items tfoot tr { display: flex; justify-content: space-between; }
+  .detail-items tfoot td { width: auto; }
+
+  /* Item entry → one card per item */
+  .table.stack-form thead { display: none; }
+  .table.stack-form, .table.stack-form tbody, .table.stack-form tfoot { display: block; width: 100%; }
+  .table.stack-form tbody tr {
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px 12px;
+    position: relative; padding: 14px; border: 1px solid var(--border); border-radius: 10px; margin-bottom: 12px; background: #fff;
+  }
+  .table.stack-form td { display: block; border: none; padding: 0; text-align: left; }
+  .table.stack-form td[data-label]::before {
+    content: attr(data-label); display: block; margin-bottom: 4px; font-size: 12.5px; font-weight: 600; color: var(--text);
+  }
+  .table.stack-form td.w-idx { grid-column: 1 / -1; width: auto; text-align: left; font-weight: 700; color: var(--navy); }
+  /* Text fields get the full width; numbers, dates, and dropdowns pair up. */
+  .table.stack-form td.w-text, .table.stack-form td.w-textarea, .table.stack-form td.w-url { grid-column: 1 / -1; }
+  .table.stack-form td input, .table.stack-form td select, .table.stack-form td textarea { width: 100%; min-width: 0 !important; }
+  .table.stack-form td.w-total { grid-column: 1 / -1; display: flex; justify-content: space-between; font-weight: 600; }
+  .table.stack-form td.w-total::before { margin: 0; }
+  .table.stack-form td.w-remove { position: absolute; top: 8px; right: 8px; width: auto; }
+  .table.stack-form tfoot tr { display: flex; justify-content: space-between; padding: 4px 2px; }
+  .table.stack-form tfoot td { border: none; background: none; padding: 0; }
+  .table-wrap.flat:has(.stack-form) { border: none; background: none; overflow: visible; }
+}

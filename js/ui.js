@@ -72,17 +72,17 @@ export function requestTable(rows, columns, emptyMessage = 'Nothing here yet.') 
   const body = rows
     .map(
       (r) => `<tr class="clickable" data-href="#/requests/${esc(r.request_number)}">
-        ${columns.map((c) => `<td class="${c.className || ''}">${c.cell(r)}</td>`).join('')}
+        ${columns.map((c) => `<td class="${c.className || ''}${c.primary ? ' cell-primary' : ''}" data-label="${c.primary ? '' : esc(c.label)}">${c.cell(r)}</td>`).join('')}
       </tr>`
     )
     .join('');
-  return `<div class="table-wrap"><table class="table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+  return `<div class="table-wrap"><table class="table stack-mobile"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
 }
 
 /** Common column definitions, reused across the list pages. */
 export const COLUMNS = {
-  id: { label: 'Request ID', cell: (r) => `<a class="mono" href="#/requests/${esc(r.request_number)}">${esc(r.request_number)}</a>` },
-  title: { label: 'Title', cell: (r) => `<span class="cell-title">${esc(r.title)}</span> ${priorityTag(r.priority !== 'Normal' ? r.priority : '')}` },
+  id: { label: 'Request ID', primary: true, cell: (r) => `<a class="mono" href="#/requests/${esc(r.request_number)}">${esc(r.request_number)}</a>` },
+  title: { label: 'Title', primary: true, cell: (r) => `<span class="cell-title">${esc(r.title)}</span> ${priorityTag(r.priority !== 'Normal' ? r.priority : '')}` },
   requester: { label: 'Requester', cell: (r) => esc(r.requester || '—') },
   subsystem: { label: 'Subsystem', cell: (r) => esc(r.subsystem || '—') },
   total: { label: 'Total', className: 'num', cell: (r) => fmtMoney(r.total) },

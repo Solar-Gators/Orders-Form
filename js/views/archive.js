@@ -77,20 +77,20 @@ export async function renderArchive(el) {
 
     const shown = hits.slice(0, limit);
     el.querySelector('#results').innerHTML = hits.length
-      ? `<div class="table-wrap"><table class="table archive-table">
+      ? `<div class="table-wrap"><table class="table archive-table stack-mobile">
           <thead><tr><th>Season</th><th>Date</th><th>Requester</th><th>Subteam</th><th>Item</th>
             <th class="num">Cost</th><th>Status</th><th>Ticket</th></tr></thead>
           <tbody>${shown
             .map(
               (r) => `<tr class="clickable" data-id="${esc(r.id)}" tabindex="0" aria-expanded="false">
-                <td class="nowrap">${esc(r.season)}</td>
-                <td class="nowrap">${r.order_date ? fmtDate(r.order_date) : esc(r.fields.Date || '—')}</td>
-                <td>${esc(r.requester || '—')}</td>
-                <td>${esc(r.subteam || '—')}</td>
-                <td class="cell-title">${esc(r.item || '—')}</td>
-                <td class="num">${r.cost === null ? '—' : fmtMoney(r.cost)}</td>
-                <td>${esc(r.status || '—')}</td>
-                <td>${esc(r.ticket || '—')}</td>
+                <td class="nowrap" data-label="Season">${esc(r.season)}</td>
+                <td class="nowrap" data-label="Date">${r.order_date ? fmtDate(r.order_date) : esc(r.fields.Date || '—')}</td>
+                <td data-label="Requester">${esc(r.requester || '—')}</td>
+                <td data-label="Subteam">${esc(r.subteam || '—')}</td>
+                <td class="cell-title cell-primary" data-label="">${esc(r.item || '—')}</td>
+                <td class="num" data-label="Cost">${r.cost === null ? '—' : fmtMoney(r.cost)}</td>
+                <td data-label="Status">${esc(r.status || '—')}</td>
+                <td data-label="Ticket">${esc(r.ticket || '—')}</td>
               </tr>`
             )
             .join('')}</tbody></table></div>

@@ -90,7 +90,7 @@ export async function renderRequestForm(el, { config, params }) {
           <button type="button" class="btn btn-sm" data-action="add-item">+ Add item</button>
         </div>
         <div class="table-wrap flat">
-          <table class="table items-table">
+          <table class="table items-table stack-form">
             <thead>
               <tr>
                 <th class="w-idx">#</th>
@@ -132,10 +132,10 @@ export async function renderRequestForm(el, { config, params }) {
       .map(
         (item, idx) => `
         <tr data-index="${idx}">
-          <td class="w-idx muted">${idx + 1}</td>
+          <td class="w-idx muted"><span class="only-mobile">Item </span>${idx + 1}</td>
           ${iFields
             .map(
-              (f) => `<td class="w-${esc(f.type)} k-${esc(f.key)}">${renderInput(
+              (f) => `<td class="w-${esc(f.type)} k-${esc(f.key)}" data-label="${esc(f.label)}${f.required ? ' *' : ''}">${renderInput(
                 f,
                 getValue(item, f),
                 config,
@@ -143,7 +143,7 @@ export async function renderRequestForm(el, { config, params }) {
               )}</td>`
             )
             .join('')}
-          <td class="num w-total" data-role="row-total">${fmtMoney(itemTotal(item))}</td>
+          <td class="num w-total" data-label="Item total" data-role="row-total">${fmtMoney(itemTotal(item))}</td>
           <td class="w-remove">
             <button type="button" class="icon-btn" data-action="remove-item" title="Remove item" aria-label="Remove item ${idx + 1}"
               ${items.length === 1 ? 'disabled' : ''}>&times;</button>

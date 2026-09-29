@@ -25,14 +25,14 @@ function itemsTable(r, config) {
   const rows = r.items
     .map(
       (i, idx) => `<tr>
-        <td class="muted">${idx + 1}</td>
-        <td><strong>${esc(i.item_name || '—')}</strong>${notesField && i.notes ? `<div class="muted small">${esc(i.notes)}</div>` : ''}</td>
-        ${cols.map((f) => `<td class="${isNum(f) ? 'num' : ''}">${displayValue(f, getValue(i, f))}</td>`).join('')}
-        <td class="num">${fmtMoney(i.item_total)}</td>
+        <td class="muted hide-mobile">${idx + 1}</td>
+        <td class="cell-primary" data-label=""><strong>${esc(i.item_name || '—')}</strong>${notesField && i.notes ? `<div class="muted small">${esc(i.notes)}</div>` : ''}</td>
+        ${cols.map((f) => `<td class="${isNum(f) ? 'num' : ''}" data-label="${esc(f.label)}">${displayValue(f, getValue(i, f))}</td>`).join('')}
+        <td class="num" data-label="Total">${fmtMoney(i.item_total)}</td>
       </tr>`
     )
     .join('');
-  return `<div class="table-wrap flat"><table class="table detail-items">
+  return `<div class="table-wrap flat"><table class="table detail-items stack-mobile">
     <thead><tr><th>#</th><th>${esc(nameField?.label || 'Item')}</th>${cols
       .map((f) => `<th class="${isNum(f) ? 'num' : ''}">${esc(f.label)}</th>`)
       .join('')}<th class="num">Total</th></tr></thead>
