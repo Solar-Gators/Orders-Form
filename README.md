@@ -32,7 +32,7 @@ The permissions are stored in the database (`role_permissions` table), not in co
 ### 1. Create the Supabase project
 1. Sign up at https://supabase.com. Create a **team organization** (e.g. "UF Solar Gators") so the project isn't tied to one student's personal account, then invite the other leads.
 2. **New project** → any name → pick a strong database password and save it somewhere safe.
-3. Open **SQL Editor → New query**, paste all of [`supabase/schema.sql`](supabase/schema.sql), and click **Run**. This creates every table, permission, and security rule.
+3. Open **SQL Editor → New query**. Paste each file in [`supabase/migrations/`](supabase/migrations) **in order** (`001_…`, then `002_…`, …) and click **Run** after each one. Together they create every table, permission, and security rule.
 
 ### 2. Configure sign-in
 In Supabase, go to **Authentication**:
@@ -79,7 +79,7 @@ Open http://localhost:5173. The site uses the Supabase project configured in `js
 npm run dev -- --fake
 ```
 
-Fake mode swaps Supabase for an in-browser Postgres ([PGlite](https://pglite.dev)) running the same `schema.sql`, so the permissions behave the same. Data stays in your browser. No emails are sent, and signing up logs you in immediately. In the browser console:
+Fake mode swaps Supabase for an in-browser Postgres ([PGlite](https://pglite.dev)) running the same migrations, so the permissions behave the same. Data stays in your browser. No emails are sent, and signing up logs you in immediately. In the browser console:
 
 ```js
 await fakeSql("update profiles set role = 'treasurer' where email = 'you@ufl.edu'")  // then refresh
@@ -92,7 +92,7 @@ await fakeReset()   // wipe local data
 npm run test:db
 ```
 
-This runs `supabase/schema.sql` in PGlite and checks the security rules as different users, e.g. "a Member can't approve", "a Chief Engineer can't mark ordered", "you can't edit someone else's draft", and "non-UF emails can't sign up". Run it after any change to `schema.sql`.
+This runs every file in `supabase/migrations/` in PGlite and checks the security rules as different users, e.g. "a Member can't approve", "a Chief Engineer can't mark ordered", "you can't edit someone else's draft", and "non-UF emails can't sign up". Run it after any database change.
 
 ## How it works
 
@@ -109,7 +109,8 @@ js/
   excel.js               Builds the .xlsx in the browser (column list = export template)
   ui.js                  Statuses, formatting, badges, shared table helpers
   views/                 One file per page (login, account, admin, requests, …)
-supabase/schema.sql      Tables, row-level security, permissions, workflow functions
+supabase/migrations/     Database changes, in order: tables, security, permissions, workflow
+js/formFields.js         Form field definitions, inputs, and display (used by form, detail, export)
 tests/db.test.mjs        Database security + workflow tests
 tools/dev-server.mjs     Local static server (+ --fake mode)
 tools/fake-supabase.js   Fake backend for local development
@@ -131,7 +132,26 @@ tools/fake-supabase.js   Fake backend for local development
 
 Request IDs (`SG-001`, …) come from a database sequence, and the prefix is set in Settings. Totals are always calculated, never stored.
 
-**Excel export.** On **Export → Download .xlsx**, the browser builds the file: one row per item, with request, approval, order, and delivery info repeated on each row. The header is bold, filtered, and frozen, and prices and dates are formatted. To change the columns, edit `COLUMNS` in `js/excel.js`.
+**Excel export.** On **Export → Download .xlsx**, the browser builds the file: one row per item, with request, approval, order, and delivery info repeated on each row. The header is bold, filtered, and frozen, and prices and dates are formatted. The columns follow the form fields: every shown request field, then every shown item field, then the approval, order, and delivery columns. Renaming or adding a field in **Admin → Form fields** changes the export too.
+
+## Editing the form
+
+Chief Engineers and Treasurers can change the request form from **Admin → Form fields**, with no code changes:
+- **Rename** any field, e.g. change "Vendor" to "Vendor / store".
+- **Reorder** fields with the ↑ ↓ buttons.
+- **Required / Shown:** make a field required or optional, or hide it.
+- **Add custom fields** to the request (asked once) or to each item. Types: short text, long text, number, date, dropdown, yes/no, link. Examples: "From China?", "Shipping cost", "Scholarship funding".
+- **Help text:** add a hint shown with any field.
+
+**Locked** fields (request title, item name, quantity, unit price) are always shown and required because approvals and totals depend on them. Hidden fields keep their saved answers, which come back if you show the field again. The Excel export always matches the current form.
+
+## Database updates
+
+New features sometimes need a database change. These live in `supabase/migrations/` as numbered files. When one is added, leads see a yellow **"Database update needed"** banner naming the file. To apply it:
+1. Open the file on GitHub and copy its contents.
+2. In Supabase, go to **SQL Editor → New query**, paste, and click **Run**.
+
+Each migration only needs to run once.
 
 ## Editing settings
 
@@ -144,7 +164,7 @@ Chief Engineers and Treasurers can edit these from **Admin → Settings**, with 
 
 ## Roadmap
 
-- **Next:** a form editor on the Settings page, so leads can add, rename, reorder, and require/unrequire fields and export columns. The database already has a `data` column on requests and items to store answers to custom fields.
-- **Later:** budget tracking, vendor batching, attachments (Supabase Storage), notifications, automatic CE routing by subsystem, and past-season lookup.
+- **Next:** an **Archive** tab with past seasons' order sheets, imported from Excel and searchable.
+- **Later:** budget tracking, vendor batching, attachments (Supabase Storage), notifications, and automatic CE routing by subsystem.
 
 **Free-tier note:** Supabase pauses free projects after about a week with no activity. Normal team use prevents this. If it does pause, a lead can restore it from the Supabase dashboard.

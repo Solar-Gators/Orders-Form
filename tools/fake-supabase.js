@@ -21,6 +21,8 @@ export const isConfigured = true;
 export const siteUrl = () => `${location.origin}${location.pathname}`;
 
 const DB_NAME = 'idb://sg-orders-fake';
+// Keep in sync with the files in supabase/migrations/.
+const MIGRATIONS = ['001_initial.sql', '002_form_fields.sql'];
 const SESSION_KEY = 'sg-orders-fake-session';
 
 const STUB = `
@@ -39,10 +41,20 @@ const ready = (async () => {
   // Return `date` columns (type OID 1082) as "YYYY-MM-DD" strings, like PostgREST does.
   const db = new PGlite(DB_NAME, { parsers: { 1082: (value) => value } });
   const { rows } = await db.query(`select to_regclass('public.requests') as t`);
-  if (!rows[0].t) {
-    await db.exec(STUB);
-    await db.exec(await (await fetch('supabase/schema.sql')).text());
+  const fresh = !rows[0].t;
+  if (fresh) await db.exec(STUB);
+
+  // Apply supabase/migrations/* in order, remembering which ran (like running them in Supabase).
+  await db.exec(`create schema if not exists fake_meta;
+                 create table if not exists fake_meta.migrations (name text primary key)`);
+  const applied = new Set((await db.query(`select name from fake_meta.migrations`)).rows.map((r) => r.name));
+  if (!fresh && !applied.size) applied.add('001_initial.sql'); // local DB created before migrations were tracked
+  for (const name of MIGRATIONS) {
+    if (applied.has(name)) continue;
+    await db.exec(await (await fetch(`supabase/migrations/${name}`)).text());
+    await db.query(`insert into fake_meta.migrations values ($1) on conflict do nothing`, [name]);
   }
+  if (!fresh) await db.query(`insert into fake_meta.migrations values ('001_initial.sql') on conflict do nothing`);
   return db;
 })();
 

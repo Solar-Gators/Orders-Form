@@ -10,7 +10,7 @@
 import { auth } from './auth.js';
 import { renderLogin } from './views/login.js';
 import { renderAccount, renderResetPassword } from './views/account.js';
-import { renderUsers, renderSettings } from './views/admin.js';
+import { renderUsers, renderSettings, renderFormFields } from './views/admin.js';
 import { renderRequestForm } from './views/requestForm.js';
 import { renderRequestList } from './views/requestList.js';
 import { renderRequestDetail } from './views/requestDetail.js';
@@ -28,6 +28,7 @@ const ROUTES = [
   { pattern: /^\/treasurer$/, nav: 'treasurer', view: renderTreasurer, perm: 'request.order' },
   { pattern: /^\/export$/, nav: 'export', view: renderExport },
   { pattern: /^\/admin\/users$/, nav: 'admin', view: renderUsers, perm: 'users.manage' },
+  { pattern: /^\/admin\/fields$/, nav: 'admin', view: renderFormFields, perm: 'settings.edit' },
   { pattern: /^\/admin\/settings$/, nav: 'admin', view: renderSettings, perm: 'settings.edit' },
   { pattern: /^\/admin$/, redirect: () => (auth.can('users.manage') ? '#/admin/users' : '#/admin/settings') },
   { pattern: /^\/account$/, nav: 'account', view: renderAccount },

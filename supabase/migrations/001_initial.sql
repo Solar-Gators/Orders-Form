@@ -1,7 +1,8 @@
 -- =============================================================================
 -- Solar Gators Orders — Supabase database schema
 --
--- Run this whole file ONCE on a new Supabase project:
+-- Run the files in supabase/migrations/ in order (001, 002, ...) on a new
+-- Supabase project. This first one creates everything:
 --   Supabase dashboard → SQL Editor → New query → paste → Run.
 --
 -- Security model

@@ -1,12 +1,12 @@
 /**
- * Database tests: loads supabase/schema.sql into PGlite (real Postgres running
+ * Database tests: loads every file in supabase/migrations/ (in order) into PGlite (real Postgres running
  * in Node) with a small stand-in for Supabase's `auth` schema, then exercises
  * the workflow and security rules as different users.
  *
  *   npm install
  *   npm run test:db
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { PGlite } from '@electric-sql/pglite';
 import assert from 'node:assert/strict';
 
@@ -23,7 +23,10 @@ const SUPABASE_STUB = `
 
 const db = new PGlite();
 await db.exec(SUPABASE_STUB);
-await db.exec(readFileSync(new URL('../supabase/schema.sql', import.meta.url), 'utf8'));
+const MIGRATIONS = new URL('../supabase/migrations/', import.meta.url);
+for (const file of readdirSync(MIGRATIONS).filter((f) => f.endsWith('.sql')).sort()) {
+  await db.exec(readFileSync(new URL(file, MIGRATIONS), 'utf8'));
+}
 
 // ---- helpers ------------------------------------------------------------------
 
@@ -143,8 +146,9 @@ await test('submitting an incomplete request lists every problem', async () => {
     rejects(rpc('save_request', [null, { title: 'x' }, [{ item_name: 'Nut', quantity: '-1' }], 'submit']), /fix the following/)
   );
   assert.match(err.detail, /Subsystem is required/);
-  assert.match(err.detail, /Item 1: quantity must be a positive number/);
-  assert.match(err.detail, /Item 1: vendor is required/);
+  assert.match(err.detail, /Item 1: Quantity must be a positive number/);
+  assert.doesNotMatch(err.detail, /Quantity is required/);
+  assert.match(err.detail, /Item 1: Vendor is required/);
 });
 
 await test('unknown subsystem is rejected', async () => {
@@ -240,8 +244,10 @@ await test('CE can promote a member, but not change their own role', async () =>
   await as(ce, () => rejects(rpc('set_user_role', [ce, 'member']), /own role/));
 });
 
+const currentForm = async () => (await db.query(`select value from app_settings where key = 'form'`)).rows[0].value;
+
 await test('members cannot edit settings; CE can', async () => {
-  const form = { subsystems: ['Battery', 'Structures'], priorities: ['Normal', 'Urgent'], defaultPriority: 'Normal' };
+  const form = { ...(await currentForm()), subsystems: ['Battery', 'Structures'], priorities: ['Normal', 'Urgent'], defaultPriority: 'Normal' };
   await as(member, () => rejects(rpc('update_settings', ['form', form]), /does not allow/));
   await as(ce, () => rpc('update_settings', ['form', form]));
   const { rows } = await db.query(`select value from app_settings where key = 'form'`);
@@ -257,6 +263,93 @@ await test('new request numbers use the configured prefix', async () => {
   await as(ce, () => rpc('update_settings', ['general', { ...general, requestIdPrefix: 'SG27' }]));
   const { rows } = await as(member, () => rpc('save_request', [null, { title: 'x' }, [], 'draft']));
   assert.match(rows[0].result, /^SG27-\d{3}$/);
+});
+
+await test('the website cannot change the schema version', async () => {
+  const general = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
+  await as(ce, () => rpc('update_settings', ['general', { ...general, schemaVersion: 99 }]));
+  const after = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
+  assert.equal(after.schemaVersion, 2);
+});
+
+console.log('Form fields');
+
+const withFields = async (edit) => {
+  const form = await currentForm();
+  const next = { ...form, requestFields: structuredClone(form.requestFields), itemFields: structuredClone(form.itemFields) };
+  edit(next);
+  return next;
+};
+const field = (list, key) => list.find((f) => f.key === key);
+
+await test('migration 002 adds default fields', async () => {
+  const form = await currentForm();
+  assert.deepEqual(form.requestFields.map((f) => f.key), ['title', 'requester', 'subsystem', 'priority', 'needed_by', 'justification']);
+  assert.equal(field(form.itemFields, 'vendor').required, true);
+});
+
+await test('field lists that would break the app are rejected', async () => {
+  const bad = [
+    [(f) => (f.requestFields = f.requestFields.filter((x) => x.key !== 'requester')), /can't be removed/],
+    [(f) => (field(f.requestFields, 'title').required = false), /must stay required/],
+    [(f) => (field(f.itemFields, 'unit_price').hidden = true), /must stay required/],
+    [(f) => f.requestFields.push({ key: 'Bad Key', label: 'x', type: 'text' }), /Invalid field key/],
+    [(f) => f.requestFields.push({ key: 'c_x', label: 'x', type: 'text' }, { key: 'c_x', label: 'y', type: 'text' }), /appears twice/],
+    [(f) => f.requestFields.push({ key: 'c_pick', label: 'Pick', type: 'select', options: [] }), /needs at least one option/],
+    [(f) => f.itemFields.push({ key: 'c_weird', label: 'Weird', type: 'html' }), /unknown type/],
+    [(f) => f.requestFields.push({ key: 'c_blank', label: '  ', type: 'text' }), /needs a label/],
+  ];
+  for (const [edit, pattern] of bad) {
+    await as(ce, async () => rejects(rpc('update_settings', ['form', await withFields(edit)]), pattern));
+  }
+});
+
+await test('custom fields: required, typed, and saved in data', async () => {
+  const form = await withFields((f) => {
+    f.requestFields.push(
+      { key: 'c_from_china', label: 'From China?', type: 'yesno', required: true },
+      { key: 'c_shipping', label: 'Shipping cost', type: 'number', required: false }
+    );
+    f.itemFields.push({ key: 'c_color', label: 'Color', type: 'select', options: ['Red', 'Blue'], required: false });
+    field(f.itemFields, 'vendor').required = false; // built-ins can be made optional
+  });
+  await as(ce, () => rpc('update_settings', ['form', form]));
+
+  const request = { ...completeRequest, subsystem: 'Battery' };
+  const items = [{ item_name: 'Cells', quantity: 4, unit_price: 5, data: { c_color: 'Green' } }];
+  const err = await as(member, () => rejects(rpc('save_request', [null, { ...request, data: { c_shipping: 'abc' } }, items, 'submit']), /fix/));
+  assert.match(err.detail, /From China\? is required/);
+  assert.match(err.detail, /Shipping cost must be a number/);
+  assert.match(err.detail, /Item 1: Color must be one of the listed options/);
+  assert.doesNotMatch(err.detail, /Vendor/);
+
+  items[0].data.c_color = 'Blue';
+  const { rows } = await as(member, () =>
+    rpc('save_request', [null, { ...request, data: { c_from_china: 'No', c_shipping: '12.50', c_unknown: 'dropped' } }, items, 'submit'])
+  );
+  const saved = await db.query(`select r.data, i.data as item_data, i.vendor from requests r join request_items i on i.request_id = r.id where r.request_number = $1`, [rows[0].result]);
+  assert.deepEqual(saved.rows[0].data, { c_from_china: 'No', c_shipping: '12.50' });
+  assert.deepEqual(saved.rows[0].item_data, { c_color: 'Blue' });
+});
+
+await test('hidden fields are never required', async () => {
+  const form = await withFields((f) => {
+    field(f.requestFields, 'justification').hidden = true;
+    field(f.requestFields, 'c_from_china').hidden = true;
+  });
+  await as(ce, () => rpc('update_settings', ['form', form]));
+  const request = { ...completeRequest, subsystem: 'Battery', justification: '' };
+  const { rows } = await as(member, () => rpc('save_request', [null, request, [{ item_name: 'x', quantity: 1, unit_price: 1 }], 'submit']));
+  assert.equal(await statusOf(rows[0].result), 'Submitted');
+});
+
+await test('renamed built-in labels appear in error messages', async () => {
+  const form = await withFields((f) => (field(f.itemFields, 'quantity').label = 'How many'));
+  await as(ce, () => rpc('update_settings', ['form', form]));
+  const err = await as(member, () =>
+    rejects(rpc('save_request', [null, { title: 'x' }, [{ item_name: 'x', quantity: '-2', unit_price: 1 }], 'draft']), /fix/)
+  );
+  assert.match(err.detail, /Item 1: How many must be a positive number/);
 });
 
 console.log(`\n${passed} passed${process.exitCode ? ', some FAILED' : ''}`);

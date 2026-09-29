@@ -7,6 +7,10 @@ import { STATUS, STATUSES, EDITABLE_STATUSES, esc, errorBox } from './ui.js';
 
 const app = document.getElementById('app');
 
+// Bump when adding a file to supabase/migrations/ (the migration sets general.schemaVersion).
+const REQUIRED_SCHEMA_VERSION = 2;
+const MIGRATIONS = { 2: '002_form_fields.sql' };
+
 /** Shared config object handed to every view. Mutated in place on reload. */
 const config = {};
 
@@ -35,6 +39,17 @@ function updateChrome() {
   document.querySelectorAll('[data-perm]').forEach((node) => {
     node.hidden = !auth.signedIn || !node.dataset.perm.split(' ').some((p) => auth.can(p));
   });
+  // Tell leads (only) when the live database is missing a migration.
+  const banner = document.getElementById('banner');
+  const version = Number(config.schemaVersion) || 1;
+  const missing = Object.entries(MIGRATIONS).filter(([v]) => Number(v) > version).map(([, file]) => file);
+  banner.hidden = !(auth.signedIn && auth.can('settings.edit') && version < REQUIRED_SCHEMA_VERSION);
+  banner.innerHTML = banner.hidden
+    ? ''
+    : `<div class="container"><strong>Database update needed.</strong> In Supabase → SQL Editor, run
+       ${missing.map((f) => `<code>supabase/migrations/${esc(f)}</code>`).join(', then ')} from the GitHub repo.
+       Until then, new features may not save correctly.</div>`;
+
   const account = document.getElementById('account-link');
   account.innerHTML = auth.signedIn
     ? `<span class="account-name">${esc(auth.displayName)}</span><span class="account-role">${esc(auth.roleLabel)}</span>`

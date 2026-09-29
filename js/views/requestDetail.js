@@ -12,31 +12,46 @@ import {
   STATUS, DECISION_LABELS, esc, fmtMoney, fmtDate, fmtDateTime, todayISO,
   statusBadge, priorityTag, isOverdue, errorBox, setFlash, takeFlash,
 } from '../ui.js';
+import { requestFields, itemFields, shown, getValue, displayValue } from '../formFields.js';
 
-const link = (url) =>
-  /^https?:\/\//i.test(url || '') ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">Link ↗</a>` : esc(url || '—');
-
-function itemsTable(r) {
+function itemsTable(r, config) {
   if (!r.items.length) return '<div class="empty">No items yet.</div>';
+  // Item name gets its own column with notes underneath; other shown fields follow in form order.
+  const fields = shown(itemFields(config));
+  const nameField = fields.find((f) => f.key === 'item_name');
+  const notesField = fields.find((f) => f.key === 'notes');
+  const cols = fields.filter((f) => f !== nameField && f !== notesField);
+  const isNum = (f) => f.type === 'number';
   const rows = r.items
     .map(
       (i, idx) => `<tr>
         <td class="muted">${idx + 1}</td>
-        <td><strong>${esc(i.item_name || '—')}</strong>${i.notes ? `<div class="muted small">${esc(i.notes)}</div>` : ''}</td>
-        <td>${esc(i.vendor || '—')}</td>
-        <td>${esc(i.part_number || '—')}</td>
-        <td>${link(i.product_link)}</td>
-        <td class="num">${esc(i.quantity ?? '—')}</td>
-        <td class="num">${i.unit_price == null ? '—' : fmtMoney(i.unit_price)}</td>
+        <td><strong>${esc(i.item_name || '—')}</strong>${notesField && i.notes ? `<div class="muted small">${esc(i.notes)}</div>` : ''}</td>
+        ${cols.map((f) => `<td class="${isNum(f) ? 'num' : ''}">${displayValue(f, getValue(i, f))}</td>`).join('')}
         <td class="num">${fmtMoney(i.item_total)}</td>
       </tr>`
     )
     .join('');
   return `<div class="table-wrap flat"><table class="table detail-items">
-    <thead><tr><th>#</th><th>Item</th><th>Vendor</th><th>Part #</th><th>Link</th><th class="num">Qty</th><th class="num">Unit price</th><th class="num">Total</th></tr></thead>
+    <thead><tr><th>#</th><th>${esc(nameField?.label || 'Item')}</th>${cols
+      .map((f) => `<th class="${isNum(f) ? 'num' : ''}">${esc(f.label)}</th>`)
+      .join('')}<th class="num">Total</th></tr></thead>
     <tbody>${rows}</tbody>
-    <tfoot><tr><td colspan="7" class="num"><strong>Request total</strong></td><td class="num"><strong>${fmtMoney(r.total)}</strong></td></tr></tfoot>
+    <tfoot><tr><td colspan="${cols.length + 2}" class="num"><strong>Request total</strong></td><td class="num"><strong>${fmtMoney(r.total)}</strong></td></tr></tfoot>
   </table></div>`;
+}
+
+/** Request fields except the title/priority (shown in the header). Long text goes full width. */
+function detailsGrid(r, config) {
+  const fields = shown(requestFields(config)).filter((f) => f.key !== 'title' && f.key !== 'priority');
+  const cell = (f) => {
+    const value = getValue(r, f);
+    const cls = f.key === 'needed_by' && isOverdue(r) ? 'overdue' : f.type === 'textarea' ? 'prewrap' : '';
+    return `<div class="${f.type === 'textarea' ? 'span-full' : ''}"><dt>${esc(f.label)}</dt><dd class="${cls}">${displayValue(f, value)}</dd></div>`;
+  };
+  const short = fields.filter((f) => f.type !== 'textarea').map(cell).join('');
+  const long = fields.filter((f) => f.type === 'textarea').map(cell).join('');
+  return `<dl class="meta-grid">${short}<div><dt>Vendors</dt><dd>${esc(r.vendors.join(', ') || '—')}</dd></div>${long}</dl>`;
 }
 
 function historyCard(r) {
@@ -182,17 +197,11 @@ export async function renderRequestDetail(el, { config, params, rerender }) {
       <div class="detail-main">
         <section class="card">
           <h2>Details</h2>
-          <dl class="meta-grid">
-            <div><dt>Requester</dt><dd>${esc(r.requester || '—')}</dd></div>
-            <div><dt>Subsystem</dt><dd>${esc(r.subsystem || '—')}</dd></div>
-            <div><dt>Needed by</dt><dd class="${isOverdue(r) ? 'overdue' : ''}">${fmtDate(r.needed_by)}</dd></div>
-            <div><dt>Vendors</dt><dd>${esc(r.vendors.join(', ') || '—')}</dd></div>
-            <div class="span-full"><dt>Justification</dt><dd class="prewrap">${esc(r.justification || '—')}</dd></div>
-          </dl>
+          ${detailsGrid(r, config)}
         </section>
         <section class="card">
           <h2>Items (${r.items.length})</h2>
-          ${itemsTable(r)}
+          ${itemsTable(r, config)}
         </section>
       </div>
       <aside class="detail-side">

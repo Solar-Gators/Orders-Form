@@ -167,13 +167,14 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--o
 .items-table th { padding: 8px 6px; }
 .items-table input { padding: 6px 8px; }
 .items-table .w-idx { width: 32px; text-align: center; }
-.items-table .w-name input { min-width: 180px; }
-.items-table .w-vendor input { min-width: 120px; }
-.items-table .w-link input { min-width: 150px; }
-.items-table .w-part input { min-width: 100px; }
-.items-table .w-qty input { width: 70px; text-align: right; }
-.items-table .w-price input { width: 100px; text-align: right; }
-.items-table .w-notes input { min-width: 160px; }
+.items-table input, .items-table select, .items-table textarea { padding: 6px 8px; }
+.items-table .w-text input { min-width: 130px; }
+.items-table .k-item_name input { min-width: 180px; }
+.items-table .k-notes input { min-width: 170px; }
+.items-table .w-url input { min-width: 150px; }
+.items-table .w-number input { width: 90px; text-align: right; }
+.items-table .w-select select, .items-table .w-yesno select { min-width: 100px; }
+.items-table .w-textarea textarea { min-width: 200px; }
 .items-table .w-total { min-width: 90px; }
 .items-table .w-remove { width: 36px; text-align: center; }
 
@@ -302,3 +303,22 @@ code { background: var(--surface-2); border: 1px solid var(--border); border-rad
   .account-link { margin-left: 0; align-items: flex-start; }
   .auth-wrap { margin-top: 16px; }
 }
+
+/* ---- Form fields editor ---------------------------------------------------- */
+
+.fields-table td { padding: 6px 8px; }
+.fields-table input[type="text"], .fields-table select, .fields-table textarea { padding: 5px 8px; min-width: 120px; }
+.fields-table textarea { min-width: 160px; }
+.fields-table input[type="checkbox"] { width: 16px; height: 16px; }
+.fields-table .move { white-space: nowrap; width: 72px; }
+.fields-table tr.is-hidden td { background: var(--surface-2); }
+.fields-table tr.is-hidden input[data-prop="label"] { color: var(--muted); text-decoration: line-through; }
+.center { text-align: center; }
+.field-tag { font-size: 11px; font-weight: 600; color: var(--muted); background: #eef1f4; border-radius: 4px; padding: 2px 6px; }
+.card-head p { margin: 2px 0 0; }
+.sticky-actions {
+  position: sticky; bottom: 0; background: var(--bg); padding: 12px 0; align-items: center;
+  border-top: 1px solid var(--border); margin-top: 8px; z-index: 5;
+}
+.banner { background: #fff7e0; border-bottom: 1px solid #f3d98c; color: #6b4304; font-size: 13px; }
+.banner .container { padding-top: 10px; padding-bottom: 10px; }
