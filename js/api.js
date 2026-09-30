@@ -299,6 +299,13 @@ export const api = {
       } catch {}
       throw new Error(detail || `The send-notifications function didn't answer (${error.message}). Is it deployed? See docs/MAINTAINING.md.`);
     }
-    return data;
+    const result = typeof data === 'string' ? JSON.parse(data || '{}') : data;
+    if (typeof result?.sent !== 'number') {
+      throw new Error(
+        `The send-notifications function answered, but not with the order form's code (it said: ${JSON.stringify(result).slice(0, 120)}). ` +
+          'In Supabase → Edge Functions → send-notifications → Code, replace everything with supabase/functions/send-notifications/index.ts and deploy again.'
+      );
+    }
+    return result;
   },
 };
