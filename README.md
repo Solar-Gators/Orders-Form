@@ -82,7 +82,7 @@ If the Chief Engineer requests changes, you'll see their comment on the request.
   - Add your own fields: text, number, date, dropdown, yes/no, or link.
   - The Excel export follows the form automatically.
   - Request title, item name, quantity, and unit price are locked because totals and approvals depend on them.
-- **Settings:** subsystem list, priorities, team name, season, request ID prefix, and which email domains can sign up.
+- **Settings:** the options of every dropdown on the form, one box per dropdown. That covers built-in ones like Subsystem and Priority, plus any you add in Form fields (e.g. "Cost center"). Also the team name, season, request ID prefix, and which email domains can sign up.
 - **Import:** bring in an old Excel order sheet.
   - A **past season** goes into the Archive with every column kept.
   - **This season's** sheet becomes real requests, including their approvals, order status, ticket numbers, and shipping.

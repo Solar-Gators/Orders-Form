@@ -189,6 +189,26 @@ export async function renderSettings(el, { rerender, reloadConfig }) {
   const general = settings.general || {};
   const form = settings.form || {};
 
+  // Every dropdown on the form — built-in (Subsystem, Priority) and ones added in
+  // Form fields — gets an options box here. Shown fields first, hidden ones after.
+  const dropdowns = [
+    ...requestFields(form).map((f) => ({ ...f, kind: 'request', where: 'Request' })),
+    ...itemFields(form).map((f) => ({ ...f, kind: 'item', where: 'Each item' })),
+  ]
+    .filter((f) => f.type === 'select')
+    .map((f) => ({ ...f, options: f.builtin && LIST_FIELDS[f.key] ? form[LIST_FIELDS[f.key]] || [] : f.options || [] }));
+  const listBox = (f) => {
+    const id = `dd-${f.kind}-${f.key}`;
+    return `<div class="field ${f.hidden ? 'is-hidden-field' : ''}">
+      <label for="${esc(id)}">${esc(f.label)} <span class="muted">(${esc(f.where)} · one per line)</span></label>
+      <textarea id="${esc(id)}" data-kind="${esc(f.kind)}" data-key="${esc(f.key)}" rows="${Math.min(10, Math.max(3, f.options.length + 1))}">${esc(f.options.join('\n'))}</textarea>
+      ${f.key === 'priority' && f.builtin ? `<label for="s-default-priority" class="sub-label">Default ${esc(f.label.toLowerCase())}</label>
+        <input id="s-default-priority" name="defaultPriority" type="text" value="${esc(form.defaultPriority || '')}">` : ''}
+    </div>`;
+  };
+  const visibleLists = dropdowns.filter((f) => !f.hidden);
+  const hiddenLists = dropdowns.filter((f) => f.hidden);
+
   el.innerHTML = `
     ${takeFlash()}
     <div class="page-header"><div><h1>Admin</h1></div></div>
@@ -197,20 +217,16 @@ export async function renderSettings(el, { rerender, reloadConfig }) {
     <form id="settings-form" novalidate>
       <div class="two-col">
         <section class="card">
-          <h2>Form options</h2>
-          <div class="field">
-            <label for="s-subsystems">Subsystems <span class="muted">(one per line)</span></label>
-            <textarea id="s-subsystems" name="subsystems" rows="10">${esc((form.subsystems || []).join('\n'))}</textarea>
-            <div class="hint">Renaming a subsystem doesn't change existing requests.</div>
-          </div>
-          <div class="field">
-            <label for="s-priorities">Priorities <span class="muted">(one per line)</span></label>
-            <textarea id="s-priorities" name="priorities" rows="4">${esc((form.priorities || []).join('\n'))}</textarea>
-          </div>
-          <div class="field">
-            <label for="s-default-priority">Default priority</label>
-            <input id="s-default-priority" name="defaultPriority" type="text" value="${esc(form.defaultPriority || '')}">
-          </div>
+          <h2>Dropdown lists</h2>
+          <p class="muted small">Every dropdown on the request form. To add a new dropdown, go to
+            <a href="#/admin/fields">Form fields</a>, add a field, and set its type to <strong>Dropdown</strong>. It then appears here.
+            Renaming an option doesn't change requests that already used the old one.</p>
+          ${visibleLists.map(listBox).join('') || '<p class="muted">There are no dropdowns on the form.</p>'}
+          ${
+            hiddenLists.length
+              ? `<details class="hidden-lists"><summary>Hidden on the form (${hiddenLists.length})</summary>${hiddenLists.map(listBox).join('')}</details>`
+              : ''
+          }
         </section>
         <section class="card">
           <h2>Team</h2>
@@ -234,13 +250,31 @@ export async function renderSettings(el, { rerender, reloadConfig }) {
   el.querySelector('#settings-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const data = Object.fromEntries(new FormData(e.target));
-    const priorities = lines(data.priorities);
+    const errors = el.querySelector('#settings-errors');
+
+    // Collect every dropdown's options from its box.
     const nextForm = {
       ...form, // keep keys this page doesn't edit
-      subsystems: lines(data.subsystems),
-      priorities,
-      defaultPriority: priorities.includes(data.defaultPriority.trim()) ? data.defaultPriority.trim() : priorities[0] || '',
+      requestFields: requestFields(form).map((f) => ({ ...f })),
+      itemFields: itemFields(form).map((f) => ({ ...f })),
     };
+    const empty = [];
+    for (const box of e.target.querySelectorAll('textarea[data-key]')) {
+      const options = lines(box.value);
+      const list = box.dataset.kind === 'request' ? nextForm.requestFields : nextForm.itemFields;
+      const field = list.find((f) => f.key === box.dataset.key);
+      if (!options.length) empty.push(field.label);
+      if (field.builtin && LIST_FIELDS[field.key]) nextForm[LIST_FIELDS[field.key]] = options;
+      else field.options = options;
+    }
+    if (empty.length) {
+      errors.innerHTML = errorBox(Object.assign(new Error('Every dropdown needs at least one option:'), { details: empty }));
+      errors.scrollIntoView({ behavior: 'smooth' });
+      return;
+    }
+    const priorities = nextForm.priorities || [];
+    const wanted = (data.defaultPriority ?? form.defaultPriority ?? '').trim();
+    nextForm.defaultPriority = priorities.includes(wanted) ? wanted : priorities[0] || '';
     const nextGeneral = {
       ...general,
       teamName: data.teamName.trim() || 'Solar Gators',

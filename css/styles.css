@@ -468,3 +468,10 @@ tr:hover .copy-btn, dd:hover .copy-btn, .copy-wrap:hover .copy-btn, .copy-btn:fo
 .perm-table th.center, .perm-table td.center { width: 130px; }
 .perm-table input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; }
 #permissions { margin-top: 16px; scroll-margin-top: 80px; }
+
+/* ---- Settings: dropdown lists ------------------------------------------------ */
+
+.sub-label { display: block; font-weight: 600; font-size: 12.5px; margin: 8px 0 4px; }
+.hidden-lists { margin-top: 8px; border-top: 1px solid var(--border); padding-top: 10px; }
+.hidden-lists summary { cursor: pointer; color: var(--muted); font-weight: 600; font-size: 13px; margin-bottom: 10px; }
+.is-hidden-field label { color: var(--muted); }
