@@ -293,7 +293,7 @@ await test('the website cannot change the schema version', async () => {
   const general = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
   await as(ce, () => rpc('update_settings', ['general', { ...general, schemaVersion: 99 }]));
   const after = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
-  assert.equal(after.schemaVersion, 11);
+  assert.equal(after.schemaVersion, 12);
 });
 
 console.log('Form fields');
@@ -1060,6 +1060,49 @@ await test('each person can mute single events per channel (011)', async () => {
   const mine = (await outbox()).filter((m) => m.email === 'member@ufl.edu').map((m) => `${m.event} ${m.channel}`).sort();
   assert.deepEqual(mine, ['approved teams', 'ordered email', 'ordered teams']);
   await as(member, () => rejects(rpc('update_my_notification_events', [[]]), /JSON object/));
+});
+
+await test('imported requests are linked to accounts by name (012)', async () => {
+  const ownerOf = async (requester) =>
+    (await db.query(`select p.full_name from requests r left join profiles p on p.id = r.created_by where r.requester = $1 limit 1`, [requester])).rows[0]?.full_name ?? null;
+  // Imported earlier as "Bella N", "Josh", "Zach", with no account behind them.
+  assert.equal(await ownerOf('Bella N'), null);
+  await signUp('bella@ufl.edu', 'Bella Nguyen'); // first name + initial
+  await signUp('josh@ufl.edu', 'Josh  Weiss'); // first name only (the only Josh)
+  await signUp('zach1@ufl.edu', 'Zach Adams'); // the only Zach so far: gets "Zach"
+  await signUp('zach2@ufl.edu', 'Zach Brown');
+  assert.deepEqual([await ownerOf('Bella N'), await ownerOf('Josh'), await ownerOf('Zach')], ['Bella Nguyen', 'Josh  Weiss', 'Zach Adams']);
+  // A lead fixes it by hand; only leads can.
+  const zachReq = (await db.query(`select id from requests where requester = 'Zach'`)).rows[0].id;
+  const zach2Id = (await db.query(`select id from profiles where email = 'zach2@ufl.edu'`)).rows[0].id;
+  await as(member, () => rejects(rpc('set_request_owner', [zachReq, zach2Id]), /does not allow/));
+  await as(ce, () => rpc('set_request_owner', [zachReq, zach2Id]));
+  assert.equal(await ownerOf('Zach'), 'Zach Brown');
+  await as(ce, () => rpc('set_request_owner', [zachReq, null])); // "no account", on purpose
+  await signUp('zach3@ufl.edu', 'Zach Cole');
+  assert.equal(await ownerOf('Zach'), null); // a hand-picked choice is never re-matched
+
+  // New imports link straight away; middle names and punctuation don't matter.
+  const sheet = [
+    { title: 'Tape', requester: 'bella  nguyen', subsystem: 'Battery', date: '2026-09-12', status: 'Received', items: [{ item_name: 'Tape', quantity: '1', unit_price: '3' }] },
+    { title: 'Wire', requester: 'Zach A.', subsystem: 'Battery', date: '2026-09-12', status: 'Received', items: [{ item_name: 'Wire', quantity: '1', unit_price: '3' }] },
+  ];
+  await as(ce, () => rpc('import_requests', [sheet]));
+  assert.equal(await ownerOf('bella  nguyen'), 'Bella Nguyen');
+  assert.equal(await ownerOf('Zach A.'), 'Zach Adams');
+
+  // Several people share a first name: "Zach" alone isn't guessed.
+  await as(ce, () => rpc('import_requests', [[{ title: 'Nuts', requester: 'Zach', subsystem: 'Battery', date: '2026-09-13', status: 'Received', items: [{ item_name: 'Nuts', quantity: '1', unit_price: '1' }] }]]));
+  assert.equal((await db.query(`select created_by from requests where title = 'Nuts'`)).rows[0].created_by, null);
+
+  // Fixing your name on My account picks up your requests.
+  await as(ce, () => rpc('import_requests', [[{ title: 'Bolts', requester: 'Pat Quinn', subsystem: 'Battery', date: '2026-09-13', status: 'Received', items: [{ item_name: 'Bolts', quantity: '1', unit_price: '1' }] }]]));
+  const pat = await signUp('pat@ufl.edu', 'PQ');
+  assert.equal(await ownerOf('Pat Quinn'), null);
+  await as(pat, () => rpc('update_my_profile', ['Pat Quinn']));
+  assert.equal(await ownerOf('Pat Quinn'), 'Pat Quinn');
+  // Requests made on the site keep their real owner.
+  assert.equal((await db.query(`select count(*)::int n from requests r join profiles p on p.id = r.created_by where r.requester = 'Austin Stang' and p.email <> 'member@ufl.edu'`)).rows[0].n, 0);
 });
 
 console.log(`\n${passed} passed${process.exitCode ? ', some FAILED' : ''}`);

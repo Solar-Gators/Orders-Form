@@ -309,19 +309,40 @@ function actionPanel(r, config, { names = {}, budget = null } = {}) {
   return ''; // Rejected / Received: nothing left to do
 }
 
+/**
+ * Leads: whose account a request belongs to ("My requests", notifications, editing).
+ * Imported requests are matched by name automatically; this fixes a wrong or missing match.
+ */
+function ownerCard(r, people, names) {
+  const who = r.created_by ? esc(names[r.created_by] || 'Someone who left') : '<span class="muted">No account</span>';
+  const how = r.owner_set_by_hand ? 'set by hand' : '';
+  const sorted = [...people].sort((a, b) => (a.full_name || a.email).localeCompare(b.full_name || b.email));
+  return `<section class="card owner-card">
+    <details>
+      <summary><span class="muted small">Account:</span> ${who}${how ? ` <span class="muted small">(${how})</span>` : ''} <span class="link small">Change</span></summary>
+      <p class="muted small">Whose "My requests" this shows in and who gets its notifications. Requests imported from a spreadsheet are matched to accounts by the Requester name (${esc(r.requester || 'blank')}).</p>
+      <div class="field"><select id="owner-select" aria-label="Account">
+        <option value="">No account</option>
+        ${sorted.map((p) => `<option value="${p.id}" ${p.id === r.created_by ? 'selected' : ''}>${esc(p.full_name || p.email)} · ${esc(p.email)}</option>`).join('')}
+      </select></div>
+      <div id="owner-errors"></div>
+      <button type="button" class="btn btn-sm" id="owner-save">Save</button>
+    </details>
+  </section>`;
+}
+
 export async function renderRequestDetail(el, { config, params, rerender }) {
   const r = await api.getRequest(params.id);
   layout = pageLayout(config);
-  // Approvers' names and the budget, for the action panel.
-  const [names, summary] = await Promise.all([
-    r.status === STATUS.SUBMITTED && approvalState(r).type === 'people'
-      ? api.listProfiles().then((ps) => Object.fromEntries(ps.map((p) => [p.id, p.full_name || p.email]))).catch(() => ({}))
-      : {},
+  // People (approvers' names, whose request it is) and the budget, for the side panel.
+  const [people, summary] = await Promise.all([
+    isLead() || (r.status === STATUS.SUBMITTED && approvalState(r).type === 'people') ? api.listProfiles().catch(() => []) : [],
     isLead() && workflowSettings(config).budgets.field && [STATUS.SUBMITTED, STATUS.APPROVED].includes(r.status)
       ? api.listRequests(null, { season: config.season }).then((rows) => budgetSummary(config, rows)).catch(() => [])
       : [],
   ]);
   const budget = budgetFor(config, r, summary);
+  const names = Object.fromEntries(people.map((p) => [p.id, p.full_name || p.email]));
   const detailsCard = `<section class="card"><h2>Details</h2>${detailsGrid(r, config)}</section>`;
 
   el.innerHTML = `
@@ -355,6 +376,7 @@ export async function renderRequestDetail(el, { config, params, rerender }) {
       <aside class="detail-side">
         ${actionPanel(r, config, { names, budget })}
         ${historyCard(r)}
+        ${isLead() ? ownerCard(r, people, names) : ''}
       </aside>
     </div>`;
 
@@ -374,6 +396,18 @@ export async function renderRequestDetail(el, { config, params, rerender }) {
       form.querySelectorAll('button').forEach((b) => (b.disabled = false));
     }
   };
+
+  el.querySelector('#owner-save')?.addEventListener('click', async (e) => {
+    e.target.disabled = true;
+    try {
+      await api.setRequestOwner(r.id, el.querySelector('#owner-select').value || null);
+      setFlash(`${r.request_number} now belongs to ${el.querySelector('#owner-select').selectedOptions[0].text.split(' · ')[0]}.`);
+      await rerender();
+    } catch (err) {
+      el.querySelector('#owner-errors').innerHTML = errorBox(err);
+      e.target.disabled = false;
+    }
+  });
 
   el.querySelector('#review-form')?.addEventListener('submit', (e) => {
     e.preventDefault();

@@ -164,6 +164,11 @@ export const api = {
   },
 
   /** Treasurer: change unit price / shipping after approval. items: [{ id, unit_price?, shipping_cost? }] */
+  /** Leads: whose account a request belongs to (null = none). */
+  async setRequestOwner(id, userId) {
+    unwrap(await supabase.rpc('set_request_owner', { p_id: id, p_user_id: userId }));
+  },
+
   async updateItemCosts(id, items, reason) {
     return unwrap(await supabase.rpc('update_item_costs', { p_request_id: id, p_items: items, p_reason: reason }));
   },
