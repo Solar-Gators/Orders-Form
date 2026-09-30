@@ -6,12 +6,27 @@
  */
 import { api } from '../api.js';
 import { esc, fmtMoney, fmtDate, fmtDateTime, statusBadge, errorBox, setFlash, takeFlash } from '../ui.js';
-import { itemFields } from '../formFields.js';
+import { itemFields, requestFields, fieldOptions } from '../formFields.js';
 import { readWorkbook, pickSheet, guessSeason, toArchiveRows, toRequests, guessSubsystem, detectColumns } from '../sheetImport.js';
 import { adminTabs } from './admin.js';
 
 // Kept between re-renders of this page.
-const state = { file: null, sheets: null, sheetName: '', mode: 'archive', season: '', subsystemMap: {} };
+const state = { file: null, sheets: null, sheetName: '', mode: 'archive', season: '', subsystemMap: {}, target: '' };
+
+/**
+ * Request fields the sheet's Subteam column can go into: the built-in Subsystem
+ * and any dropdown you've added (e.g. Cost center).
+ */
+function subteamTargets(config) {
+  return requestFields(config).filter((f) => f.type !== 'section' && (f.key === 'subsystem' || (!f.builtin && f.type === 'select')));
+}
+/** Best default: a visible dropdown that looks like a team / cost center, else Subsystem (if shown). */
+function defaultTarget(config) {
+  const targets = subteamTargets(config);
+  const shown = targets.filter((f) => !f.hidden);
+  const teamLike = shown.find((f) => !f.builtin && /cost\s*cent|team|group|department/i.test(f.label));
+  return (teamLike || shown.find((f) => f.key === 'subsystem') || shown[0] || targets[0])?.key || 'subsystem';
+}
 
 export async function renderImport(el, { config, rerender, reloadConfig }) {
   const imports = await api.listArchiveImports();
@@ -191,14 +206,24 @@ export async function renderImport(el, { config, rerender, reloadConfig }) {
 
   function drawRequestsPreview(box, sheet) {
     const fields = itemFields(config);
+    const targets = subteamTargets(config);
+    if (!targets.some((t) => t.key === state.target)) state.target = defaultTarget(config);
+    const target = targets.find((t) => t.key === state.target) || { key: 'subsystem', label: 'Subsystem', builtin: true };
+    const choices = target.key === 'subsystem' ? config.subsystems : fieldOptions(target, config);
     const first = toRequests(sheet, { config, itemFields: fields });
     // Default mapping for old subteam names: best guess, otherwise keep the name.
     for (const s of first.subteams) {
-      if (!(s in state.subsystemMap)) state.subsystemMap[s] = guessSubsystem(s, config.subsystems) || s;
+      if (!(s in state.subsystemMap)) state.subsystemMap[s] = guessSubsystem(s, choices) || s;
     }
-    const { requests, newItemFields } = toRequests(sheet, { config, itemFields: fields, subsystemMap: state.subsystemMap });
-    const unknown = first.subteams.filter((s) => !config.subsystems.includes(s));
-    const added = [...new Set(Object.values(state.subsystemMap).filter((v) => v && !config.subsystems.includes(v)))];
+    const built = toRequests(sheet, { config, itemFields: fields, subsystemMap: state.subsystemMap });
+    const { newItemFields } = built;
+    // Subteam → the chosen field (custom fields live in the request's data).
+    const requests = built.requests.map((r) =>
+      target.key === 'subsystem' ? r : { ...r, subsystem: '', data: { ...(r.data || {}), ...(r.subsystem ? { [target.key]: r.subsystem } : {}) }, mapped: r.subsystem }
+    );
+    const valueOf = (r) => (target.key === 'subsystem' ? r.subsystem : r.mapped);
+    const unknown = first.subteams.filter((s) => !choices.includes(s));
+    const added = [...new Set(Object.values(state.subsystemMap).filter((v) => v && !choices.includes(v)))];
     const total = requests.reduce((s, r) => s + r.total, 0);
     const counts = requests.reduce((c, r) => ((c[r.status] = (c[r.status] || 0) + 1), c), {});
 
@@ -211,29 +236,36 @@ export async function renderImport(el, { config, rerender, reloadConfig }) {
           <li><strong>CE Approval</strong> becomes the approval, <strong>Order Status</strong> and <strong>Ticket Number</strong> become the order history. The Treasurer can keep marking deliveries.</li>
           <li><strong>Gross Cost</strong> is the line total, so unit price = cost ÷ quantity. Quantities like "1 (Pack of 50)" keep their original text in Notes.</li>
           ${newItemFields.length ? `<li>These columns will be added as item fields (edit them later in Form fields): ${newItemFields.map((f) => `<span class="chip">${esc(f.label)}</span>`).join(' ')}</li>` : ''}
-          <li>Imported requests have no owner account, so they can't be edited. They can still be approved, ordered, and received.</li>
+          <li>Imported requests are linked to people's accounts by the Requester name when it matches someone (leads can fix it on the request's page).</li>
         </ul>
+        <div class="field import-target">
+          <label for="import-target">Put the sheet's Subteam column into</label>
+          <select id="import-target">${targets
+            .map((t) => `<option value="${esc(t.key)}" ${t.key === target.key ? 'selected' : ''}>${esc(t.label)}${t.hidden ? ' (hidden on the form)' : ''}</option>`)
+            .join('')}</select>
+          <div class="hint">Pick the dropdown your team uses now, e.g. Cost center.</div>
+        </div>
         ${
           unknown.length
             ? `<h3 class="section-title">Subteam names</h3>
-               <p class="muted small">These names aren't in your subsystem list. Map each one to a subsystem, or keep it as a new subsystem.</p>
+               <p class="muted small">These names aren't in your ${esc(target.label)} list. Match each one to an option, or keep it as a new option.</p>
                <div class="map-grid">${unknown
                  .map(
                    (s) => `<label>${esc(s)}</label>
                      <select data-map="${esc(s)}">
                        <option value="${esc(s)}" ${state.subsystemMap[s] === s ? 'selected' : ''}>Keep “${esc(s)}” (add to list)</option>
-                       ${config.subsystems.map((c) => `<option value="${esc(c)}" ${state.subsystemMap[s] === c ? 'selected' : ''}>→ ${esc(c)}</option>`).join('')}
+                       ${choices.map((c) => `<option value="${esc(c)}" ${state.subsystemMap[s] === c ? 'selected' : ''}>→ ${esc(c)}</option>`).join('')}
                      </select>`
                  )
                  .join('')}</div>
-               ${added.length ? `<p class="muted small">Will be added to the subsystem list: ${added.map(esc).join(', ')}.</p>` : ''}`
+               ${added.length ? `<p class="muted small">Will be added to the ${esc(target.label)} list: ${added.map(esc).join(', ')}.</p>` : ''}`
             : ''
         }
         <div class="table-wrap flat preview-table"><table class="table">
-          <thead><tr><th>Date</th><th>Requester</th><th>Subsystem</th><th>Title</th><th class="num">Items</th><th class="num">Total</th><th>Status</th><th>Approver</th><th>Ticket</th></tr></thead>
+          <thead><tr><th>Date</th><th>Requester</th><th>${esc(target.label)}</th><th>Title</th><th class="num">Items</th><th class="num">Total</th><th>Status</th><th>Approver</th><th>Ticket</th></tr></thead>
           <tbody>${requests
             .map(
-              (r) => `<tr><td class="nowrap">${fmtDate(r.date)}</td><td>${esc(r.requester)}</td><td>${esc(r.subsystem)}</td>
+              (r) => `<tr><td class="nowrap">${fmtDate(r.date)}</td><td>${esc(r.requester)}</td><td>${esc(valueOf(r))}</td>
                 <td>${esc(r.title)}</td><td class="num">${r.items.length}</td><td class="num">${fmtMoney(r.total)}</td>
                 <td>${statusBadge(r.status)}</td><td>${esc(r.approver || '—')}</td><td>${esc(r.ticket || '—')}</td></tr>`
             )
@@ -243,6 +275,12 @@ export async function renderImport(el, { config, rerender, reloadConfig }) {
           <button type="button" class="btn btn-primary" id="do-import">Import ${requests.length} requests into ${esc(config.season)}</button>
         </div>
       </section>`;
+
+    box.querySelector('#import-target').addEventListener('change', (e) => {
+      state.target = e.target.value;
+      state.subsystemMap = {}; // different list: guess the matches again
+      drawPreview();
+    });
 
     box.querySelectorAll('select[data-map]').forEach((sel) =>
       sel.addEventListener('change', () => {
@@ -256,20 +294,23 @@ export async function renderImport(el, { config, rerender, reloadConfig }) {
       e.target.disabled = true;
       e.target.textContent = 'Importing…';
       try {
-        // Make sure new subsystems and item fields exist before the requests use them.
+        // Make sure new dropdown options and item fields exist before the requests use them.
         if (added.length || newItemFields.length) {
           const form = (await api.getSettings()).form || {};
+          const merge = (list) => [...(list || []), ...added.filter((a) => !(list || []).includes(a))];
           await api.updateSettings('form', {
             ...form,
-            subsystems: [...(form.subsystems || []), ...added.filter((a) => !(form.subsystems || []).includes(a))],
+            ...(target.key === 'subsystem'
+              ? { subsystems: merge(form.subsystems) }
+              : { requestFields: requestFields(form).map((f) => (f.key === target.key ? { ...f, options: merge(f.options) } : f)) }),
             itemFields: [...itemFields(form), ...newItemFields],
           });
         }
         // One call, so the database imports all of them or none (no half-imported sheets).
-        const created = await api.importRequests(requests.map(({ total, subteam, ...r }) => r));
+        const created = await api.importRequests(requests.map(({ total, subteam, mapped, ...r }) => r));
         await reloadConfig();
         setFlash(`Imported ${created} requests from ${state.file.name}.`);
-        Object.assign(state, { file: null, sheets: null, subsystemMap: {} });
+        Object.assign(state, { file: null, sheets: null, subsystemMap: {}, target: '' });
         location.hash = '#/requests';
       } catch (err) {
         showError(err);

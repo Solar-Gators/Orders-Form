@@ -615,7 +615,16 @@ th.sorted .sort-ind { opacity: 1; color: var(--orange-dark); }
 .accent-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .accent-row input[type="color"] { width: 56px; height: 38px; padding: 2px; }
 .accent-sample { pointer-events: none; }
-.dropdown-colors { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+/* Each group needs room for name + color menu + preview; narrower screens get one per row. */
+.dropdown-colors { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 440px), 1fr)); gap: 16px 28px; }
+.dropdown-color-group { min-width: 0; }
+.dropdown-color-group .tone-table { table-layout: fixed; width: 100%; }
+.dropdown-color-group .tone-table td:first-child { width: 38%; overflow-wrap: anywhere; }
+.dropdown-color-group .tone-table td:nth-child(2) { width: 150px; }
+.dropdown-color-group .tone-table select { min-width: 0; width: 100%; }
+.dropdown-color-group .tone-table td:first-child { width: 34%; }
+.dropdown-color-group .tone-table td:nth-child(2) { width: 130px; }
+.dropdown-color-group [data-preview] .chip-tone { max-width: 100%; border-radius: 10px; overflow-wrap: anywhere; }
 .chip-tone { display: inline-block; padding: 1px 9px; border-radius: 999px; font-size: 12.5px; font-weight: 600; border: 1px solid transparent; }
 
 /* Announcement banner, sign-in message, intros, Help */
