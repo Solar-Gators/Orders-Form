@@ -94,6 +94,60 @@ export const priorityColor = (p) => tone(appearance.priorities?.[p], DEFAULT_PRI
 /** Lists skip the priority tag for the default priority (e.g. "Normal") unless told otherwise. */
 export const showPriorityInLists = (p) => !!p && (appearance.showDefaultPriority || p !== defaultPriority);
 
+/** A page's intro line: the custom one from Admin → Text & banner, or the standard HTML. */
+export const introText = (page, fallbackHtml) => {
+  const custom = String(appearance.intros?.[page] || '').trim();
+  return custom ? esc(custom) : fallbackHtml;
+};
+
+/**
+ * Simple, safe formatting for text written in Admin (Help page, messages).
+ * Everything is escaped first; then only: "# Heading", "## Subheading",
+ * "- bullet", **bold**, [text](https://…) links, and blank-line paragraphs.
+ */
+export function renderRichText(text) {
+  const inline = (s) =>
+    esc(s)
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\[([^\]]+)\]\(((?:https?:\/\/|mailto:)[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+  const out = [];
+  let list = null;
+  let para = [];
+  const flush = () => {
+    if (para.length) out.push(`<p>${para.map(inline).join('<br>')}</p>`);
+    para = [];
+    if (list) out.push(`<ul>${list.map((li) => `<li>${inline(li)}</li>`).join('')}</ul>`);
+    list = null;
+  };
+  for (const raw of String(text || '').split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) flush();
+    else if (line.startsWith('## ')) (flush(), out.push(`<h3>${inline(line.slice(3))}</h3>`));
+    else if (line.startsWith('# ')) (flush(), out.push(`<h2>${inline(line.slice(2))}</h2>`));
+    else if (/^[-*] /.test(line)) {
+      if (para.length) flush();
+      (list ??= []).push(line.slice(2));
+    } else {
+      if (list) flush();
+      para.push(line);
+    }
+  }
+  flush();
+  return out.join('');
+}
+
+/** Color for a dropdown answer (Admin → Appearance → Dropdown colors), or '' for none. */
+export const optionColor = (fieldKey, value) => {
+  const t = appearance.optionColors?.[fieldKey]?.[value];
+  return TONE_KEYS.has(t) ? t : '';
+};
+/** A dropdown answer, as a colored chip if it has a color. */
+export const optionChip = (fieldKey, value) => {
+  if (value === '' || value === null || value === undefined) return '—';
+  const t = optionColor(fieldKey, value);
+  return t ? `<span class="chip-tone tone-${t}">${esc(value)}</span>` : esc(value);
+};
+
 export const statusBadge = (status) =>
   `<span class="badge tone-${statusColor(status)}" data-status="${esc(status)}">${esc(statusLabel(status))}</span>`;
 
@@ -217,7 +271,7 @@ export const COLUMNS = {
     sort: (r) => r.title,
   },
   requester: { label: 'Requester', cell: (r) => esc(r.requester || '—'), sort: (r) => r.requester },
-  subsystem: { label: 'Subsystem', cell: (r) => esc(r.subsystem || '—'), sort: (r) => r.subsystem },
+  subsystem: { label: 'Subsystem', cell: (r) => optionChip('subsystem', r.subsystem), sort: (r) => r.subsystem },
   total: {
     label: 'Total',
     className: 'num',

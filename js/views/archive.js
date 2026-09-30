@@ -6,7 +6,7 @@
  */
 import { api } from '../api.js';
 import { auth } from '../auth.js';
-import { esc, fmtMoney, fmtDate } from '../ui.js';
+import { esc, fmtMoney, fmtDate, introText } from '../ui.js';
 
 // Filters persist while moving around the app.
 const filters = { q: '', season: '', subteam: '', status: '' };
@@ -63,7 +63,7 @@ export async function renderArchive(el, { config }) {
     <div class="page-header">
       <div>
         <h1>Archive</h1>
-        <p class="subtitle">Orders from past seasons (${seasons.map(esc).join(', ')}). Imported spreadsheet rows show every original column; requests made on this site open their full page.</p>
+        <p class="subtitle">${introText('archive', `Orders from past seasons (${seasons.map(esc).join(', ')}). Imported spreadsheet rows show every original column; requests made on this site open their full page.`)}</p>
       </div>
     </div>
     <div class="toolbar">

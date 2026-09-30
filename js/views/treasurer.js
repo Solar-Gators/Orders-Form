@@ -4,7 +4,7 @@
  */
 import { api } from '../api.js';
 import { auth } from '../auth.js';
-import { STATUS, fmtMoney, requestTable, bindRowLinks, bindSorting, takeFlash } from '../ui.js';
+import { STATUS, fmtMoney, requestTable, bindRowLinks, bindSorting, takeFlash, introText } from '../ui.js';
 import { listColumns, listSort } from '../listColumns.js';
 import { rememberedSort } from './listSortState.js';
 
@@ -19,6 +19,7 @@ export async function renderTreasurer(el, { config }) {
     <div class="page-header">
       <div>
         <h1>Treasurer</h1>
+        ${introText('treasurer', '') ? `<p class="page-intro">${introText('treasurer', '')}</p>` : ''}
         <p class="subtitle">${toOrder.length} to order (${sum(toOrder)}) · ${inTransit.length} awaiting delivery (${sum(inTransit)})</p>
       </div>
     </div>

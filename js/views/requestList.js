@@ -4,7 +4,7 @@
  */
 import { api } from '../api.js';
 import { auth } from '../auth.js';
-import { esc, requestTable, bindRowLinks, bindSorting, takeFlash } from '../ui.js';
+import { esc, requestTable, bindRowLinks, bindSorting, takeFlash, introText } from '../ui.js';
 import { listColumns, listSort, listFilters } from '../listColumns.js';
 
 // Kept while navigating around the app (not across reloads).
@@ -38,7 +38,7 @@ export async function renderRequestList(el, { config, rerender }) {
     <div class="page-header">
       <div>
         <h1>Requests</h1>
-        <p class="subtitle">${isCurrent ? `Purchase requests for the ${esc(season)} season.` : `Past season: ${esc(season)}.`}</p>
+        <p class="subtitle">${isCurrent ? introText('requests', `Purchase requests for the ${esc(season)} season.`) : `Past season: ${esc(season)}.`}</p>
       </div>
       <a class="btn btn-primary" href="#/new">+ New Request</a>
     </div>

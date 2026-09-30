@@ -7,8 +7,8 @@
  */
 import { api } from '../api.js';
 import { auth } from '../auth.js';
-import { esc, fmtMoney, itemTotal, round2, statusBadge, errorBox, setFlash } from '../ui.js';
-import { requestFields, itemFields, shown, getValue, setValue, renderInput } from '../formFields.js';
+import { esc, fmtMoney, itemTotal, round2, statusBadge, errorBox, setFlash, introText } from '../ui.js';
+import { requestFields, itemFields, shown, getValue, setValue, renderInput, isVisible } from '../formFields.js';
 
 // Example placeholders for built-in item columns (custom fields use their help text).
 const ITEM_PLACEHOLDERS = {
@@ -43,10 +43,17 @@ export async function renderRequestForm(el, { config, params }) {
     placeholder: f.help || ITEM_PLACEHOLDERS[f.key] || '',
   }));
 
+  // Default values (Admin → Form fields) pre-fill new requests and new item rows.
+  const withDefaults = (record, fields) => {
+    for (const f of fields) {
+      if (f.default !== undefined && f.default !== '' && f.type !== 'section' && getValue(record, f) === '') setValue(record, f, f.default);
+    }
+    return record;
+  };
   const req = existing
     ? { ...existing, data: { ...existing.data } }
-    : { requester: auth.user.full_name, priority: config.defaultPriority, data: {} };
-  const blankItem = () => ({ data: {} });
+    : withDefaults({ requester: auth.user.full_name, priority: config.defaultPriority, data: {} }, rFields);
+  const blankItem = () => withDefaults({ data: {} }, iFields);
   const items = existing?.items.length ? existing.items.map((i) => ({ ...i, data: { ...i.data } })) : [blankItem()];
 
   // One vendor per request (Settings, on by default): the vendor is entered once,
@@ -77,7 +84,7 @@ export async function renderRequestForm(el, { config, params }) {
     <div class="page-header">
       <div>
         <h1>${existing ? `Edit ${esc(existing.request_number)}` : 'New Purchase Request'}</h1>
-        <p class="subtitle">${existing ? statusBadge(existing.status) : 'Fill in the request, add one row per item, then submit for Chief Engineer approval.'}</p>
+        <p class="subtitle">${existing ? statusBadge(existing.status) : introText('new', 'Fill in the request, add one row per item, then submit for Chief Engineer approval.')}</p>
       </div>
     </div>
     ${changesNote}
@@ -88,12 +95,16 @@ export async function renderRequestForm(el, { config, params }) {
         <h2>Request details</h2>
         <div class="form-grid">
           ${rFields
-            .map(
-              (f) => `<div class="field ${span(f)}">
-                <label for="f-${esc(f.key)}">${esc(f.label)}${star(f)}</label>
-                ${renderInput({ ...f, placeholder: f.type === 'textarea' ? f.help : '' }, getValue(req, f), config, `id="f-${esc(f.key)}" data-rfield="${esc(f.key)}"`)}
-                ${f.help && f.type !== 'textarea' ? `<div class="hint">${esc(f.help)}</div>` : ''}
-              </div>`
+            .map((f) =>
+              f.type === 'section'
+                ? `<div class="form-section span-full" data-wrap="${esc(f.key)}">
+                    <h3>${esc(f.label)}</h3>${f.help ? `<p class="muted small">${esc(f.help)}</p>` : ''}
+                  </div>`
+                : `<div class="field ${span(f)}" data-wrap="${esc(f.key)}">
+                    <label for="f-${esc(f.key)}">${esc(f.label)}${star(f)}</label>
+                    ${renderInput({ ...f, placeholder: f.type === 'textarea' ? f.help : '' }, getValue(req, f), config, `id="f-${esc(f.key)}" data-rfield="${esc(f.key)}"`)}
+                    ${f.help && f.type !== 'textarea' ? `<div class="hint">${esc(f.help)}</div>` : ''}
+                  </div>`
             )
             .join('')}
         </div>
@@ -139,6 +150,38 @@ export async function renderRequestForm(el, { config, params }) {
   const grandTotal = el.querySelector('#grand-total');
   const errorsEl = el.querySelector('#form-errors');
 
+  // ---- "Show only when…" conditions (the database applies the same rules) ----
+  const answerFields = rFields.filter((f) => f.type !== 'section');
+  /** The request as currently typed (built-in at the top level, custom in data). */
+  const currentRequest = () => {
+    const r = { data: {} };
+    for (const f of answerFields) setValue(r, f, form.querySelector(`[data-rfield="${f.key}"]`)?.value ?? '');
+    return r;
+  };
+  /** Item as the conditions see it: the single vendor box counts as each item's vendor. */
+  const itemForRules = (item) => (oneVendor ? { ...item, vendor: form.querySelector('#f-vendor').value } : item);
+
+  const applyConditions = () => {
+    const r = currentRequest();
+    for (const f of rFields) {
+      if (!f.showIf) continue;
+      const wrap = form.querySelector(`[data-wrap="${f.key}"]`);
+      if (wrap) wrap.hidden = !isVisible(f, r);
+    }
+    tbody.querySelectorAll('tr[data-index]').forEach((tr) => {
+      const item = itemForRules(items[Number(tr.dataset.index)]);
+      for (const f of tableFields) {
+        if (!f.showIf) continue;
+        const td = tr.querySelector(`td.k-${f.key}`);
+        const on = isVisible(f, r, item);
+        td.classList.toggle('cond-off', !on); // keeps the table's columns lined up
+        td.querySelector('input, select, textarea').disabled = !on;
+      }
+    });
+  };
+  form.addEventListener('input', applyConditions);
+  form.addEventListener('change', applyConditions);
+
   const updateTotals = () => {
     // Request total = items (quantity × unit price) + shipping.
     grandTotal.textContent = fmtMoney(round2(items.reduce((s, i) => s + itemTotal(i) + (Number(i.shipping_cost) || 0), 0)));
@@ -169,6 +212,7 @@ export async function renderRequestForm(el, { config, params }) {
       )
       .join('');
     updateTotals();
+    applyConditions();
   };
 
   const onItemInput = (e) => {
@@ -200,8 +244,9 @@ export async function renderRequestForm(el, { config, params }) {
     const action = e.submitter?.dataset.submit || 'draft';
 
     // Built-in fields go at the top level, custom fields in `data`.
-    const request = { data: {} };
-    for (const f of rFields) setValue(request, f, form.querySelector(`[data-rfield="${f.key}"]`).value);
+    // Fields hidden by a "show only when…" condition are sent empty.
+    const request = currentRequest();
+    for (const f of answerFields) if (!isVisible(f, request)) setValue(request, f, '');
     const payload = {
       action,
       request,
@@ -209,6 +254,7 @@ export async function renderRequestForm(el, { config, params }) {
         const out = { data: {} };
         for (const f of iFields) setValue(out, f, getValue(i, f));
         if (oneVendor) out.vendor = form.querySelector('#f-vendor').value.trim(); // same vendor for every item
+        for (const f of iFields) if (!isVisible(f, request, out)) setValue(out, f, '');
         return out;
       }),
     };

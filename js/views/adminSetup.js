@@ -10,6 +10,7 @@ import {
   esc, fmtDateTime, errorBox, setFlash, takeFlash, statusBadge, COLOR_TONES, DEFAULT_STATUS_COLORS, priorityColor,
 } from '../ui.js';
 import { LISTS, availableColumns, availableFilters, listSettings } from '../listColumns.js';
+import { requestFields, itemFields, fieldOptions } from '../formFields.js';
 import { adminTabs } from './admin.js';
 
 const toneOptions = (selected) =>
@@ -196,6 +197,13 @@ export async function renderAppearance(el, { config, rerender, reloadConfig }) {
   const a = config.appearance || {};
   const statuses = config.statuses;
   const priorities = config.priorities || [];
+  // Dropdowns that can have colored answers (priority has its own section above).
+  const dropdowns = [...requestFields(config), ...itemFields(config)]
+    .filter((f) => !f.hidden && f.type === 'select' && f.key !== 'priority')
+    .filter((f, i, all) => all.findIndex((x) => x.key === f.key) === i)
+    .map((f) => ({ ...f, options: fieldOptions(f, config) }))
+    .filter((f) => f.options.length);
+  let logo = a.logo || ''; // data URL, or '' for the standard logo
 
   el.innerHTML = `
     ${takeFlash()}
@@ -204,6 +212,29 @@ export async function renderAppearance(el, { config, rerender, reloadConfig }) {
     ${adminTabs('appearance')}
     <div id="appearance-errors"></div>
     <form id="appearance-form" novalidate>
+      <section class="card">
+        <h2>Brand</h2>
+        <div class="two-col brand-grid">
+          <div class="field">
+            <label for="logo-file">Logo <span class="muted">(top-left and sign-in page; PNG, JPG, SVG or WebP under 300 KB)</span></label>
+            <div class="logo-row">
+              <div class="logo-preview"><img id="logo-preview" src="${esc(a.logo || 'assets/solar-gators-logo.png')}" alt="Logo preview"></div>
+              <div>
+                <input id="logo-file" type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp">
+                <button type="button" class="btn btn-sm btn-ghost" id="logo-reset" ${a.logo ? '' : 'hidden'}>Use the standard logo</button>
+              </div>
+            </div>
+          </div>
+          <div class="field">
+            <label for="accent">Accent color <span class="muted">(buttons, highlights, the line under the header)</span></label>
+            <div class="accent-row">
+              <input id="accent" type="color" value="${esc(a.accent || '#f26b1d')}">
+              <span class="btn btn-primary accent-sample" id="accent-sample">Sample button</span>
+              <button type="button" class="btn btn-sm btn-ghost" id="accent-reset">Standard orange</button>
+            </div>
+          </div>
+        </div>
+      </section>
       <div class="two-col">
         <section class="card">
           <h2>Statuses</h2>
@@ -242,6 +273,28 @@ export async function renderAppearance(el, { config, rerender, reloadConfig }) {
               <span class="hint">Off: lists only tag requests that aren't the default priority, so urgent ones stand out.</span></span></label>
         </section>
       </div>
+      ${
+        dropdowns.length
+          ? `<section class="card">
+              <h2>Dropdown colors</h2>
+              <p class="muted small">Give dropdown answers a color in lists and on request pages, e.g. one per Cost center. "None" shows plain text.</p>
+              <div class="dropdown-colors">${dropdowns
+                .map(
+                  (f) => `<div class="dropdown-color-group" data-dd="${esc(f.key)}">
+                    <h3 class="sub-heading">${esc(f.label)}</h3>
+                    <table class="table tone-table"><tbody>${f.options
+                      .map(
+                        (o) => `<tr data-option="${esc(o)}"><td>${esc(o)}</td>
+                          <td><select name="dd-color" aria-label="Color for ${esc(o)}"><option value="">None</option>${toneOptions(a.optionColors?.[f.key]?.[o] || '')}</select></td>
+                          <td data-preview></td></tr>`
+                      )
+                      .join('')}</tbody></table>
+                  </div>`
+                )
+                .join('')}</div>
+            </section>`
+          : ''
+      }
       <div class="form-actions">
         <button type="button" class="btn btn-ghost" id="appearance-reset">Reset all to defaults</button>
         <button type="submit" class="btn btn-primary">Save appearance</button>
@@ -257,7 +310,45 @@ export async function renderAppearance(el, { config, rerender, reloadConfig }) {
     form.querySelectorAll('tr[data-priority]').forEach((tr) => {
       tr.querySelector('[data-preview]').innerHTML = `<span class="priority tone-${esc(tr.querySelector('[name=color]').value)}">${esc(tr.dataset.priority)}</span>`;
     });
+    form.querySelectorAll('tr[data-option]').forEach((tr) => {
+      const t = tr.querySelector('[name=dd-color]').value;
+      tr.querySelector('[data-preview]').innerHTML = t ? `<span class="chip-tone tone-${esc(t)}">${esc(tr.dataset.option)}</span>` : esc(tr.dataset.option);
+    });
+    const accent = form.querySelector('#accent').value;
+    const sample = form.querySelector('#accent-sample');
+    sample.style.background = accent;
+    sample.style.borderColor = accent;
   };
+
+  // Logo: read the file in the browser and keep it as a data URL in the settings.
+  form.querySelector('#logo-file').addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    const errors = el.querySelector('#appearance-errors');
+    errors.innerHTML = '';
+    if (!file) return;
+    if (file.size > 300 * 1024) {
+      errors.innerHTML = errorBox(new Error('That image is over 300 KB. Try a smaller PNG or an SVG.'));
+      e.target.value = '';
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      logo = reader.result;
+      form.querySelector('#logo-preview').src = logo;
+      form.querySelector('#logo-reset').hidden = false;
+    };
+    reader.readAsDataURL(file);
+  });
+  form.querySelector('#logo-reset').addEventListener('click', (e) => {
+    logo = '';
+    form.querySelector('#logo-preview').src = 'assets/solar-gators-logo.png';
+    form.querySelector('#logo-file').value = '';
+    e.target.hidden = true;
+  });
+  form.querySelector('#accent-reset').addEventListener('click', () => {
+    form.querySelector('#accent').value = '#f26b1d';
+    preview();
+  });
   form.addEventListener('input', preview);
   form.addEventListener('change', preview);
 
@@ -271,6 +362,9 @@ export async function renderAppearance(el, { config, rerender, reloadConfig }) {
       tr.querySelector('[name=color]').value = defaults[tr.dataset.priority.toLowerCase()] || 'gray';
     });
     form.showDefaultPriority.checked = false;
+    form.querySelectorAll('[name=dd-color]').forEach((s) => (s.value = ''));
+    form.querySelector('#accent').value = '#f26b1d';
+    form.querySelector('#logo-reset').click();
     preview();
   });
 
@@ -286,6 +380,14 @@ export async function renderAppearance(el, { config, rerender, reloadConfig }) {
       ),
       priorities: Object.fromEntries([...form.querySelectorAll('tr[data-priority]')].map((tr) => [tr.dataset.priority, tr.querySelector('[name=color]').value])),
       showDefaultPriority: form.showDefaultPriority.checked,
+      optionColors: Object.fromEntries(
+        [...form.querySelectorAll('[data-dd]')].map((g) => [
+          g.dataset.dd,
+          Object.fromEntries([...g.querySelectorAll('tr[data-option]')].map((tr) => [tr.dataset.option, tr.querySelector('[name=dd-color]').value]).filter(([, v]) => v)),
+        ])
+      ),
+      logo,
+      accent: form.querySelector('#accent').value.toLowerCase() === '#f26b1d' ? '' : form.querySelector('#accent').value.toLowerCase(),
     };
     const button = form.querySelector('button[type=submit]');
     button.disabled = true;

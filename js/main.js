@@ -3,13 +3,13 @@ import { isConfigured } from './supabase.js';
 import { api } from './api.js';
 import { auth } from './auth.js';
 import { startRouter } from './router.js';
-import { STATUS, STATUSES, EDITABLE_STATUSES, esc, errorBox, setCurrentSeason, setAppearance } from './ui.js';
+import { STATUS, STATUSES, EDITABLE_STATUSES, esc, errorBox, setCurrentSeason, setAppearance, renderRichText } from './ui.js';
 
 const app = document.getElementById('app');
 
 // Bump when adding a file to supabase/migrations/ (the migration sets general.schemaVersion).
-const REQUIRED_SCHEMA_VERSION = 8;
-const MIGRATIONS = { 2: '002_form_fields.sql', 3: '003_archive_and_import.sql', 4: '004_cost_adjustments.sql', 5: '005_editable_permissions.sql', 6: '006_seasons.sql', 7: '007_one_vendor_per_request.sql', 8: '008_roles_admin_history.sql' };
+const REQUIRED_SCHEMA_VERSION = 9;
+const MIGRATIONS = { 2: '002_form_fields.sql', 3: '003_archive_and_import.sql', 4: '004_cost_adjustments.sql', 5: '005_editable_permissions.sql', 6: '006_seasons.sql', 7: '007_one_vendor_per_request.sql', 8: '008_roles_admin_history.sql', 9: '009_form_rules_layout_exports.sql' };
 
 /** Shared config object handed to every view. Mutated in place on reload. */
 const config = {};
@@ -29,12 +29,42 @@ async function reloadConfig() {
     statuses: STATUSES,
     editableStatuses: EDITABLE_STATUSES,
     lists: settings.lists || {}, // Admin → Lists
-    appearance: settings.appearance || {}, // Admin → Appearance
+    appearance: settings.appearance || {}, // Admin → Appearance, Text & banner
+    layout: settings.layout || {}, // Admin → Request page
+    exports: settings.exports || {}, // Admin → Exports
   });
   document.title = `${config.teamName} Orders`;
   setCurrentSeason(config.season);
   setAppearance(config.appearance, { defaultPriority: config.defaultPriority });
+  applyBranding();
   document.getElementById('footer').textContent = `${config.teamName} · ${config.season} season`;
+}
+
+/** Logo and accent color from Admin → Appearance (also shown on the sign-in page). */
+function applyBranding() {
+  const a = config.appearance || {};
+  document.querySelector('.brand-logo').src = a.logo || 'assets/solar-gators-logo.png';
+  const root = document.documentElement.style;
+  if (/^#[0-9a-f]{6}$/i.test(a.accent || '')) {
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(a.accent.slice(i, i + 2), 16));
+    const darker = `#${[r, g, b].map((c) => Math.round(c * 0.85).toString(16).padStart(2, '0')).join('')}`;
+    root.setProperty('--orange', a.accent);
+    root.setProperty('--orange-dark', darker);
+    root.setProperty('--focus', `${a.accent}55`);
+  } else {
+    ['--orange', '--orange-dark', '--focus'].forEach((v) => root.removeProperty(v));
+  }
+}
+
+/** Announcement banner (Admin → Text & banner) — hidden after its end date. */
+function updateAnnouncement() {
+  const box = document.getElementById('announcement');
+  const ann = config.appearance?.announcement;
+  const today = new Date().toISOString().slice(0, 10);
+  const show = auth.signedIn && ann?.text && (!ann.until || today <= ann.until);
+  box.hidden = !show;
+  box.className = show ? `announcement announcement-${['info', 'warning', 'success', 'error'].includes(ann.tone) ? ann.tone : 'info'}` : 'announcement';
+  box.innerHTML = show ? `<div class="container">${renderRichText(ann.text)}</div>` : '';
 }
 
 /** Show/hide nav links by permission and fill in the account menu. */
@@ -42,6 +72,9 @@ function updateChrome() {
   document.querySelectorAll('.topbar [data-perm]').forEach((node) => {
     node.hidden = !auth.signedIn || !node.dataset.perm.split(' ').some((p) => auth.can(p));
   });
+  // Help tab only when the team has written help text.
+  document.getElementById('nav-help').hidden = !auth.signedIn || !String(config.appearance?.helpText || '').trim();
+  updateAnnouncement();
   // Tell leads (only) when the live database is missing a migration.
   const banner = document.getElementById('banner');
   const version = Number(config.schemaVersion) || 1;

@@ -3,7 +3,7 @@
  * signed out.
  */
 import { auth } from '../auth.js';
-import { esc, errorBox } from '../ui.js';
+import { esc, errorBox, renderRichText } from '../ui.js';
 
 let mode = 'signin'; // 'signin' | 'signup' | 'forgot'
 let notice = '';
@@ -68,6 +68,7 @@ export async function renderLogin(el, { config }) {
         </form>
         <div class="auth-links">${links[mode]}</div>
       </div>
+      ${config.appearance?.signInMessage ? `<div class="auth-message">${renderRichText(config.appearance.signInMessage)}</div>` : ''}
       <p class="muted small auth-foot">${esc(config.teamName)} · ${esc(config.season)} season</p>
     </div>`;
 

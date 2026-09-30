@@ -127,10 +127,11 @@ await test('sign-up creates a Member profile (subdomains allowed)', async () => 
   assert.deepEqual([await roleOf(member), await roleOf(other)], ['member', 'member']);
 });
 
-await test('anon can read general settings but not requests or profiles', async () => {
+await test('anon can read general and appearance settings but not requests or profiles', async () => {
   await as(null, async () => {
-    const { rows } = await db.query(`select key from app_settings`);
-    assert.deepEqual(rows.map((r) => r.key), ['general']);
+    const { rows } = await db.query(`select key from app_settings order by key`);
+    assert.deepEqual(rows.map((r) => r.key), ['appearance', 'general']); // sign-in page: team name, logo, colors
+    await rejects(db.query(`select * from settings_history`), /permission denied/);
     await rejects(db.query(`select * from requests`), /permission denied/);
     await rejects(db.query(`select * from profiles`), /permission denied/);
   });
@@ -292,7 +293,7 @@ await test('the website cannot change the schema version', async () => {
   const general = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
   await as(ce, () => rpc('update_settings', ['general', { ...general, schemaVersion: 99 }]));
   const after = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
-  assert.equal(after.schemaVersion, 8);
+  assert.equal(after.schemaVersion, 9);
 });
 
 console.log('Form fields');
@@ -791,6 +792,88 @@ await test('even the first Lists/Appearance change can be undone (back to defaul
 await test('the history starts with the settings as they were before 008', async () => {
   const first = (await db.query(`select changed_by_name, note from settings_history order by id limit 1`)).rows[0];
   assert.deepEqual(first, { changed_by_name: 'Before history started', note: 'Starting point' });
+});
+
+console.log('Form sections, conditions & limits');
+
+const oneItem = [{ item_name: 'Bolts', vendor: 'McMaster-Carr', quantity: 1, unit_price: 5 }];
+const submit = (request, items = oneItem) => as(member, () => rpc('save_request', [null, request, items, 'submit']));
+const saveForm = async (edit) => as(ce, async () => rpc('update_settings', ['form', await withFields(edit)]));
+
+await test('section headings are allowed on requests, never required, and not on items', async () => {
+  await saveForm((f) => f.requestFields.push({ key: 'c_funding_section', label: 'Funding', type: 'section', required: false }));
+  await as(ce, async () => rejects(rpc('update_settings', ['form', await withFields((f) => (field(f.requestFields, 'c_funding_section').required = true))]), /can't be required/));
+  await as(ce, async () => rejects(rpc('update_settings', ['form', await withFields((f) => f.itemFields.push({ key: 'c_sec', label: 'Sec', type: 'section' }))]), /unknown type/));
+  await submit(vendorRequest); // a section never blocks a submit
+});
+
+await test('a field shown only when another matches is only required then — and hidden answers are dropped', async () => {
+  await saveForm((f) =>
+    f.requestFields.push(
+      { key: 'c_scholarship', label: 'Scholarship funding?', type: 'yesno', required: false },
+      { key: 'c_scholarship_form', label: 'Scholarship form sent?', type: 'yesno', required: true, showIf: { field: 'c_scholarship', op: 'equals', value: 'Yes' } }
+    )
+  );
+  // Condition not met: not required, and a stray answer isn't saved.
+  const { rows } = await submit({ ...vendorRequest, data: { ...vendorRequest.data, c_scholarship: 'No', c_scholarship_form: 'Yes' } });
+  const saved = (await db.query(`select data from requests where request_number = $1`, [rows[0].result])).rows[0].data;
+  assert.equal(saved.c_scholarship_form, undefined);
+  // Condition met: now it's required.
+  const err = await rejects(submit({ ...vendorRequest, data: { ...vendorRequest.data, c_scholarship: 'Yes' } }), /fix/);
+  assert.match(err.detail, /Scholarship form sent\? is required/);
+});
+
+await test('conditions work on built-in fields too (e.g. Needed by only for Urgent)', async () => {
+  await saveForm((f) => (field(f.requestFields, 'needed_by').showIf = { field: 'priority', op: 'isOneOf', value: ['Urgent'] }));
+  await submit({ ...vendorRequest, priority: 'Normal', needed_by: '' });
+  const err = await rejects(submit({ ...vendorRequest, priority: 'Urgent', needed_by: '' }), /fix/);
+  assert.match(err.detail, /Needed by is required/);
+  await saveForm((f) => delete field(f.requestFields, 'needed_by').showIf);
+});
+
+await test('item fields can depend on the same item (e.g. only for McMaster)', async () => {
+  await saveForm((f) => f.itemFields.push({ key: 'c_pack', label: 'Pack size', type: 'text', required: true, showIf: { field: 'vendor', op: 'equals', value: 'mcmaster-carr' } }));
+  const err = await rejects(submit(vendorRequest), /fix/);
+  assert.match(err.detail, /Item 1: Pack size is required/);
+  await submit(vendorRequest, [{ ...oneItem[0], vendor: 'Uline' }]); // other vendor: not asked
+  await submit(vendorRequest, [{ ...oneItem[0], data: { c_pack: '50' } }]);
+  await saveForm((f) => (f.itemFields = f.itemFields.filter((x) => x.key !== 'c_pack')));
+});
+
+await test('min, max and maximum length are enforced', async () => {
+  await saveForm((f) =>
+    f.requestFields.push(
+      { key: 'c_budget_line', label: 'Budget line', type: 'number', required: false, min: '1', max: '100' },
+      { key: 'c_code', label: 'Account code', type: 'text', required: false, maxLength: '5' }
+    )
+  );
+  const err = await rejects(submit({ ...vendorRequest, data: { ...vendorRequest.data, c_budget_line: '150', c_code: 'ABCDEFG' } }), /fix/);
+  assert.match(err.detail, /Budget line must be at most 100/);
+  assert.match(err.detail, /Account code must be 5 characters or fewer/);
+  const low = await rejects(submit({ ...vendorRequest, data: { ...vendorRequest.data, c_budget_line: '0' } }), /fix/);
+  assert.match(low.detail, /Budget line must be at least 1/);
+  await submit({ ...vendorRequest, data: { ...vendorRequest.data, c_budget_line: '42', c_code: 'AB12' } });
+});
+
+await test('broken rules are refused when saving the form', async () => {
+  const bad = [
+    [(f) => (field(f.requestFields, 'title').showIf = { field: 'priority', op: 'isFilled' }), /always shown/],
+    [(f) => (field(f.requestFields, 'c_code').showIf = { field: 'c_code', op: 'isFilled' }), /depend on itself/],
+    [(f) => (field(f.requestFields, 'c_code').showIf = { field: 'priority', op: 'contains', value: 'x' }), /unknown rule/],
+    [(f) => (field(f.requestFields, 'c_code').showIf = { field: 'priority', op: 'equals' }), /needs a value/],
+    [(f) => (field(f.requestFields, 'c_code').showIf = { field: 'c_nope', op: 'isFilled' }), /doesn't exist/],
+    [(f) => Object.assign(field(f.requestFields, 'c_budget_line'), { min: '10', max: '5' }), /more than its maximum/],
+    [(f) => (field(f.requestFields, 'c_code').maxLength = '0'), /between 1 and 5000/],
+  ];
+  for (const [edit, pattern] of bad) await as(ce, async () => rejects(rpc('update_settings', ['form', await withFields(edit)]), pattern));
+});
+
+await test('request page layout and export templates need "Customize lists & appearance"', async () => {
+  await as(ce, () => rejects(rpc('update_settings', ['layout', { detailFields: ['requester'] }]), /site.customize/));
+  await as(other, () => rpc('update_settings', ['exports', { templates: [{ id: 'dept', name: 'Dept form', rowPer: 'item', columns: ['id', 'item_name'] }] }]));
+  await as(other, () => rpc('update_settings', ['layout', { detailFields: ['requester', 'c_cost_center'] }]));
+  await as(other, () => rejects(rpc('update_settings', ['appearance', { accent: 'orange' }]), /accent color/));
+  await as(other, () => rpc('update_settings', ['appearance', { accent: '#0b7a3e' }]));
 });
 
 console.log(`\n${passed} passed${process.exitCode ? ', some FAILED' : ''}`);

@@ -12,10 +12,12 @@ import {
   STATUS, DECISION_LABELS, esc, fmtMoney, fmtDate, fmtDateTime, todayISO,
   statusBadge, priorityTag, isOverdue, errorBox, setFlash, takeFlash, copyButton, bindCopyButtons,
 } from '../ui.js';
-import { requestFields, itemFields, shown, getValue, displayValue, MONEY_FIELDS } from '../formFields.js';
+import { getValue, displayValue, isVisible, MONEY_FIELDS } from '../formFields.js';
+import { pageLayout, copyAllowed, detailFieldList, itemColumnList } from '../pageLayout.js';
 
-/** The Treasurer copies values into purchasing forms, so they get copy buttons. */
-const showCopy = () => auth.can('request.order');
+/** Copy buttons (for pasting into purchasing forms) go to whoever Admin → Request page says. */
+let layout = null; // set on each render from the `layout` settings
+const showCopy = () => copyAllowed(layout);
 
 /** Plain text to copy for a field value (dollars without "$", URLs as-is). */
 function copyText(field, value) {
@@ -27,7 +29,7 @@ const copyFor = (field, value) => (showCopy() ? copyButton(copyText(field, value
 
 /** All items as tab-separated text (with a header row) — pastes into Excel or Sheets as a table. */
 function itemsAsTable(r, config) {
-  const fields = shown(itemFields(config));
+  const fields = itemColumnList(config, layout);
   const clean = (v) => String(v ?? '').replace(/[\t\n\r]+/g, ' ');
   const header = [...fields.map((f) => f.label), 'Line total'];
   const rows = r.items.map((i) => [...fields.map((f) => clean(copyText(f, getValue(i, f)))), (i.item_total + (Number(i.shipping_cost) || 0)).toFixed(2)]);
@@ -36,18 +38,20 @@ function itemsAsTable(r, config) {
 
 function itemsTable(r, config) {
   if (!r.items.length) return '<div class="empty">No items yet.</div>';
-  // Item name gets its own column with notes underneath; other shown fields follow in form order.
-  const fields = shown(itemFields(config));
+  // Item name gets its own column with notes underneath; the other chosen fields follow.
+  const fields = itemColumnList(config, layout);
   const nameField = fields.find((f) => f.key === 'item_name');
   const notesField = fields.find((f) => f.key === 'notes');
   const cols = fields.filter((f) => f !== nameField && f !== notesField);
   const isNum = (f) => f.type === 'number';
+  // A cell whose "show only when…" rule doesn't apply to this item shows a dash.
+  const cell = (f, i) => (isVisible(f, r, i) ? `<span class="copy-wrap">${displayValue(f, getValue(i, f))}${copyFor(f, getValue(i, f))}</span>` : '<span class="muted">—</span>');
   const rows = r.items
     .map(
       (i, idx) => `<tr>
         <td class="muted hide-mobile">${idx + 1}</td>
         <td class="cell-primary" data-label=""><strong>${esc(i.item_name || '—')}</strong>${nameField ? copyFor(nameField, i.item_name) : ''}${notesField && i.notes ? `<div class="muted small">${esc(i.notes)}</div>` : ''}</td>
-        ${cols.map((f) => `<td class="${isNum(f) ? 'num' : ''}" data-label="${esc(f.label)}"><span class="copy-wrap">${displayValue(f, getValue(i, f))}${copyFor(f, getValue(i, f))}</span></td>`).join('')}
+        ${cols.map((f) => `<td class="${isNum(f) ? 'num' : ''}" data-label="${esc(f.label)}">${cell(f, i)}</td>`).join('')}
         <td class="num" data-label="Total">${fmtMoney(i.item_total)}</td>
       </tr>`
     )
@@ -123,15 +127,22 @@ function costEvents(r) {
 
 /** Request fields except the title/priority (shown in the header). Long text goes full width. */
 function detailsGrid(r, config) {
-  const fields = shown(requestFields(config)).filter((f) => f.key !== 'title' && f.key !== 'priority');
+  // Fields and order from Admin → Request page; sections become headings; fields whose
+  // "show only when…" rule doesn't apply to this request are left out.
+  const fields = detailFieldList(config, layout).filter((f) => isVisible(f, r));
   const cell = (f) => {
+    if (f.type === 'section') return `<div class="span-full detail-section"><h3>${esc(f.label)}</h3>${f.help ? `<p class="muted small">${esc(f.help)}</p>` : ''}</div>`;
     const value = getValue(r, f);
     const cls = f.key === 'needed_by' && isOverdue(r) ? 'overdue' : f.type === 'textarea' ? 'prewrap' : '';
-    return `<div class="${f.type === 'textarea' ? 'span-full' : ''}"><dt>${esc(f.label)}</dt><dd class="${cls}"><span class="copy-wrap">${displayValue(f, value)}${copyFor(f, value)}</span></dd></div>`;
+    const leadOnly = layout.leadOnly.has(`request:${f.key}`) ? ' <span class="field-tag" title="Only Chief Engineers and Treasurers see this">Leads</span>' : '';
+    return `<div class="${f.type === 'textarea' ? 'span-full' : ''}"><dt>${esc(f.label)}${leadOnly}</dt><dd class="${cls}"><span class="copy-wrap">${displayValue(f, value)}${copyFor(f, value)}</span></dd></div>`;
   };
-  const short = fields.filter((f) => f.type !== 'textarea').map(cell).join('');
-  const long = fields.filter((f) => f.type === 'textarea').map(cell).join('');
-  return `<dl class="meta-grid">${short}<div><dt>Vendors</dt><dd>${esc(r.vendors.join(', ') || '—')}</dd></div>${long}</dl>`;
+  // Vendors go before the first long-text field or section after the short ones.
+  const firstBig = fields.findIndex((f) => f.type === 'textarea' || f.type === 'section');
+  const vendors = `<div><dt>Vendor</dt><dd>${esc(r.vendors.join(', ') || '—')}</dd></div>`;
+  const html = fields.map(cell);
+  html.splice(firstBig < 0 ? html.length : firstBig, 0, vendors);
+  return `<dl class="meta-grid">${html.join('')}</dl>`;
 }
 
 function historyCard(r) {
@@ -267,6 +278,8 @@ function actionPanel(r, config) {
 
 export async function renderRequestDetail(el, { config, params, rerender }) {
   const r = await api.getRequest(params.id);
+  layout = pageLayout(config);
+  const detailsCard = `<section class="card"><h2>Details</h2>${detailsGrid(r, config)}</section>`;
 
   el.innerHTML = `
     ${takeFlash()}
@@ -282,10 +295,7 @@ export async function renderRequestDetail(el, { config, params, rerender }) {
 
     <div class="detail-layout">
       <div class="detail-main">
-        <section class="card">
-          <h2>Details</h2>
-          ${detailsGrid(r, config)}
-        </section>
+        ${layout.itemsFirst ? '' : detailsCard}
         <section class="card" id="items-card">
           <div class="card-head">
             <h2>Items (${r.items.length})${r.cost_changes.length ? ' <span class="field-tag" title="See History">Costs adjusted</span>' : ''}</h2>
@@ -297,6 +307,7 @@ export async function renderRequestDetail(el, { config, params, rerender }) {
           </div>
           <div id="items-body">${itemsTable(r, config)}</div>
         </section>
+        ${layout.itemsFirst ? detailsCard : ''}
       </div>
       <aside class="detail-side">
         ${actionPanel(r, config)}

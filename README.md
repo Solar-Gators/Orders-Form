@@ -89,7 +89,7 @@ If the Chief Engineer requests changes, you'll see their comment on the request.
 - **Requests:** this season's requests. A season picker lets you look back at earlier seasons.
 - **Sorting:** click any column heading on Requests, Approvals, or Treasurer to sort by it, and click again to reverse. On a phone, use the **Sort by** menu above the list. Search by ID, title, requester, or vendor, and filter by status, subsystem, or "My requests".
 - **Archive:** orders from past seasons: requests made on this site in earlier seasons, plus the old spreadsheets imported from Excel. Type any words (item, vendor, part number, person, ticket) and filter by season, subteam, or status. Click a row to see every column exactly as it was in the original sheet.
-- **Export:** download a season (or all seasons) as an Excel file. There's one row per item, with request, approval, order, and delivery details on each row, ready to filter or pivot.
+- **Export:** download a season (or all seasons) as an Excel file. Pick a **template**: the full export (every column, one row per item), or ones your leads made, e.g. the exact columns the department's purchasing form wants. There's one row per item, with request, approval, order, and delivery details on each row, ready to filter or pivot.
 
 ### Admin
 
@@ -100,12 +100,20 @@ Each Admin tab appears only for people whose roles allow it.
   - **Permissions:** a checkbox grid of what each role can do. There's one safety rule: at least one person must always keep **Manage people & roles**, so the team can't lock itself out.
 - **Form fields:** change the request form without touching code.
   - Rename, reorder, hide, or require/unrequire fields.
-  - Add your own fields: text, number, date, dropdown, yes/no, or link.
+  - Add your own fields: text, number, date, dropdown, yes/no, link, or a **section heading** to group fields.
+  - **Rules** (per field):
+    - **Show only when…** another answer matches, e.g. "Scholarship form sent?" only when "Scholarship funding?" is Yes. A hidden field is never required, which also gives you "required only when…".
+    - **Allowed range** for numbers and **maximum length** for text.
+    - A **default value** for new requests.
+    - The database enforces all of these too.
   - The Excel export follows the form automatically.
   - Request title, item name, quantity, and unit price are locked because totals and approvals depend on them.
 - **Settings:** the options of every dropdown on the form (built-in ones like Subsystem and Priority, plus any you add, e.g. "Cost center"), the team name, request ID prefix, allowed sign-up email domains, request rules, and **Start a new season**.
 - **Lists:** choose the columns of the Requests, Approvals, and Treasurer lists. Any request field works, including custom ones like Cost center, plus values like Total, Vendor, and Approved date. Also set each list's default sort, and which filters appear above the Requests list.
-- **Appearance:** rename how statuses are shown (e.g. "Ordered" → "Purchased") and pick their colors, plus priority colors. Only the display changes; the workflow stays the same.
+- **Request page:** which fields show in a request's Details box and Items table, and in what order. Also: fields only leads see, who gets copy buttons, and whether Items comes first.
+- **Exports:** Excel templates with your own columns and headings, one row per item or per request, an optional status filter, and a file name.
+- **Appearance:** upload the logo, pick the accent color, and give dropdown answers colors (e.g. one per Cost center). Also rename how statuses are shown (e.g. "Ordered" → "Purchased") and pick their colors, plus priority colors. Only the display changes; the workflow stays the same.
+- **Text & banner:** an announcement banner at the top of every page (with an optional end date), a message on the sign-in page, your own intro line for each page, and a **Help** page for the team (a Help tab appears once it has text).
 - **Import:** bring in an old Excel order sheet.
   - A **past season** goes into the Archive with every column kept.
   - **This season's** sheet becomes real requests, including their approvals, order status, ticket numbers, and shipping.

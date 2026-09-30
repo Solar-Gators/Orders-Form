@@ -6,8 +6,8 @@
  * Cost center — keyed by the field key) or a computed value (Requested, Total,
  * Status, Approved date, …). Column objects are the same shape as ui.js COLUMNS.
  */
-import { COLUMNS, esc, priorityTag, statusLabel } from './ui.js';
-import { requestFields, getValue, displayValue, fieldOptions } from './formFields.js';
+import { COLUMNS, priorityTag, statusLabel, optionChip } from './ui.js';
+import { requestFields, getValue, displayValue, fieldOptions, answerable } from './formFields.js';
 
 export const LISTS = {
   requests: {
@@ -56,7 +56,7 @@ function fieldColumn(f) {
     cell: (r) => {
       const v = getValue(r, f);
       if (f.key === 'priority') return v ? priorityTag(v) : '—';
-      if (f.type === 'select' || f.type === 'yesno') return esc(v || '—');
+      if (f.type === 'select' || f.type === 'yesno') return optionChip(f.key, v);
       return displayValue(f, v);
     },
     sort: (r) => {
@@ -70,7 +70,7 @@ function fieldColumn(f) {
 
 /** Every column that can be shown: the form's request fields, then computed values. */
 export function availableColumns(config) {
-  const fields = requestFields(config).filter((f) => !f.hidden).map(fieldColumn);
+  const fields = answerable(requestFields(config)).filter((f) => !f.hidden).map(fieldColumn);
   return [...fields, ...COMPUTED.map((k) => COLUMNS[k])];
 }
 

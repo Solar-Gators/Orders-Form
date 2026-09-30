@@ -8,7 +8,9 @@
 import { api } from '../api.js';
 import { auth } from '../auth.js';
 import { esc, fmtDate, errorBox, setFlash, takeFlash } from '../ui.js';
-import { FIELD_TYPES, LOCKED, LIST_FIELDS, requestFields, itemFields, typeLabel, makeKey } from '../formFields.js';
+import {
+  FIELD_TYPES, LOCKED, LIST_FIELDS, CONDITION_OPS, requestFields, itemFields, typeLabel, makeKey, fieldOptions, describeCondition,
+} from '../formFields.js';
 
 /** Admin tabs, each shown only with its permission. Also used by the router. */
 export const ADMIN_TABS = [
@@ -16,7 +18,10 @@ export const ADMIN_TABS = [
   ['fields', 'Form fields', ['settings.edit']],
   ['settings', 'Settings', ['settings.edit', 'seasons.manage']],
   ['lists', 'Lists', ['site.customize']],
+  ['page', 'Request page', ['site.customize']],
+  ['exports', 'Exports', ['site.customize']],
   ['appearance', 'Appearance', ['site.customize']],
+  ['text', 'Text & banner', ['site.customize']],
   ['import', 'Import', ['seasons.manage']],
   ['history', 'History', ['users.manage', 'settings.edit', 'site.customize']],
 ];
@@ -474,16 +479,103 @@ export async function renderSettings(el, { rerender, reloadConfig }) {
 export async function renderFormFields(el, { rerender, reloadConfig }) {
   const settings = await api.getSettings();
   const form = settings.form || {};
+  let uid = 0; // tracks which rows have their Rules panel open, even as rows move
   const lists = {
-    request: requestFields(form).map((f) => ({ ...f })),
-    item: itemFields(form).map((f) => ({ ...f })),
+    request: requestFields(form).map((f) => ({ ...f, _uid: ++uid })),
+    item: itemFields(form).map((f) => ({ ...f, _uid: ++uid })),
   };
+  const openRules = new Set();
   let dirty = false;
 
-  const typeSelect = (f) =>
-    `<select data-prop="type" aria-label="Type of ${esc(f.label)}">${FIELD_TYPES.map(
-      (t) => `<option value="${t.key}" ${t.key === f.type ? 'selected' : ''}>${esc(t.label)}</option>`
-    ).join('')}</select>`;
+  const typeSelect = (kind, f) =>
+    `<select data-prop="type" aria-label="Type of ${esc(f.label)}">${FIELD_TYPES.filter((t) => kind === 'request' || !t.requestOnly)
+      .map((t) => `<option value="${t.key}" ${t.key === f.type ? 'selected' : ''}>${esc(t.label)}</option>`)
+      .join('')}</select>`;
+
+  // ---- Rules: "show only when…", min / max, max length, default ----------------------
+  /** Fields a condition can look at: saved fields that take an answer (items can also look at request fields). */
+  const conditionTargets = (kind, f) => {
+    const usable = (list) => list.filter((x) => x.key && x !== f && x.type !== 'section' && !x.hidden);
+    return kind === 'request'
+      ? usable(lists.request).map((x) => ({ ...x, group: '' }))
+      : [...usable(lists.item).map((x) => ({ ...x, group: 'This item' })), ...usable(lists.request).map((x) => ({ ...x, group: 'The request' }))];
+  };
+  const optionsOf = (x) => (x.type === 'yesno' ? ['Yes', 'No'] : fieldOptions(x, form));
+  const rulesSummary = (kind, f) => {
+    const parts = [];
+    if (f.showIf?.field) parts.push(`Only when ${describeCondition(f.showIf, [...lists.request, ...lists.item])}`);
+    if (f.min !== undefined && f.min !== '') parts.push(`min ${f.min}`);
+    if (f.max !== undefined && f.max !== '') parts.push(`max ${f.max}`);
+    if (f.maxLength) parts.push(`≤ ${f.maxLength} chars`);
+    if (f.default !== undefined && f.default !== '') parts.push(`default "${f.default}"`);
+    return parts.join(' · ');
+  };
+  const rulesPanel = (kind, f) => {
+    const locked = LOCKED.has(f.key);
+    const targets = conditionTargets(kind, f);
+    const c = f.showIf || {};
+    const tgt = targets.find((x) => x.key === c.field);
+    const op = CONDITION_OPS.find((o) => o.key === c.op) || CONDITION_OPS[0];
+    const values = Array.isArray(c.value) ? c.value : c.value !== undefined && c.value !== '' ? [c.value] : [];
+    const valueInput = !op.needsValue
+      ? ''
+      : tgt && ['select', 'yesno'].includes(tgt.type)
+        ? op.many
+          ? `<span class="cond-multi">${optionsOf(tgt)
+              .map((o) => `<label class="role-chip ${values.includes(o) ? 'on' : ''}"><input type="checkbox" data-rule="cond-multi" value="${esc(o)}" ${values.includes(o) ? 'checked' : ''}>${esc(o)}</label>`)
+              .join('')}</span>`
+          : `<select data-rule="cond-value" aria-label="Value"><option value="">Choose…</option>${optionsOf(tgt)
+              .map((o) => `<option value="${esc(o)}" ${values[0] === o ? 'selected' : ''}>${esc(o)}</option>`)
+              .join('')}</select>`
+        : `<input type="text" data-rule="cond-value" value="${esc(values.join(', '))}" placeholder="${op.many ? 'Values, separated by commas' : 'Value'}" aria-label="Value">`;
+    const groups = [...new Set(targets.map((x) => x.group))];
+    const targetOptions = groups
+      .map((g) => {
+        const opts = targets.filter((x) => x.group === g).map((x) => `<option value="${esc(x.key)}" ${x.key === c.field ? 'selected' : ''}>${esc(x.label)}</option>`).join('');
+        return g ? `<optgroup label="${esc(g)}">${opts}</optgroup>` : opts;
+      })
+      .join('');
+    const isText = ['text', 'textarea', 'url'].includes(f.type);
+    return `<div class="rules-panel">
+      <div class="rule">
+        <strong>Show only when</strong>
+        ${
+          locked
+            ? '<span class="muted small">This field is locked: it\'s always shown.</span>'
+            : `<select data-rule="cond-field" aria-label="Field to check"><option value="">Always show this field</option>${targetOptions}</select>
+              ${c.field ? `<select data-rule="cond-op" aria-label="Rule">${CONDITION_OPS.map((o) => `<option value="${o.key}" ${o.key === op.key ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}</select>${valueInput}` : ''}
+              <div class="hint">Hidden fields aren't required and their answers aren't saved. New fields can be used here after the form is saved.</div>`
+        }
+      </div>
+      ${
+        f.type === 'number'
+          ? `<div class="rule"><strong>Allowed range</strong>
+              <input type="number" step="any" data-rule="min" value="${esc(f.min ?? '')}" placeholder="Min" aria-label="Minimum">
+              <span class="muted">to</span>
+              <input type="number" step="any" data-rule="max" value="${esc(f.max ?? '')}" placeholder="Max" aria-label="Maximum"></div>`
+          : ''
+      }
+      ${
+        isText
+          ? `<div class="rule"><strong>Maximum length</strong>
+              <input type="number" min="1" max="5000" step="1" data-rule="maxLength" value="${esc(f.maxLength ?? '')}" placeholder="No limit" aria-label="Maximum length"> <span class="muted">characters</span></div>`
+          : ''
+      }
+      ${
+        f.type !== 'section' && !['title', 'item_name'].includes(f.key)
+          ? `<div class="rule"><strong>Default value</strong>
+              ${
+                ['select', 'yesno'].includes(f.type)
+                  ? `<select data-rule="default" aria-label="Default value"><option value="">None</option>${optionsOf(f)
+                      .map((o) => `<option value="${esc(o)}" ${f.default === o ? 'selected' : ''}>${esc(o)}</option>`)
+                      .join('')}</select>`
+                  : `<input type="${f.type === 'number' ? 'number' : f.type === 'date' ? 'date' : 'text'}" data-rule="default" value="${esc(f.default ?? '')}" placeholder="None" aria-label="Default value">`
+              }
+              <span class="hint">Pre-filled on new requests.</span></div>`
+          : ''
+      }
+    </div>`;
+  };
 
   const optionsCell = (f) => {
     if (f.builtin && LIST_FIELDS[f.key]) return `<a href="#/admin/settings" class="small">Edit list in Settings</a>`;
@@ -497,23 +589,28 @@ export async function renderFormFields(el, { rerender, reloadConfig }) {
 
   const row = (kind, f, idx, count) => {
     const locked = LOCKED.has(f.key);
-    return `<tr data-kind="${kind}" data-index="${idx}" class="${f.hidden ? 'is-hidden' : ''}">
+    const summary = rulesSummary(kind, f);
+    const open = openRules.has(f._uid);
+    const rules = `<tr class="rules-row" data-kind="${kind}" data-index="${idx}"><td></td><td colspan="8">${rulesPanel(kind, f)}</td></tr>`;
+    return `<tr data-kind="${kind}" data-index="${idx}" class="${f.hidden ? 'is-hidden' : ''}${f.type === 'section' ? ' is-section' : ''}">
       <td class="move">
         <button type="button" class="icon-btn" data-move="-1" title="Move up" aria-label="Move ${esc(f.label)} up" ${idx === 0 ? 'disabled' : ''}>↑</button>
         <button type="button" class="icon-btn" data-move="1" title="Move down" aria-label="Move ${esc(f.label)} down" ${idx === count - 1 ? 'disabled' : ''}>↓</button>
       </td>
       <td><input type="text" data-prop="label" value="${esc(f.label)}" aria-label="Label"></td>
-      <td>${f.builtin ? `<span class="muted">${esc(typeLabel(f.type))}</span>` : typeSelect(f)}</td>
-      <td class="center"><input type="checkbox" data-prop="required" ${f.required ? 'checked' : ''} ${locked ? 'disabled' : ''} aria-label="Required"></td>
+      <td>${f.builtin ? `<span class="muted">${esc(typeLabel(f.type))}</span>` : typeSelect(kind, f)}</td>
+      <td class="center"><input type="checkbox" data-prop="required" ${f.required ? 'checked' : ''} ${locked || f.type === 'section' ? 'disabled' : ''} aria-label="Required"></td>
       <td class="center"><input type="checkbox" data-prop="shown" ${f.hidden ? '' : 'checked'} ${locked ? 'disabled' : ''} aria-label="Shown"></td>
       <td>${optionsCell(f)}</td>
-      <td><input type="text" data-prop="help" value="${esc(f.help || '')}" placeholder="Optional hint" aria-label="Help text"></td>
+      <td><input type="text" data-prop="help" value="${esc(f.help || '')}" placeholder="${f.type === 'section' ? 'Optional description' : 'Optional hint'}" aria-label="Help text"></td>
+      <td class="rules-cell"><button type="button" class="btn btn-sm ${summary ? 'has-rules' : ''}" data-rules aria-expanded="${open}">${open ? 'Hide rules' : 'Rules'}</button>
+        ${summary ? `<div class="muted small rules-summary">${esc(summary)}</div>` : ''}</td>
       <td class="center">${
         f.builtin
           ? `<span class="field-tag" title="${locked ? 'Always shown and required' : 'Built-in: can be hidden, not deleted'}">${locked ? 'Locked' : 'Built-in'}</span>`
           : `<button type="button" class="icon-btn" data-delete title="Delete field" aria-label="Delete ${esc(f.label)}">&times;</button>`
       }</td>
-    </tr>`;
+    </tr>${open ? rules : ''}`;
   };
 
   const section = (kind, title, blurb) => `
@@ -526,7 +623,7 @@ export async function renderFormFields(el, { rerender, reloadConfig }) {
         <table class="table fields-table">
           <thead><tr>
             <th class="move">Order</th><th>Label</th><th>Type</th><th class="center">Required</th><th class="center">Shown</th>
-            <th>Options</th><th>Help text</th><th></th>
+            <th>Options</th><th>Help text</th><th>Rules</th><th></th>
           </tr></thead>
           <tbody data-list="${kind}"></tbody>
         </table>
@@ -575,8 +672,49 @@ export async function renderFormFields(el, { rerender, reloadConfig }) {
     return tr && { list: lists[tr.dataset.kind], idx: Number(tr.dataset.index) };
   };
 
+  /** Apply a Rules-panel control to its field. Returns true if the panel should redraw. */
+  const applyRule = (f, input) => {
+    const rule = input.dataset.rule;
+    const c = (f.showIf ??= {});
+    if (rule === 'cond-field') {
+      if (!input.value) delete f.showIf;
+      else f.showIf = { field: input.value, op: c.op || 'equals', value: '' };
+      return true;
+    }
+    if (rule === 'cond-op') {
+      const op = CONDITION_OPS.find((o) => o.key === input.value);
+      c.op = input.value;
+      c.value = op.many ? (Array.isArray(c.value) ? c.value : c.value ? [c.value] : []) : Array.isArray(c.value) ? c.value[0] || '' : c.value || '';
+      if (!op.needsValue) delete c.value;
+      return true;
+    }
+    if (rule === 'cond-value') {
+      const op = CONDITION_OPS.find((o) => o.key === c.op);
+      c.value = op?.many ? input.value.split(',').map((v) => v.trim()).filter(Boolean) : input.value;
+      return input.tagName === 'SELECT';
+    }
+    if (rule === 'cond-multi') {
+      const row = input.closest('.rules-panel');
+      c.value = [...row.querySelectorAll('[data-rule="cond-multi"]:checked')].map((b) => b.value);
+      return true;
+    }
+    if (['min', 'max', 'maxLength', 'default'].includes(rule)) {
+      if (input.value === '') delete f[rule];
+      else f[rule] = input.value;
+      if (!Object.keys(c).length) delete f.showIf;
+      return input.tagName === 'SELECT';
+    }
+    if (!Object.keys(c).length) delete f.showIf;
+    return false;
+  };
+
   el.addEventListener('input', (e) => {
     const t = target(e.target);
+    if (t && e.target.dataset.rule && e.target.tagName !== 'SELECT' && e.target.type !== 'checkbox') {
+      applyRule(t.list[t.idx], e.target);
+      markDirty();
+      return;
+    }
     const prop = e.target.dataset.prop;
     if (!t || !['label', 'help', 'options'].includes(prop)) return;
     const f = t.list[t.idx];
@@ -587,12 +725,21 @@ export async function renderFormFields(el, { rerender, reloadConfig }) {
 
   el.addEventListener('change', (e) => {
     const t = target(e.target);
+    if (t && e.target.dataset.rule) {
+      const redraw = applyRule(t.list[t.idx], e.target) || e.target.type !== 'checkbox';
+      markDirty();
+      if (redraw) draw(); // refresh the summary and dependent controls
+      return;
+    }
     const prop = e.target.dataset.prop;
     if (!t || !['required', 'shown', 'type'].includes(prop)) return;
     const f = t.list[t.idx];
     if (prop === 'required') f.required = e.target.checked;
     if (prop === 'shown') f.hidden = !e.target.checked;
-    if (prop === 'type') f.type = e.target.value;
+    if (prop === 'type') {
+      f.type = e.target.value;
+      if (f.type === 'section') f.required = false;
+    }
     markDirty();
     if (prop !== 'required') draw(); // type changes the options cell; shown changes row styling
   });
@@ -601,7 +748,11 @@ export async function renderFormFields(el, { rerender, reloadConfig }) {
     const btn = e.target.closest('button');
     if (!btn) return;
     const t = target(btn);
-    if (btn.dataset.move && t) {
+    if (btn.hasAttribute('data-rules') && t) {
+      const id = t.list[t.idx]._uid;
+      openRules.has(id) ? openRules.delete(id) : openRules.add(id);
+      draw();
+    } else if (btn.dataset.move && t) {
       const to = t.idx + Number(btn.dataset.move);
       [t.list[t.idx], t.list[to]] = [t.list[to], t.list[t.idx]];
       markDirty();
@@ -613,7 +764,7 @@ export async function renderFormFields(el, { rerender, reloadConfig }) {
       markDirty();
       draw();
     } else if (btn.dataset.add) {
-      lists[btn.dataset.add].push({ label: 'New field', type: 'text', required: false });
+      lists[btn.dataset.add].push({ label: 'New field', type: 'text', required: false, _uid: ++uid });
       markDirty();
       draw();
       const inputs = el.querySelectorAll(`[data-list="${btn.dataset.add}"] input[data-prop="label"]`);
@@ -641,11 +792,26 @@ export async function renderFormFields(el, { rerender, reloadConfig }) {
           key = makeKey(label, allKeys);
           allKeys.add(key);
         }
-        const out = { key, label, type: f.type, required: !!f.required };
+        const out = { key, label, type: f.type, required: f.type !== 'section' && !!f.required };
         if (f.builtin) out.builtin = true;
         if (f.hidden) out.hidden = true;
         if (f.help?.trim()) out.help = f.help.trim();
         if (!f.builtin && f.type === 'select') out.options = f.options;
+        // Rules
+        const c = f.showIf;
+        if (c?.field) {
+          const op = CONDITION_OPS.find((o) => o.key === c.op) || CONDITION_OPS[0];
+          const hasValue = Array.isArray(c.value) ? c.value.length : String(c.value ?? '').trim() !== '';
+          if (op.needsValue && !hasValue) problems.push(`"${label}": choose the value(s) for its "show only when" rule.`);
+          out.showIf = op.needsValue ? { field: c.field, op: op.key, value: c.value } : { field: c.field, op: op.key };
+        }
+        if (f.type === 'number') {
+          if (f.min !== undefined && f.min !== '') out.min = String(f.min);
+          if (f.max !== undefined && f.max !== '') out.max = String(f.max);
+          if (out.min !== undefined && out.max !== undefined && Number(out.min) > Number(out.max)) problems.push(`"${label}": the minimum is more than the maximum.`);
+        }
+        if (['text', 'textarea', 'url'].includes(f.type) && f.maxLength) out.maxLength = String(f.maxLength);
+        if (f.type !== 'section' && f.default !== undefined && f.default !== '') out.default = String(f.default);
         return out;
       });
     const next = { ...form, requestFields: clean(lists.request), itemFields: clean(lists.item) };

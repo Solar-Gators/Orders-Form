@@ -13,6 +13,8 @@ import { renderLogin } from './views/login.js';
 import { renderAccount, renderResetPassword } from './views/account.js';
 import { renderUsers, renderSettings, renderFormFields, ADMIN_TABS } from './views/admin.js';
 import { renderLists, renderAppearance, renderHistory } from './views/adminSetup.js';
+import { renderPageLayout, renderExportTemplates, renderTextBanner } from './views/adminPages.js';
+import { renderHelp } from './views/help.js';
 import { renderRequestForm } from './views/requestForm.js';
 import { renderRequestList } from './views/requestList.js';
 import { renderRequestDetail } from './views/requestDetail.js';
@@ -41,7 +43,11 @@ const ROUTES = [
   { pattern: /^\/admin\/fields$/, nav: 'admin', view: renderFormFields, perm: tabPerms('fields') },
   { pattern: /^\/admin\/settings$/, nav: 'admin', view: renderSettings, perm: tabPerms('settings') },
   { pattern: /^\/admin\/lists$/, nav: 'admin', view: renderLists, perm: tabPerms('lists') },
+  { pattern: /^\/admin\/page$/, nav: 'admin', view: renderPageLayout, perm: tabPerms('page') },
+  { pattern: /^\/admin\/exports$/, nav: 'admin', view: renderExportTemplates, perm: tabPerms('exports') },
   { pattern: /^\/admin\/appearance$/, nav: 'admin', view: renderAppearance, perm: tabPerms('appearance') },
+  { pattern: /^\/admin\/text$/, nav: 'admin', view: renderTextBanner, perm: tabPerms('text') },
+  { pattern: /^\/help$/, nav: 'help', view: renderHelp },
   { pattern: /^\/admin\/import$/, nav: 'admin', view: renderImport, perm: tabPerms('import') },
   { pattern: /^\/admin\/history$/, nav: 'admin', view: renderHistory, perm: tabPerms('history') },
   // "Admin" opens the first tab this person can use.

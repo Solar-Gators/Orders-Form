@@ -4,7 +4,7 @@
  */
 import { api } from '../api.js';
 import { auth } from '../auth.js';
-import { STATUS, fmtMoney, requestTable, bindRowLinks, bindSorting, takeFlash } from '../ui.js';
+import { STATUS, fmtMoney, requestTable, bindRowLinks, bindSorting, takeFlash, introText } from '../ui.js';
 import { listColumns, listSort } from '../listColumns.js';
 import { rememberedSort } from './listSortState.js';
 
@@ -19,6 +19,7 @@ export async function renderApprovals(el, { config }) {
     <div class="page-header">
       <div>
         <h1>Approvals</h1>
+        ${introText('approvals', '') ? `<p class="page-intro">${introText('approvals', '')}</p>` : ''}
         <p class="subtitle">${rows.length} request${rows.length === 1 ? '' : 's'} awaiting review · ${fmtMoney(total)} total.</p>
       </div>
     </div>
