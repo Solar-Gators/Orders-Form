@@ -12,6 +12,7 @@ const BASE_SELECT = '*, request_items(*), approvals(*), order_information(*)';
 // cost_changes arrives with migration 004. Until a database has it, fall back to
 // the base select so the site keeps working (leads see the "update needed" banner).
 let withCostChanges = true;
+let hasSeasons = true; // requests.season arrives with migration 006
 const requestSelect = () => (withCostChanges ? `${BASE_SELECT}, cost_changes(*)` : BASE_SELECT);
 
 /** Run a requests query; if the database doesn't have cost_changes yet, retry without it. */
@@ -77,14 +78,40 @@ export const api = {
   // ---- Requests ---------------------------------------------------------------
 
   /** All requests, newest first. `status` may be a string or an array. */
-  async listRequests(status) {
-    const res = await selectRequests((select) => {
-      let q = supabase.from('requests').select(select).order('created_at', { ascending: false });
-      if (Array.isArray(status)) q = q.in('status', status);
-      else if (status) q = q.eq('status', status);
-      return q;
-    });
+  /**
+   * Requests, newest first. `status`: a status or list of statuses.
+   * `season`: only that season; `notSeason`: every season except that one (Archive).
+   */
+  async listRequests(status, { season, notSeason } = {}) {
+    const run = () =>
+      selectRequests((select) => {
+        let q = supabase.from('requests').select(select).order('created_at', { ascending: false });
+        if (Array.isArray(status)) q = q.in('status', status);
+        else if (status) q = q.eq('status', status);
+        if (hasSeasons && season) q = q.eq('season', season);
+        if (hasSeasons && notSeason) q = q.neq('season', notSeason);
+        return q;
+      });
+    let res = await run();
+    // Before migration 006 there is no season column: everything is "this season".
+    if (res.error && hasSeasons && /season/.test(res.error.message || '')) {
+      hasSeasons = false;
+      if (notSeason) return [];
+      res = await run();
+    }
     return unwrap(res).map(hydrate);
+  },
+
+  /** Seasons that have requests, newest first. */
+  async listSeasons() {
+    const { data, error } = await supabase.from('requests').select('season');
+    if (error) return []; // before migration 006 there is no season column
+    return [...new Set(data.map((r) => r.season).filter(Boolean))].sort().reverse();
+  },
+
+  /** Leads: switch to a new season (numbering restarts, e.g. SG27-001). Returns the new ID prefix. */
+  async startNewSeason(season) {
+    return unwrap(await supabase.rpc('start_new_season', { p_season: season }));
   },
 
   async countByStatus(status) {

@@ -133,3 +133,12 @@ New features sometimes need a database change. These live in `supabase/migration
 2. In Supabase, go to **SQL Editor → New query**, paste, and click **Run**.
 
 Each migration only needs to run once.
+
+## Yearly handover checklist
+
+When the new leads take over (usually with **Admin → Settings → Start a new season**):
+1. **Start the season:** Admin → Settings → **Start a new season**. Numbering restarts (e.g. SG27-001), last season moves to the Archive, and unfinished orders stay in the queues.
+2. **Roles:** give the new Chief Engineer and Treasurer their roles in **Admin → Users & roles**, and set graduating leads to Member. At least one person must always keep "Manage people".
+3. **Supabase:** invite the new leads to the Supabase organization (Organization settings → Team) so someone can run database updates and restore the project if it pauses.
+4. **GitHub:** give the new leads access to the `Solar-Gators/Orders-Form` repository.
+5. **Email (optional):** if you set up custom SMTP for sign-up and password-reset emails, make sure the account behind it isn't tied to someone who's graduating.

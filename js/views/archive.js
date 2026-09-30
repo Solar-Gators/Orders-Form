@@ -1,7 +1,8 @@
 /**
- * Archive: past seasons' order sheets, searchable. Rows are shown with a few
- * common columns; click one to see every original column from the sheet.
- * Imports are managed in Admin → Import.
+ * Archive: past seasons, searchable. Two sources, shown together:
+ *   • old order sheets imported from Excel (click a row to see every original column)
+ *   • requests made in this app in earlier seasons (click a row to open the request)
+ * Imports are managed in Admin → Import; seasons roll over in Admin → Settings.
  */
 import { api } from '../api.js';
 import { auth } from '../auth.js';
@@ -11,16 +12,43 @@ import { esc, fmtMoney, fmtDate } from '../ui.js';
 const filters = { q: '', season: '', subteam: '', status: '' };
 const PAGE = 200;
 
-export async function renderArchive(el) {
-  const [imports, rows] = await Promise.all([api.listArchiveImports(), api.listArchive()]);
+/** One archive row per item of a past-season request, shaped like an imported sheet row. */
+function fromRequests(requests) {
+  return requests.flatMap((r) =>
+    (r.items.length ? r.items : [{}]).map((i, idx) => ({
+      id: `app-${r.id}-${idx}`,
+      app: true,
+      request_number: r.request_number,
+      season: r.season,
+      order_date: (r.created_at || '').slice(0, 10),
+      requester: r.requester,
+      subteam: r.subsystem,
+      item: i.item_name || r.title,
+      cost: i.item_total ?? null,
+      status: r.status,
+      ticket: r.order?.department_order_number || '',
+      _search: [r.request_number, r.title, r.requester, r.subsystem, r.justification, r.status, r.order?.department_order_number,
+        i.item_name, i.vendor, i.part_number, i.product_link, i.notes, ...Object.values(r.data || {}), ...Object.values(i.data || {})]
+        .filter(Boolean).join(' ').toLowerCase(),
+    }))
+  );
+}
+
+export async function renderArchive(el, { config }) {
+  const [imports, sheetRows, pastRequests] = await Promise.all([
+    api.listArchiveImports(),
+    api.listArchive(),
+    api.listRequests(null, { notSeason: config.season }),
+  ]);
   const columnsByImport = Object.fromEntries(imports.map((i) => [i.id, i.columns]));
-  const seasons = [...new Set(imports.map((i) => i.season))].sort().reverse();
-  for (const r of rows) r._search = Object.values(r.fields).join(' ').toLowerCase();
+  for (const r of sheetRows) r._search = Object.values(r.fields).join(' ').toLowerCase();
+  const rows = [...fromRequests(pastRequests), ...sheetRows];
+  const seasons = [...new Set(rows.map((r) => r.season))].sort().reverse();
 
   if (!rows.length) {
     el.innerHTML = `
       <div class="page-header"><div><h1>Archive</h1><p class="subtitle">Past seasons' orders.</p></div></div>
-      <div class="empty">No past seasons have been imported yet.${
+      <div class="empty">Nothing here yet. Past seasons show up once a new season starts, or when old spreadsheets are imported.${
         auth.can('settings.edit') ? ' Add them in <a href="#/admin/import">Admin → Import</a>.' : ''
       }</div>`;
     return;
@@ -35,7 +63,7 @@ export async function renderArchive(el) {
     <div class="page-header">
       <div>
         <h1>Archive</h1>
-        <p class="subtitle">Orders from past seasons (${seasons.map(esc).join(', ')}), exactly as they were recorded.</p>
+        <p class="subtitle">Orders from past seasons (${seasons.map(esc).join(', ')}). Imported spreadsheet rows show every original column; requests made on this site open their full page.</p>
       </div>
     </div>
     <div class="toolbar">
@@ -84,10 +112,10 @@ export async function renderArchive(el) {
             .map(
               (r) => `<tr class="clickable" data-id="${esc(r.id)}" tabindex="0" aria-expanded="false">
                 <td class="nowrap" data-label="Season">${esc(r.season)}</td>
-                <td class="nowrap" data-label="Date">${r.order_date ? fmtDate(r.order_date) : esc(r.fields.Date || '—')}</td>
+                <td class="nowrap" data-label="Date">${r.order_date ? fmtDate(r.order_date) : esc(r.fields?.Date || '—')}</td>
                 <td data-label="Requester">${esc(r.requester || '—')}</td>
                 <td data-label="Subteam">${esc(r.subteam || '—')}</td>
-                <td class="cell-title cell-primary" data-label="">${esc(r.item || '—')}</td>
+                <td class="cell-title cell-primary" data-label="">${esc(r.item || '—')}${r.app ? ` <span class="mono small muted">${esc(r.request_number)}</span>` : ''}</td>
                 <td class="num" data-label="Cost">${r.cost === null ? '—' : fmtMoney(r.cost)}</td>
                 <td data-label="Status">${esc(r.status || '—')}</td>
                 <td data-label="Ticket">${esc(r.ticket || '—')}</td>
@@ -99,9 +127,14 @@ export async function renderArchive(el) {
   };
 
   const toggle = (tr) => {
+    const row = rows.find((r) => r.id === tr.dataset.id);
+    if (row.app) {
+      location.hash = `#/requests/${row.request_number}`; // made on this site: open the full request
+      return;
+    }
     const open = tr.nextElementSibling?.classList.contains('archive-detail');
     if (open) tr.nextElementSibling.remove();
-    else tr.insertAdjacentHTML('afterend', detail(rows.find((r) => r.id === tr.dataset.id)));
+    else tr.insertAdjacentHTML('afterend', detail(row));
     tr.setAttribute('aria-expanded', String(!open));
   };
 

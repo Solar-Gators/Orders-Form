@@ -45,6 +45,7 @@ export function buildColumns(config) {
   });
   return [
     { header: 'Request ID', width: 12, get: (r) => r.request_number },
+    { header: 'Season', width: 11, get: (r) => r.season },
     ...shown(requestFields(config)).map((f) => fromField(f, 'request')),
     { header: 'Request Status', width: 18, get: (r) => r.status },
     ...shown(itemFields(config)).map((f) => fromField(f, 'item')),

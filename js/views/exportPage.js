@@ -1,10 +1,16 @@
 /** Export page: status summary + in-browser .xlsx download. */
 import { api } from '../api.js';
 import { downloadWorkbook } from '../excel.js';
-import { fmtMoney, statusBadge, errorBox } from '../ui.js';
+import { esc, fmtMoney, statusBadge, errorBox } from '../ui.js';
 
-export async function renderExport(el, { config }) {
-  const all = await api.listRequests();
+// '' = current season, 'all' = every season, otherwise a season like 2026-2027.
+let pick = '';
+
+export async function renderExport(el, { config, rerender }) {
+  const seasons = [...new Set([config.season, ...(await api.listSeasons())])].filter(Boolean).sort().reverse();
+  const season = pick === 'all' ? null : pick || config.season;
+  const load = () => api.listRequests(null, season ? { season } : {});
+  const all = await load();
   const itemCount = all.reduce((s, r) => s + Math.max(r.items.length, 1), 0);
 
   const rows = config.statuses
@@ -22,7 +28,14 @@ export async function renderExport(el, { config }) {
     <div class="page-header">
       <div>
         <h1>Export</h1>
-        <p class="subtitle">Download every request and item as an Excel workbook.</p>
+        <p class="subtitle">Download requests and items as an Excel workbook.</p>
+      </div>
+      <div class="field export-season">
+        <label for="export-season">Season</label>
+        <select id="export-season">
+          ${seasons.map((s) => `<option value="${esc(s)}" ${s === season ? 'selected' : ''}>${esc(s)}${s === config.season ? ' (current)' : ''}</option>`).join('')}
+          <option value="all" ${season ? '' : 'selected'}>All seasons</option>
+        </select>
       </div>
     </div>
 
@@ -49,12 +62,17 @@ export async function renderExport(el, { config }) {
       </section>
     </div>`;
 
+  el.querySelector('#export-season').addEventListener('change', (e) => {
+    pick = e.target.value === config.season ? '' : e.target.value;
+    rerender();
+  });
+
   const button = el.querySelector('#download');
   button.addEventListener('click', async () => {
     button.disabled = true;
     button.textContent = 'Preparing…';
     try {
-      await downloadWorkbook(await api.listRequests(), config); // re-fetch so the file is current
+      await downloadWorkbook(await load(), { ...config, season: season || 'All-seasons' }); // re-fetch so the file is current
     } catch (err) {
       el.querySelector('#export-errors').innerHTML = errorBox(err);
     } finally {

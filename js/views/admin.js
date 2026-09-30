@@ -189,6 +189,13 @@ export async function renderSettings(el, { rerender, reloadConfig }) {
   const general = settings.general || {};
   const form = settings.form || {};
 
+  // Season rollover: "2026-2027" → "2027-2028", numbered SG27-001…
+  const startYear = Number((general.season || '').split('-')[0]) || new Date().getFullYear();
+  const nextSeason = `${startYear + 1}-${startYear + 2}`;
+  const basePrefix = general.requestIdPrefix || 'SG';
+  const nextPrefix = `${basePrefix}${String(startYear + 1).slice(-2)}`;
+  const currentPrefix = general.seasonPrefix || basePrefix;
+
   // Every dropdown on the form — built-in (Subsystem, Priority) and ones added in
   // Form fields — gets an options box here. Shown fields first, hidden ones after.
   const dropdowns = [
@@ -232,11 +239,13 @@ export async function renderSettings(el, { rerender, reloadConfig }) {
           <h2>Team</h2>
           <div class="field"><label for="s-team">Team name</label>
             <input id="s-team" name="teamName" type="text" value="${esc(general.teamName || '')}"></div>
-          <div class="field"><label for="s-season">Season</label>
-            <input id="s-season" name="season" type="text" value="${esc(general.season || '')}" placeholder="2026-2027"></div>
+          <div class="field"><label>Current season</label>
+            <div class="readonly-value">${esc(general.season || '—')}
+              <span class="muted small">· new requests are numbered ${esc(currentPrefix)}-001, -002, …</span></div>
+            <div class="hint">Change it with <a href="#season-card">Start a new season</a> below.</div></div>
           <div class="field"><label for="s-prefix">Request ID prefix</label>
             <input id="s-prefix" name="requestIdPrefix" type="text" value="${esc(general.requestIdPrefix || '')}" maxlength="10">
-            <div class="hint">New requests are numbered ${esc(general.requestIdPrefix || 'SG')}-001, -002, … Existing IDs don't change.</div></div>
+            <div class="hint">Each new season adds its year: ${esc(general.requestIdPrefix || 'SG')} → ${esc(nextPrefix)}-001 for ${esc(nextSeason)}.</div></div>
           <div class="field"><label for="s-domains">Allowed sign-up email domains <span class="muted">(one per line)</span></label>
             <textarea id="s-domains" name="allowedEmailDomains" rows="2">${esc((general.allowedEmailDomains || []).join('\n'))}</textarea>
             <div class="hint">Leave empty to allow any email address.</div></div>
@@ -245,7 +254,49 @@ export async function renderSettings(el, { rerender, reloadConfig }) {
       <div class="form-actions">
         <button type="submit" class="btn btn-primary">Save settings</button>
       </div>
-    </form>`;
+    </form>
+
+    <section class="card season-card" id="season-card">
+      <h2>Start a new season</h2>
+      ${
+        (Number(general.schemaVersion) || 1) < 6
+          ? '<p class="muted">Starting a new season needs database update <code>006_seasons.sql</code>.</p>'
+          : `<p>Do this once a year, when the new season's orders begin. Starting <strong>${esc(nextSeason)}</strong> will:</p>
+      <ul class="season-steps">
+        <li>Number new requests <strong>${esc(nextPrefix)}-001</strong>, <strong>${esc(nextPrefix)}-002</strong>, … (${esc(general.season)} keeps its numbers).</li>
+        <li>Show only ${esc(nextSeason)} on the <strong>Requests</strong> and <strong>Export</strong> pages by default. There's a season picker to look back.</li>
+        <li>Move ${esc(general.season)}'s requests into the <strong>Archive</strong>, where they're searchable with their full history.</li>
+        <li>Keep anything still waiting on approval, ordering, or delivery in the <strong>Approvals</strong> and <strong>Treasurer</strong> queues, labeled ${esc(general.season)}, until it's finished.</li>
+      </ul>
+      <p class="muted small">Also remember: give next year's Chief Engineer and Treasurer their roles in Users &amp; roles, and add them to the Supabase project and GitHub repo.</p>
+      <div id="season-errors"></div>
+      <div class="season-row">
+        <label for="new-season" class="sr-only">New season</label>
+        <input id="new-season" type="text" value="${esc(nextSeason)}" placeholder="2027-2028" maxlength="9">
+        <button type="button" class="btn btn-primary" id="start-season">Start ${esc(nextSeason)}</button>
+      </div>`
+      }
+    </section>`;
+
+  el.querySelector('#new-season')?.addEventListener('input', (e) => {
+    el.querySelector('#start-season').textContent = `Start ${e.target.value.trim() || 'season'}`;
+  });
+  el.querySelector('#start-season')?.addEventListener('click', async (e) => {
+    const season = el.querySelector('#new-season').value.trim();
+    const typedPrefix = /^\d{4}-\d{4}$/.test(season) ? `${basePrefix}${season.slice(2, 4)}` : nextPrefix;
+    if (!confirm(`Start the ${season} season now? New requests will be numbered from ${typedPrefix}-001, and ${general.season} moves to the Archive. This can't be undone from the website.`)) return;
+    e.target.disabled = true;
+    el.querySelector('#season-errors').innerHTML = '';
+    try {
+      const prefix = await api.startNewSeason(season);
+      await reloadConfig();
+      setFlash(`Welcome to ${season}! New requests will be numbered ${prefix}-001, ${prefix}-002, …`);
+      location.hash = '#/requests';
+    } catch (err) {
+      el.querySelector('#season-errors').innerHTML = errorBox(err);
+      e.target.disabled = false;
+    }
+  });
 
   el.querySelector('#settings-form').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -278,7 +329,6 @@ export async function renderSettings(el, { rerender, reloadConfig }) {
     const nextGeneral = {
       ...general,
       teamName: data.teamName.trim() || 'Solar Gators',
-      season: data.season.trim(),
       requestIdPrefix: data.requestIdPrefix.trim().toUpperCase() || 'SG',
       allowedEmailDomains: lines(data.allowedEmailDomains.toLowerCase()).map((d) => d.replace(/^@/, '')),
     };

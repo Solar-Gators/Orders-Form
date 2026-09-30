@@ -285,7 +285,7 @@ await test('the website cannot change the schema version', async () => {
   const general = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
   await as(ce, () => rpc('update_settings', ['general', { ...general, schemaVersion: 99 }]));
   const after = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
-  assert.equal(after.schemaVersion, 5);
+  assert.equal(after.schemaVersion, 6);
 });
 
 console.log('Form fields');
@@ -570,6 +570,65 @@ await test('the last person who can manage people cannot demote themselves', asy
   await as(treasurer, () => rejects(rpc('set_user_role', [treasurer, 'member']), /At least one person must keep/));
   assert.equal(await roleOf(treasurer), 'treasurer');
   await as(treasurer, () => rpc('set_role_permissions', ['ce', ['request.review', 'settings.edit', 'users.manage']])); // restore
+});
+
+console.log('Seasons');
+
+const general = async () => (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
+const newDraft = async (who = member) => (await as(who, () => rpc('save_request', [null, { title: 'Season test' }, [], 'draft']))).rows[0].result;
+const seasonOf = async (num) => (await db.query(`select season from requests where request_number = $1`, [num])).rows[0].season;
+
+await test('existing requests belong to the current season', async () => {
+  const { rows } = await db.query(`select count(*)::int as n from requests where season is distinct from '2026-2027'`);
+  assert.equal(rows[0].n, 0);
+});
+
+await test('numbering continues within the current season', async () => {
+  const before = (await db.query(`select max(substring(request_number from '\\d+$')::int) as n from requests where request_number like 'SG27-%'`)).rows[0].n;
+  const num = await newDraft();
+  assert.equal(num, `SG27-${String(before + 1).padStart(3, '0')}`); // prefix from the earlier prefix test
+  assert.equal(await seasonOf(num), '2026-2027');
+});
+
+await test('the season can only change through "Start new season"', async () => {
+  const g = await general();
+  await as(ce, () => rpc('update_settings', ['general', { ...g, season: '2030-2031', seasonPrefix: 'X' }]));
+  assert.equal((await general()).season, '2026-2027');
+});
+
+await test('members cannot start a new season; bad seasons are refused', async () => {
+  await as(member, () => rejects(rpc('start_new_season', ['2027-2028']), /does not allow/));
+  await as(ce, () => rejects(rpc('start_new_season', ['27-28']), /YYYY-YYYY/));
+  await as(ce, () => rejects(rpc('start_new_season', ['2027-2029']), /YYYY-YYYY/));
+  await as(ce, () => rejects(rpc('start_new_season', ['2025-2026']), /must come after/));
+});
+
+let oldOrder;
+await test('starting 2027-2028 restarts numbering at SG27-001', async () => {
+  // Put the prefix back to the normal SG so the new season prefix is SG + 27.
+  const g = await general();
+  await as(ce, () => rpc('update_settings', ['general', { ...g, requestIdPrefix: 'SG' }]));
+  oldOrder = (await db.query(`select request_number from requests where status = 'Ordered' limit 1`)).rows[0]?.request_number;
+  const { rows } = await as(ce, () => rpc('start_new_season', ['2027-2028']));
+  assert.equal(rows[0].result, 'SG27');
+  assert.deepEqual([(await general()).season, (await general()).seasonPrefix], ['2027-2028', 'SG27']);
+  const a = await newDraft();
+  const b = await newDraft(other);
+  assert.deepEqual([a, b], ['SG27-001', 'SG27-002']);
+  assert.deepEqual([await seasonOf(a), await seasonOf(b)], ['2027-2028', '2027-2028']);
+});
+
+await test('last season\'s requests keep their season and can still be finished', async () => {
+  assert.equal(await seasonOf('SG-001'), '2026-2027');
+  if (oldOrder) {
+    const id = (await db.query(`select id from requests where request_number = $1`, [oldOrder])).rows[0].id;
+    await as(treasurer, () => rpc('mark_received', [id, null, 'Arrived after the rollover']));
+    assert.equal(await seasonOf(oldOrder), '2026-2027');
+  }
+});
+
+await test('you can\'t start the same (or an earlier) season twice', async () => {
+  await as(ce, () => rejects(rpc('start_new_season', ['2027-2028']), /must come after/));
 });
 
 console.log(`\n${passed} passed${process.exitCode ? ', some FAILED' : ''}`);

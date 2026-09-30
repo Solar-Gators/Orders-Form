@@ -475,3 +475,14 @@ tr:hover .copy-btn, dd:hover .copy-btn, .copy-wrap:hover .copy-btn, .copy-btn:fo
 .hidden-lists { margin-top: 8px; border-top: 1px solid var(--border); padding-top: 10px; }
 .hidden-lists summary { cursor: pointer; color: var(--muted); font-weight: 600; font-size: 13px; margin-bottom: 10px; }
 .is-hidden-field label { color: var(--muted); }
+
+/* ---- Seasons ------------------------------------------------------------------ */
+
+.season-tag { font-size: 11px; font-weight: 600; color: var(--purple); background: #ece6fe; border-radius: 4px; padding: 1px 6px; white-space: nowrap; }
+.readonly-value { padding: 8px 10px; border: 1px dashed var(--border); border-radius: 6px; background: var(--surface-2); font-weight: 600; }
+.season-card { margin-top: 16px; scroll-margin-top: 80px; }
+.season-steps { padding-left: 20px; margin: 6px 0 10px; }
+.season-steps li { margin-bottom: 4px; }
+.season-row { display: flex; gap: 10px; flex-wrap: wrap; }
+.season-row input { width: 160px; }
+.export-season { margin: 0; min-width: 190px; }

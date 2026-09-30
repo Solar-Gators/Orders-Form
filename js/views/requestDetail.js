@@ -273,7 +273,7 @@ export async function renderRequestDetail(el, { config, params, rerender }) {
     <a class="back-link" href="#/requests">← All requests</a>
     <div class="page-header">
       <div>
-        <div class="eyebrow mono"><span class="copy-wrap">${esc(r.request_number)}${showCopy() ? copyButton(r.request_number, 'request ID') : ''}</span></div>
+        <div class="eyebrow mono"><span class="copy-wrap">${esc(r.request_number)}${showCopy() ? copyButton(r.request_number, 'request ID') : ''}</span>${r.season ? ` <span class="muted">· ${esc(r.season)} season</span>` : ''}</div>
         <h1>${esc(r.title || 'Untitled request')}</h1>
         <p class="subtitle">${statusBadge(r.status)} ${priorityTag(r.priority)}</p>
       </div>

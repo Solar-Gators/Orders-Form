@@ -79,10 +79,21 @@ export function requestTable(rows, columns, emptyMessage = 'Nothing here yet.') 
   return `<div class="table-wrap"><table class="table stack-mobile"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
 }
 
+// Requests from an earlier season (still waiting on someone) are labelled with it.
+let currentSeason = '';
+export const setCurrentSeason = (s) => (currentSeason = s || '');
+export const seasonTag = (r) =>
+  r.season && currentSeason && r.season !== currentSeason ? ` <span class="season-tag" title="From an earlier season">${esc(r.season)}</span>` : '';
+
 /** Common column definitions, reused across the list pages. */
 export const COLUMNS = {
   id: { label: 'Request ID', primary: true, cell: (r) => `<a class="mono" href="#/requests/${esc(r.request_number)}">${esc(r.request_number)}</a>` },
-  title: { label: 'Title', primary: true, cell: (r) => `<span class="cell-title">${esc(r.title)}</span> ${priorityTag(r.priority !== 'Normal' ? r.priority : '')}` },
+  title: {
+    label: 'Title',
+    primary: true,
+    cell: (r) =>
+      `<span class="cell-title">${esc(r.title)}</span> ${priorityTag(r.priority !== 'Normal' ? r.priority : '')}${seasonTag(r)}`,
+  },
   requester: { label: 'Requester', cell: (r) => esc(r.requester || '—') },
   subsystem: { label: 'Subsystem', cell: (r) => esc(r.subsystem || '—') },
   total: { label: 'Total', className: 'num', cell: (r) => fmtMoney(r.total) },

@@ -28,7 +28,7 @@ It works on phones and laptops. Sign in with your **@ufl.edu** email.
 | **Ordered** | Purchased, with the order date and ticket / department order number. | The Treasurer, when it arrives |
 | **Received** | Delivered. | — |
 
-Every request gets an ID like **SG-001**. Its page shows a **History** of who created, approved, ordered, received, and re-priced it, with dates and comments.
+Every request gets an ID like **SG-001**. Numbering restarts each season with the year, e.g. **SG27-001** in 2027-28. Its page shows a **History** of who created, approved, ordered, received, and re-priced it, with dates and comments.
 
 ---
 
@@ -70,9 +70,9 @@ If the Chief Engineer requests changes, you'll see their comment on the request.
 - **Edit costs:** if a price or shipping cost turns out different from what was requested, open the request and click **Edit costs**. This works on Approved, Ordered, and Received requests. Change the unit price or shipping for any item and add a reason. The new total is previewed before saving. Every change is logged in the request's History (who, when, old → new, and why), and the item list is tagged **Costs adjusted**.
 
 ### Finding things
-- **Requests:** everything this season. Search by ID, title, requester, or vendor, and filter by status, subsystem, or "My requests".
-- **Archive:** orders from past seasons, imported from the old spreadsheets. Type any words (item, vendor, part number, person, ticket) and filter by season, subteam, or status. Click a row to see every column exactly as it was in the original sheet.
-- **Export:** download everything as an Excel file. There's one row per item, with request, approval, order, and delivery details on each row, ready to filter or pivot.
+- **Requests:** this season's requests. A season picker lets you look back at earlier seasons. Search by ID, title, requester, or vendor, and filter by status, subsystem, or "My requests".
+- **Archive:** orders from past seasons: requests made on this site in earlier seasons, plus the old spreadsheets imported from Excel. Type any words (item, vendor, part number, person, ticket) and filter by season, subteam, or status. Click a row to see every column exactly as it was in the original sheet.
+- **Export:** download a season (or all seasons) as an Excel file. There's one row per item, with request, approval, order, and delivery details on each row, ready to filter or pivot.
 
 ### Admin (Chief Engineer and Treasurer)
 - **Users & roles:** new people create their own account and start as Members. Change anyone's role here, including your own.
@@ -87,6 +87,18 @@ If the Chief Engineer requests changes, you'll see their comment on the request.
   - A **past season** goes into the Archive with every column kept.
   - **This season's** sheet becomes real requests, including their approvals, order status, ticket numbers, and shipping.
   - You see a preview before anything is saved.
+
+---
+
+## Starting a new season
+
+Once a year, when the new season's orders begin, a Chief Engineer or Treasurer goes to **Admin → Settings → Start a new season** and clicks **Start 2027-2028** (or whichever year is next). That's the only step. It:
+- **Numbering:** restarts request numbers with the new year (**SG27-001**, **SG27-002**, …).
+- **Requests & Export:** shows the new season by default.
+- **Archive:** moves last season's requests there, searchable with their full history.
+- **Unfinished orders:** keeps anything still waiting on approval, ordering, or delivery in the Approvals and Treasurer queues, labeled with its season, until it's done.
+
+Also hand over the roles: give the new Chief Engineer and Treasurer their roles in **Admin → Users & roles**, and set graduating leads back to Member.
 
 ---
 

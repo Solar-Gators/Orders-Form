@@ -3,13 +3,13 @@ import { isConfigured } from './supabase.js';
 import { api } from './api.js';
 import { auth } from './auth.js';
 import { startRouter } from './router.js';
-import { STATUS, STATUSES, EDITABLE_STATUSES, esc, errorBox } from './ui.js';
+import { STATUS, STATUSES, EDITABLE_STATUSES, esc, errorBox, setCurrentSeason } from './ui.js';
 
 const app = document.getElementById('app');
 
 // Bump when adding a file to supabase/migrations/ (the migration sets general.schemaVersion).
-const REQUIRED_SCHEMA_VERSION = 5;
-const MIGRATIONS = { 2: '002_form_fields.sql', 3: '003_archive_and_import.sql', 4: '004_cost_adjustments.sql', 5: '005_editable_permissions.sql' };
+const REQUIRED_SCHEMA_VERSION = 6;
+const MIGRATIONS = { 2: '002_form_fields.sql', 3: '003_archive_and_import.sql', 4: '004_cost_adjustments.sql', 5: '005_editable_permissions.sql', 6: '006_seasons.sql' };
 
 /** Shared config object handed to every view. Mutated in place on reload. */
 const config = {};
@@ -30,6 +30,7 @@ async function reloadConfig() {
     editableStatuses: EDITABLE_STATUSES,
   });
   document.title = `${config.teamName} Orders`;
+  setCurrentSeason(config.season);
   document.getElementById('footer').textContent = `${config.teamName} · ${config.season} season`;
 }
 
