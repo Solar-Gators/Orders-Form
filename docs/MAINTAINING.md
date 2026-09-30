@@ -11,11 +11,15 @@ This guide is for whoever maintains the site: setting it up from scratch, runnin
 **Permissions** live in the database (`permissions` and `role_permissions` tables), not in code:
 - **Changing what a role can do:** use **Admin → Users & roles → Permissions** on the site. The Table Editor works too.
 - **Lockout protection:** the database refuses any change (to a role or to the grid) that would leave nobody with `users.manage`.
+- **Roles:** a person can hold several roles (`profile_roles` table); their permissions combine. Built-in roles are Member, Chief Engineer, Treasurer and Admin. More can be created on the site.
 - **Current permissions:**
-  - `request.review`: approve, reject, or request changes (Chief Engineer).
-  - `request.order`: mark Ordered and Received, and adjust costs (Treasurer).
-  - `settings.edit`: settings, form fields, and import (both).
-  - `users.manage`: change roles (both).
+  - `request.review`: approve, reject, or request changes.
+  - `request.order`: mark Ordered and Received, and adjust costs.
+  - `settings.edit`: form fields, dropdown lists, team settings, request rules.
+  - `site.customize`: list columns/filters/sorting, status and priority labels and colors.
+  - `seasons.manage`: start a new season, import spreadsheets.
+  - `users.manage`: roles, custom roles, and the permission grid.
+- **Settings history:** every version of `app_settings` (general, form, lists, appearance) and of the permission grid is kept in `settings_history`. Leads restore versions from **Admin → History**.
 
 ## Setup (one time, about 15 minutes)
 

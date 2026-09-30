@@ -52,10 +52,53 @@ export function todayISO() {
 
 const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-');
 
-export const statusBadge = (status) => `<span class="badge badge-${slug(status)}">${esc(status)}</span>`;
+// ---- Appearance (Admin → Appearance) -------------------------------------------
+// Status labels/colors and priority colors come from the `appearance` settings.
+// Colors are named tones (see .tone-* in styles.css) so text always stays readable.
+
+export const COLOR_TONES = [
+  { key: 'gray', label: 'Gray' },
+  { key: 'blue', label: 'Blue' },
+  { key: 'green', label: 'Green' },
+  { key: 'teal', label: 'Teal' },
+  { key: 'amber', label: 'Amber' },
+  { key: 'orange', label: 'Orange' },
+  { key: 'red', label: 'Red' },
+  { key: 'pink', label: 'Pink' },
+  { key: 'purple', label: 'Purple' },
+  { key: 'navy', label: 'Navy' },
+  { key: 'red-strong', label: 'Red (bold)' },
+  { key: 'orange-strong', label: 'Orange (bold)' },
+  { key: 'green-strong', label: 'Green (bold)' },
+  { key: 'navy-strong', label: 'Navy (bold)' },
+];
+const TONE_KEYS = new Set(COLOR_TONES.map((t) => t.key));
+const tone = (key, fallback) => (TONE_KEYS.has(key) ? key : fallback);
+
+export const DEFAULT_STATUS_COLORS = {
+  Draft: 'gray', Submitted: 'blue', 'Changes Requested': 'amber', Approved: 'green',
+  Rejected: 'red', Ordered: 'purple', Received: 'teal',
+};
+const DEFAULT_PRIORITY_COLORS = { normal: 'gray', low: 'gray', medium: 'amber', high: 'amber', urgent: 'red-strong' };
+
+let appearance = {};
+let defaultPriority = '';
+/** Called by main.js whenever settings load. */
+export function setAppearance(value, { defaultPriority: dp } = {}) {
+  appearance = value || {};
+  defaultPriority = dp || '';
+}
+export const statusLabel = (status) => String(appearance.statuses?.[status]?.label || '').trim() || status;
+export const statusColor = (status) => tone(appearance.statuses?.[status]?.color, DEFAULT_STATUS_COLORS[status] || 'gray');
+export const priorityColor = (p) => tone(appearance.priorities?.[p], DEFAULT_PRIORITY_COLORS[String(p).toLowerCase()] || 'gray');
+/** Lists skip the priority tag for the default priority (e.g. "Normal") unless told otherwise. */
+export const showPriorityInLists = (p) => !!p && (appearance.showDefaultPriority || p !== defaultPriority);
+
+export const statusBadge = (status) =>
+  `<span class="badge tone-${statusColor(status)}" data-status="${esc(status)}">${esc(statusLabel(status))}</span>`;
 
 export const priorityTag = (priority) =>
-  priority ? `<span class="priority priority-${slug(priority)}">${esc(priority)}</span>` : '';
+  priority ? `<span class="priority tone-${priorityColor(priority)}">${esc(priority)}</span>` : '';
 
 /** Is `needed_by` today or earlier (and still in an open status)? */
 export function isOverdue(r) {
@@ -156,7 +199,7 @@ export const seasonTag = (r) =>
 
 /** Common column definitions, reused across the list pages. */
 export const COLUMNS = {
-  id: { label: 'Request ID', primary: true, cell: (r) => `<a class="mono" href="#/requests/${esc(r.request_number)}">${esc(r.request_number)}</a>` },
+  id: { label: 'Request ID', className: 'nowrap', cell: (r) => `<a class="mono" href="#/requests/${esc(r.request_number)}">${esc(r.request_number)}</a>`, sort: (r) => r.request_number },
   /** When it was requested — more useful in lists than the SG number. */
   requested: {
     label: 'Requested',
@@ -170,7 +213,7 @@ export const COLUMNS = {
     label: 'Title',
     primary: true,
     cell: (r) =>
-      `<a class="cell-title title-link" href="#/requests/${esc(r.request_number)}">${esc(r.title || 'Untitled request')}</a> ${priorityTag(r.priority !== 'Normal' ? r.priority : '')}${seasonTag(r)}`,
+      `<a class="cell-title title-link" href="#/requests/${esc(r.request_number)}">${esc(r.title || 'Untitled request')}</a> ${showPriorityInLists(r.priority) ? priorityTag(r.priority) : ''}${seasonTag(r)}`,
     sort: (r) => r.title,
   },
   requester: { label: 'Requester', cell: (r) => esc(r.requester || '—'), sort: (r) => r.requester },
@@ -209,6 +252,22 @@ export const COLUMNS = {
     dirLabels: { asc: 'oldest first', desc: 'newest first' },
   },
   orderNumber: { label: 'Ticket #', cell: (r) => esc(r.order?.department_order_number || '—'), sort: (r) => r.order?.department_order_number },
+  receivedOn: {
+    label: 'Received',
+    cell: (r) => fmtDate(r.order?.received_date),
+    sort: (r) => r.order?.received_date,
+    dirLabels: { asc: 'oldest first', desc: 'newest first' },
+  },
+  season: { label: 'Season', className: 'nowrap', cell: (r) => esc(r.season || '—'), sort: (r) => r.season },
+  shipping: {
+    label: 'Shipping',
+    className: 'num',
+    cell: (r) => (r.shipping ? fmtMoney(r.shipping) : '—'),
+    sort: (r) => Number(r.shipping) || 0,
+    defaultDir: 'desc',
+    dirLabels: NUM_LABELS,
+  },
+  itemCount: { label: 'Items', className: 'num', cell: (r) => String(r.items.length), sort: (r) => r.items.length, defaultDir: 'desc', dirLabels: NUM_LABELS },
 };
 for (const [key, col] of Object.entries(COLUMNS)) col.key = key;
 

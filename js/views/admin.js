@@ -10,13 +10,19 @@ import { auth } from '../auth.js';
 import { esc, fmtDate, errorBox, setFlash, takeFlash } from '../ui.js';
 import { FIELD_TYPES, LOCKED, LIST_FIELDS, requestFields, itemFields, typeLabel, makeKey } from '../formFields.js';
 
+/** Admin tabs, each shown only with its permission. Also used by the router. */
+export const ADMIN_TABS = [
+  ['users', 'Users & roles', ['users.manage']],
+  ['fields', 'Form fields', ['settings.edit']],
+  ['settings', 'Settings', ['settings.edit', 'seasons.manage']],
+  ['lists', 'Lists', ['site.customize']],
+  ['appearance', 'Appearance', ['site.customize']],
+  ['import', 'Import', ['seasons.manage']],
+  ['history', 'History', ['users.manage', 'settings.edit', 'site.customize']],
+];
+
 export function adminTabs(active) {
-  const items = [
-    ['users', 'Users & roles', 'users.manage'],
-    ['fields', 'Form fields', 'settings.edit'],
-    ['settings', 'Settings', 'settings.edit'],
-    ['import', 'Import', 'settings.edit'],
-  ].filter(([, , perm]) => auth.can(perm));
+  const items = ADMIN_TABS.filter(([, , perms]) => perms.some((p) => auth.can(p)));
   return `<nav class="tabs">${items
     .map(([key, label]) => `<a href="#/admin/${key}" class="${key === active ? 'active' : ''}">${label}</a>`)
     .join('')}</nav>`;
@@ -28,7 +34,11 @@ export async function renderUsers(el, { rerender }) {
   const people = await api.listProfiles();
   const roles = auth.roles;
   const me = auth.user.id;
-  const counts = Object.fromEntries(roles.map((r) => [r.key, people.filter((p) => p.role === r.key).length]));
+  // Member is what you are with no other role, so it isn't a checkbox.
+  const assignable = roles.filter((r) => r.key !== 'member');
+  const BUILT_IN = new Set(['member', 'ce', 'treasurer', 'admin']);
+  const holds = (p, key) => (p.roles || []).includes(key);
+  const count = (key) => people.filter((p) => (key === 'member' ? !p.roles.some((r) => r !== 'member') : holds(p, key))).length;
 
   el.innerHTML = `
     ${takeFlash()}
@@ -36,66 +46,158 @@ export async function renderUsers(el, { rerender }) {
       <div>
         <h1>Admin</h1>
         <p class="subtitle">${people.length} account${people.length === 1 ? '' : 's'} · ${roles
-          .map((r) => `${counts[r.key]} ${esc(r.label)}`)
+          .map((r) => `${count(r.key)} ${esc(r.label)}`)
           .join(' · ')}</p>
       </div>
     </div>
     ${adminTabs('users')}
     <div class="alert alert-info small">
-      New members create their own account from the sign-in page and start as <strong>Member</strong>.
-      Change anyone's role here, including your own. What each role can do is set under
-      <a href="#permissions">Permissions</a> below. At least one person must always be able to manage people,
-      so the site won't let the last one lose that ability.
+      New people create their own account from the sign-in page and start as <strong>Member</strong>.
+      Tick the roles each person should have. Someone can have several (e.g. Treasurer + Admin) and gets everything those roles allow.
+      What each role can do is set under <a href="#permissions">Permissions</a>. At least one person must always be able to
+      manage people & roles, so the site won't let the last one lose that ability.
     </div>
     <div id="user-errors"></div>
     <div class="table-wrap">
-      <table class="table">
-        <thead><tr><th>Name</th><th>Email</th><th>Joined</th><th>Role</th></tr></thead>
+      <table class="table people-table">
+        <thead><tr><th>Name</th><th>Email</th><th>Joined</th><th>Roles</th></tr></thead>
         <tbody>
           ${people
             .map(
-              (p) => `<tr>
+              (p) => `<tr data-user="${esc(p.id)}">
                 <td><strong>${esc(p.full_name || '—')}</strong>${p.id === me ? ' <span class="muted small">(you)</span>' : ''}</td>
                 <td>${esc(p.email)}</td>
-                <td>${fmtDate(p.created_at)}</td>
-                <td>
-                  <select data-user="${esc(p.id)}" aria-label="Role for ${esc(p.full_name || p.email)}">
-                    ${roles.map((r) => `<option value="${esc(r.key)}" ${r.key === p.role ? 'selected' : ''}>${esc(r.label)}</option>`).join('')}
-                  </select>
-                </td>
+                <td class="nowrap">${fmtDate(p.created_at)}</td>
+                <td><div class="role-chips">
+                  ${assignable
+                    .map(
+                      (r) => `<label class="role-chip ${holds(p, r.key) ? 'on' : ''}">
+                        <input type="checkbox" data-role="${esc(r.key)}" ${holds(p, r.key) ? 'checked' : ''}
+                          aria-label="${esc(r.label)} for ${esc(p.full_name || p.email)}">${esc(r.label)}</label>`
+                    )
+                    .join('')}
+                  ${p.roles.some((r) => r !== 'member') ? '' : '<span class="muted small">Member</span>'}
+                </div></td>
               </tr>`
             )
             .join('')}
         </tbody>
       </table>
     </div>
+
+    <section class="card" id="roles">
+      <h2>Roles</h2>
+      <p class="muted small">Add roles like "Subsystem Lead" or "Faculty Advisor", then choose what they can do under Permissions.
+        Built-in roles can be renamed but not deleted.</p>
+      <div id="role-errors"></div>
+      <div class="table-wrap flat">
+        <table class="table roles-table">
+          <thead><tr><th>Role</th><th class="num">People</th><th></th></tr></thead>
+          <tbody>${roles
+            .map(
+              (r) => `<tr data-role-row="${esc(r.key)}">
+                <td><div class="rename-row">
+                  <input type="text" value="${esc(r.label)}" data-rename="${esc(r.key)}" aria-label="Name of the ${esc(r.label)} role" maxlength="40">
+                  <button type="button" class="btn btn-sm" data-save-name="${esc(r.key)}" hidden>Rename</button>
+                </div></td>
+                <td class="num">${count(r.key)}</td>
+                <td class="center">${
+                  BUILT_IN.has(r.key)
+                    ? '<span class="field-tag">Built-in</span>'
+                    : `<button type="button" class="btn btn-sm btn-danger" data-delete-role="${esc(r.key)}">Delete</button>`
+                }</td>
+              </tr>`
+            )
+            .join('')}</tbody>
+        </table>
+      </div>
+      <form class="add-role" id="add-role" novalidate>
+        <label for="new-role" class="sr-only">New role name</label>
+        <input id="new-role" type="text" placeholder="New role, e.g. Subsystem Lead" maxlength="40">
+        <button type="submit" class="btn">+ Add role</button>
+      </form>
+    </section>
+
     <div id="permissions-section"></div>`;
 
-  el.querySelectorAll('select[data-user]').forEach((select) => {
-    const previous = select.value;
-    select.addEventListener('change', async () => {
-      const person = people.find((p) => p.id === select.dataset.user);
-      const label = roles.find((r) => r.key === select.value)?.label;
+  const userErrors = el.querySelector('#user-errors');
+  const roleErrors = el.querySelector('#role-errors');
+  const label = (key) => roles.find((r) => r.key === key)?.label || key;
+
+  // Tick / untick a role for someone: saved right away.
+  el.querySelectorAll('tr[data-user] input[data-role]').forEach((box) =>
+    box.addEventListener('change', async () => {
+      const row = box.closest('tr');
+      const person = people.find((p) => p.id === row.dataset.user);
+      const next = [...row.querySelectorAll('input[data-role]:checked')].map((b) => b.dataset.role);
       const self = person.id === me;
-      const question = self
-        ? `Change your own role to ${label}? You'll immediately have only what a ${label} can do.`
-        : `Make ${person.full_name || person.email} a ${label}?`;
-      if (!confirm(question)) {
-        select.value = previous;
+      if (self && !box.checked && !confirm(`Remove your own ${label(box.dataset.role)} role? You'll lose what it lets you do right away.`)) {
+        box.checked = true;
         return;
       }
-      select.disabled = true;
+      row.querySelectorAll('input').forEach((b) => (b.disabled = true));
+      userErrors.innerHTML = '';
       try {
-        await api.setUserRole(person.id, select.value);
+        await api.setUserRoles(person.id, next);
         if (self) await auth.refresh(); // your menus and access change right away
-        setFlash(self ? `You are now a ${label}.` : `${person.full_name || person.email} is now a ${label}.`);
+        const who = self ? 'You' : person.full_name || person.email;
+        setFlash(`${who} ${self ? 'are' : 'is'} now: ${next.length ? next.map(label).join(' + ') : 'Member'}.`);
         await rerender();
       } catch (err) {
-        el.querySelector('#user-errors').innerHTML = errorBox(err);
-        select.value = previous;
-        select.disabled = false;
+        userErrors.innerHTML = errorBox(err);
+        box.checked = !box.checked;
+        row.querySelectorAll('input').forEach((b) => (b.disabled = false));
+      }
+    })
+  );
+
+  // Rename: the button appears once the name changes.
+  el.querySelectorAll('input[data-rename]').forEach((input) => {
+    const button = el.querySelector(`[data-save-name="${input.dataset.rename}"]`);
+    input.addEventListener('input', () => (button.hidden = input.value.trim() === label(input.dataset.rename)));
+    input.addEventListener('keydown', (e) => e.key === 'Enter' && (e.preventDefault(), button.click()));
+    button.addEventListener('click', async () => {
+      roleErrors.innerHTML = '';
+      try {
+        await api.renameRole(input.dataset.rename, input.value.trim());
+        await auth.refresh();
+        setFlash(`Renamed to "${input.value.trim()}".`);
+        await rerender();
+      } catch (err) {
+        roleErrors.innerHTML = errorBox(err);
       }
     });
+  });
+
+  el.querySelectorAll('[data-delete-role]').forEach((button) =>
+    button.addEventListener('click', async () => {
+      const key = button.dataset.deleteRole;
+      if (!confirm(`Delete the ${label(key)} role? ${count(key)} ${count(key) === 1 ? 'person loses' : 'people lose'} it (anyone left with no role becomes a Member).`)) return;
+      roleErrors.innerHTML = '';
+      try {
+        await api.deleteRole(key);
+        await auth.refresh();
+        setFlash(`Deleted the ${label(key)} role.`);
+        await rerender();
+      } catch (err) {
+        roleErrors.innerHTML = errorBox(err);
+      }
+    })
+  );
+
+  el.querySelector('#add-role').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const name = el.querySelector('#new-role').value.trim();
+    if (!name) return;
+    roleErrors.innerHTML = '';
+    try {
+      await api.createRole(name);
+      await auth.refresh();
+      setFlash(`Added the "${name}" role. Choose what it can do under Permissions.`);
+      await rerender();
+    } catch (err) {
+      roleErrors.innerHTML = errorBox(err);
+    }
   });
 
   await renderPermissions(el.querySelector('#permissions-section'), { rerender });
@@ -114,7 +216,7 @@ async function renderPermissions(box, { rerender }) {
   }
   const roles = auth.roles;
   const has = new Set(grants.map((g) => `${g.role}|${g.permission}`));
-  const myRole = auth.user.role;
+  const myRoles = auth.user.roles || [];
 
   box.innerHTML = `
     <section class="card" id="permissions">
@@ -124,7 +226,7 @@ async function renderPermissions(box, { rerender }) {
       <div id="perm-errors"></div>
       <div class="table-wrap flat">
         <table class="table perm-table">
-          <thead><tr><th>Permission</th>${roles.map((r) => `<th class="center">${esc(r.label)}${r.key === myRole ? '<div class="muted small">(your role)</div>' : ''}</th>`).join('')}</tr></thead>
+          <thead><tr><th>Permission</th>${roles.map((r) => `<th class="center">${esc(r.label)}${myRoles.includes(r.key) ? '<div class="muted small">(yours)</div>' : ''}</th>`).join('')}</tr></thead>
           <tbody>${perms
             .map(
               (p) => `<tr>
@@ -159,7 +261,7 @@ async function renderPermissions(box, { rerender }) {
   box.querySelector('#save-perms').addEventListener('click', async (e) => {
     const toSave = changedRoles();
     const label = (key) => roles.find((r) => r.key === key)?.label || key;
-    const own = toSave.includes(myRole) ? ' This includes your own role.' : '';
+    const own = toSave.some((r) => myRoles.includes(r)) ? ' This includes one of your own roles.' : '';
     if (!confirm(`Save new permissions for ${toSave.map(label).join(', ')}?${own}`)) return;
     e.target.disabled = true;
     box.querySelector('#perm-errors').innerHTML = '';
@@ -355,6 +457,11 @@ export async function renderSettings(el, { rerender, reloadConfig }) {
       button.disabled = false;
     }
   });
+
+  // Show only the parts this person can use: settings (Edit form & settings) and
+  // the season rollover (Seasons & imports).
+  if (!auth.can('settings.edit')) el.querySelector('#settings-form')?.remove();
+  if (!auth.can('seasons.manage')) el.querySelector('#season-card')?.remove();
 }
 
 // ---- Form fields ----------------------------------------------------------------

@@ -11,7 +11,8 @@
 import { auth } from './auth.js';
 import { renderLogin } from './views/login.js';
 import { renderAccount, renderResetPassword } from './views/account.js';
-import { renderUsers, renderSettings, renderFormFields } from './views/admin.js';
+import { renderUsers, renderSettings, renderFormFields, ADMIN_TABS } from './views/admin.js';
+import { renderLists, renderAppearance, renderHistory } from './views/adminSetup.js';
 import { renderRequestForm } from './views/requestForm.js';
 import { renderRequestList } from './views/requestList.js';
 import { renderRequestDetail } from './views/requestDetail.js';
@@ -25,6 +26,8 @@ import { errorBox } from './ui.js';
 // Either workflow permission lets you view both queues (actions are still limited by role).
 const LEADS = ['request.review', 'request.order'];
 
+const tabPerms = (name) => ADMIN_TABS.find(([key]) => key === name)[2];
+
 const ROUTES = [
   { pattern: /^\/new$/, nav: 'new', view: renderRequestForm },
   { pattern: /^\/requests$/, nav: 'requests', view: renderRequestList },
@@ -34,11 +37,15 @@ const ROUTES = [
   { pattern: /^\/treasurer$/, nav: 'treasurer', view: renderTreasurer, perm: LEADS },
   { pattern: /^\/archive$/, nav: 'archive', view: renderArchive },
   { pattern: /^\/export$/, nav: 'export', view: renderExport },
-  { pattern: /^\/admin\/users$/, nav: 'admin', view: renderUsers, perm: ['users.manage'] },
-  { pattern: /^\/admin\/fields$/, nav: 'admin', view: renderFormFields, perm: ['settings.edit'] },
-  { pattern: /^\/admin\/import$/, nav: 'admin', view: renderImport, perm: ['settings.edit'] },
-  { pattern: /^\/admin\/settings$/, nav: 'admin', view: renderSettings, perm: ['settings.edit'] },
-  { pattern: /^\/admin$/, redirect: () => (auth.can('users.manage') ? '#/admin/users' : '#/admin/settings') },
+  { pattern: /^\/admin\/users$/, nav: 'admin', view: renderUsers, perm: tabPerms('users') },
+  { pattern: /^\/admin\/fields$/, nav: 'admin', view: renderFormFields, perm: tabPerms('fields') },
+  { pattern: /^\/admin\/settings$/, nav: 'admin', view: renderSettings, perm: tabPerms('settings') },
+  { pattern: /^\/admin\/lists$/, nav: 'admin', view: renderLists, perm: tabPerms('lists') },
+  { pattern: /^\/admin\/appearance$/, nav: 'admin', view: renderAppearance, perm: tabPerms('appearance') },
+  { pattern: /^\/admin\/import$/, nav: 'admin', view: renderImport, perm: tabPerms('import') },
+  { pattern: /^\/admin\/history$/, nav: 'admin', view: renderHistory, perm: tabPerms('history') },
+  // "Admin" opens the first tab this person can use.
+  { pattern: /^\/admin$/, redirect: () => `#/admin/${(ADMIN_TABS.find(([, , perms]) => perms.some((p) => auth.can(p))) || ['users'])[0]}` },
   { pattern: /^\/account$/, nav: 'account', view: renderAccount },
   { pattern: /^\/reset-password$/, view: renderResetPassword },
 ];

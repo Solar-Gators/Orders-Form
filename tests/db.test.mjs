@@ -87,7 +87,12 @@ async function signUp(email, name) {
   return id;
 }
 
-const setRole = (uid, role) => db.query(`update profiles set role = $2 where id = $1`, [uid, role]);
+/** Give someone exactly one role (test setup, as the database owner). */
+const setRole = (uid, role) =>
+  db.exec(`delete from profile_roles where user_id = '${uid}'; insert into profile_roles (user_id, role) values ('${uid}', '${role}');`);
+/** Someone's roles, comma-separated and sorted, e.g. "admin,treasurer". */
+const roleOf = async (uid) =>
+  (await db.query(`select string_agg(role, ',' order by role) as r from profile_roles where user_id = $1`, [uid])).rows[0].r;
 const rpc = (fn, args) => db.query(`select public.${fn}(${args.map((_, i) => `$${i + 1}`).join(', ')}) as result`, args);
 const statusOf = async (number) => (await db.query(`select status from requests where request_number = $1`, [number])).rows[0].status;
 
@@ -117,8 +122,9 @@ await setRole(ce, 'ce');
 await setRole(treasurer, 'treasurer');
 
 await test('sign-up creates a Member profile (subdomains allowed)', async () => {
-  const { rows } = await db.query(`select email, full_name, role from profiles where id in ($1, $2) order by email`, [member, other]);
-  assert.deepEqual(rows.map((r) => [r.full_name, r.role]), [['Mia Member', 'member'], ['Otto Other', 'member']]);
+  const { rows } = await db.query(`select email, full_name from profiles where id in ($1, $2) order by email`, [member, other]);
+  assert.deepEqual(rows.map((r) => r.full_name), ['Mia Member', 'Otto Other']);
+  assert.deepEqual([await roleOf(member), await roleOf(other)], ['member', 'member']);
 });
 
 await test('anon can read general settings but not requests or profiles', async () => {
@@ -137,7 +143,8 @@ await test('anon cannot call actions', async () => {
 await test('users cannot write tables directly', async () => {
   await as(member, async () => {
     await rejects(db.query(`insert into requests (title) values ('x')`), /permission denied/);
-    await rejects(db.query(`update profiles set role = 'treasurer' where id = $1`, [member]), /permission denied/);
+    await rejects(db.query(`insert into profile_roles (user_id, role) values ($1, 'treasurer')`, [member]), /permission denied/);
+    await rejects(db.query(`update profiles set full_name = 'x' where id = $1`, [member]), /permission denied/);
     await rejects(db.query(`insert into approvals (request_id, approver, decision) values (gen_random_uuid(), 'me', 'approve')`), /permission denied/);
   });
 });
@@ -257,7 +264,7 @@ await test('members cannot change roles', async () => {
 
 await test('CE can promote a member', async () => {
   await as(ce, () => rpc('set_user_role', [other, 'treasurer']));
-  assert.equal((await db.query(`select role from profiles where id = $1`, [other])).rows[0].role, 'treasurer');
+  assert.equal(await roleOf(other), 'treasurer');
 });
 
 const currentForm = async () => (await db.query(`select value from app_settings where key = 'form'`)).rows[0].value;
@@ -285,7 +292,7 @@ await test('the website cannot change the schema version', async () => {
   const general = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
   await as(ce, () => rpc('update_settings', ['general', { ...general, schemaVersion: 99 }]));
   const after = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
-  assert.equal(after.schemaVersion, 7);
+  assert.equal(after.schemaVersion, 8);
 });
 
 console.log('Form fields');
@@ -511,11 +518,10 @@ console.log('Editable permissions');
 
 const permsOf = async (role) =>
   (await db.query(`select permission from role_permissions where role = $1 order by 1`, [role])).rows.map((r) => r.permission);
-const roleOf = async (uid) => (await db.query(`select role from profiles where id = $1`, [uid])).rows[0].role;
 
 await test('everyone signed in can read the permission list', async () => {
   const { rows } = await as(member, () => db.query(`select key from permissions order by sort`));
-  assert.deepEqual(rows.map((r) => r.key), ['request.review', 'request.order', 'settings.edit', 'users.manage']);
+  assert.deepEqual(rows.map((r) => r.key), ['request.review', 'request.order', 'settings.edit', 'site.customize', 'seasons.manage', 'users.manage']);
 });
 
 await test('members cannot change permissions', async () => {
@@ -533,7 +539,7 @@ await test('a CE can give their own role a new permission, and it takes effect',
 
 await test('unknown permissions and roles are refused', async () => {
   await as(ce, () => rejects(rpc('set_role_permissions', ['ce', ['request.review', 'launch.rocket']]), /Unknown permission "launch.rocket"/));
-  await as(ce, () => rejects(rpc('set_role_permissions', ['admin', []]), /Unknown role/));
+  await as(ce, () => rejects(rpc('set_role_permissions', ['no_such_role', []]), /Unknown role/));
   assert.deepEqual(await permsOf('ce'), ['request.review', 'settings.edit', 'users.manage']); // unchanged
 });
 
@@ -573,6 +579,9 @@ await test('the last person who can manage people cannot demote themselves', asy
 });
 
 console.log('Seasons');
+
+// The permission tests above left the CE with a hand-picked list; put the defaults back.
+await db.exec(`insert into role_permissions (role, permission) values ('ce', 'seasons.manage') on conflict do nothing`);
 
 const general = async () => (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
 const newDraft = async (who = member) => (await as(who, () => rpc('save_request', [null, { title: 'Season test' }, [], 'draft']))).rows[0].result;
@@ -659,6 +668,129 @@ await test('the rule is skipped when the Vendor field is hidden', async () => {
   await as(ce, () => rpc('update_settings', ['form', hidden]));
   await as(member, () => rpc('save_request', [null, vendorRequest, twoVendors, 'submit']));
   await as(ce, () => rpc('update_settings', ['form', form]));
+});
+
+console.log('Multiple roles & Admin');
+
+await test('someone can hold several roles; their permissions combine', async () => {
+  await as(ce, () => rpc('set_user_roles', [other, ['treasurer', 'ce']]));
+  assert.equal(await roleOf(other), 'ce,treasurer');
+  // They can both review (CE) and order (Treasurer).
+  const req = await as(member, () => rpc('save_request', [null, vendorRequest, [twoVendors[0]], 'submit']));
+  const id = (await db.query(`select id from requests where request_number = $1`, [req.rows[0].result])).rows[0].id;
+  await as(other, () => rpc('review_request', [id, 'approve', '']));
+  await as(other, () => rpc('mark_ordered', [id, null, '9001', '']));
+  assert.equal((await db.query(`select status from requests where id = $1`, [id])).rows[0].status, 'Ordered');
+});
+
+await test('no roles means Member; unknown roles are refused', async () => {
+  await as(ce, () => rpc('set_user_roles', [other, []]));
+  assert.equal(await roleOf(other), 'member');
+  await as(ce, () => rejects(rpc('set_user_roles', [other, ['ce', 'wizard']]), /Unknown role "wizard"/));
+  assert.equal(await roleOf(other), 'member'); // unchanged
+});
+
+await test('Admin has every permission, including the new ones', async () => {
+  const perms = (await db.query(`select string_agg(permission, ',' order by permission) as p from role_permissions where role = 'admin'`)).rows[0].p;
+  assert.equal(perms, 'request.order,request.review,seasons.manage,settings.edit,site.customize,users.manage');
+});
+
+await test('custom roles: create, rename, grant, and delete', async () => {
+  await as(member, () => rejects(rpc('create_role', ['Subsystem Lead']), /does not allow/));
+  const key = (await as(ce, () => rpc('create_role', ['Subsystem Lead']))).rows[0].result;
+  assert.equal(key, 'subsystem_lead');
+  await as(ce, () => rejects(rpc('create_role', ['subsystem lead']), /already a role/));
+  await as(ce, () => rpc('rename_role', [key, 'Team Lead']));
+  await as(ce, () => rpc('set_permission_matrix', [{ [key]: ['request.review'] }]));
+  await as(ce, () => rpc('set_user_roles', [other, [key]]));
+  // Deleting the role leaves them as a Member.
+  await as(ce, () => rejects(rpc('delete_role', ['treasurer']), /Built-in roles/));
+  await as(ce, () => rpc('delete_role', [key]));
+  assert.equal(await roleOf(other), 'member');
+  assert.equal((await db.query(`select count(*)::int as n from roles where key = $1`, [key])).rows[0].n, 0);
+});
+
+await test('lockout protection still holds with several roles', async () => {
+  // treasurer + ce both have users.manage; strip it from everyone except a role nobody holds…
+  await as(ce, () => rejects(rpc('set_permission_matrix', [{
+    ce: ['request.review'], treasurer: ['request.order'], admin: ['request.review'],
+  }]), /At least one person must keep/));
+});
+
+console.log('Finer permissions');
+
+await test('lists & appearance need "Customize lists & appearance"', async () => {
+  await as(ce, () => rejects(rpc('update_settings', ['appearance', { statuses: {} }]), /site.customize/));
+  await setRole(other, 'admin');
+  await as(other, () => rpc('update_settings', ['appearance', { statuses: { Ordered: { label: 'Purchased', color: 'blue' } } }]));
+  await as(other, () => rpc('update_settings', ['lists', { requests: { columns: ['requested', 'title', 'c_cost_center'] } }]));
+  const { rows } = await db.query(`select key, value from app_settings where key in ('appearance', 'lists') order by key`);
+  assert.equal(rows[0].value.statuses.Ordered.label, 'Purchased');
+  assert.deepEqual(rows[1].value.requests.columns, ['requested', 'title', 'c_cost_center']);
+  await as(ce, () => rejects(rpc('update_settings', ['bogus', {}]), /Unknown settings key/));
+});
+
+await test('seasons & imports need "Seasons & imports"', async () => {
+  await as(ce, () => rpc('set_permission_matrix', [{ ce: ['request.review', 'settings.edit', 'users.manage'] }]));
+  await as(ce, () => rejects(rpc('import_archive', ['2020-2021', 'x.xlsx', 'Sheet1', ['A'], [{ row_number: 2, fields: { A: '1' } }]]), /seasons.manage/));
+  await as(ce, () => rejects(rpc('start_new_season', ['2030-2031']), /seasons.manage/));
+  await as(ce, () => rpc('set_permission_matrix', [{ ce: ['request.review', 'settings.edit', 'seasons.manage', 'users.manage'] }]));
+});
+
+console.log('Settings history');
+
+const history = async (key) =>
+  (await db.query(`select id, value, changed_by_name, note from settings_history where key = $1 order by id`, [key])).rows;
+
+await test('every settings change is kept as a version, with who made it', async () => {
+  const before = (await history('form')).length;
+  const form = await currentForm();
+  await as(ce, () => rpc('update_settings', ['form', { ...form, priorities: [...form.priorities, 'Someday'] }]));
+  const after = await history('form');
+  assert.equal(after.length, before + 1);
+  assert.equal(after.at(-1).changed_by_name, 'Griffin York');
+  assert.ok(after.at(-1).value.priorities.includes('Someday'));
+  // Saving identical settings doesn't add noise.
+  await as(ce, () => rpc('update_settings', ['form', after.at(-1).value]));
+  assert.equal((await history('form')).length, before + 1);
+});
+
+await test('restoring a version puts it back (and is itself a new version)', async () => {
+  const versions = await history('form');
+  const previous = versions.at(-2);
+  await as(ce, () => rpc('restore_settings_version', [previous.id]));
+  assert.ok(!(await currentForm()).priorities.includes('Someday'));
+  const now = await history('form');
+  assert.equal(now.length, versions.length + 1);
+  assert.match(now.at(-1).note, /^Restored the version from/);
+});
+
+await test('restore uses the same permission checks as saving', async () => {
+  const [version] = (await history('appearance')).slice(-1);
+  await as(member, () => rejects(rpc('restore_settings_version', [version.id]), /does not allow/));
+  await as(ce, () => rejects(rpc('restore_settings_version', [version.id]), /site.customize/));
+});
+
+await test('permission grid changes are versioned and can be undone', async () => {
+  const before = await history('permissions');
+  await as(ce, () => rpc('set_permission_matrix', [{ member: ['request.review'] }]));
+  const after = await history('permissions');
+  assert.equal(after.length, before.length + 1);
+  assert.deepEqual(after.at(-1).value.member, ['request.review']);
+  await as(ce, () => rpc('restore_settings_version', [before.at(-1).id]));
+  assert.deepEqual(await permsOf('member'), []);
+});
+
+await test('even the first Lists/Appearance change can be undone (back to defaults)', async () => {
+  const versions = await history('appearance');
+  assert.deepEqual(versions[0].value, {}); // starting point = built-in defaults
+  await as(other, () => rpc('restore_settings_version', [versions[0].id])); // `other` is Admin
+  assert.deepEqual((await db.query(`select value from app_settings where key = 'appearance'`)).rows[0].value, {});
+});
+
+await test('the history starts with the settings as they were before 008', async () => {
+  const first = (await db.query(`select changed_by_name, note from settings_history order by id limit 1`)).rows[0];
+  assert.deepEqual(first, { changed_by_name: 'Before history started', note: 'Starting point' });
 });
 
 console.log(`\n${passed} passed${process.exitCode ? ', some FAILED' : ''}`);

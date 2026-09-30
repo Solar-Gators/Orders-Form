@@ -136,17 +136,8 @@ p { margin: 0 0 10px; }
   font-size: 12px; font-weight: 600; white-space: nowrap; border: 1px solid transparent;
 }
 .badge::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
-.badge-draft { background: #eef1f4; color: #4b5563; border-color: #dfe3e8; }
-.badge-submitted { background: #e3edff; color: var(--blue); border-color: #c9dafc; }
-.badge-changes-requested { background: #fff3d6; color: var(--amber); border-color: #f7df9f; }
-.badge-approved { background: #ddf5e6; color: var(--green); border-color: #b8e8c9; }
-.badge-rejected { background: #fde4e2; color: var(--red); border-color: #f8c3be; }
-.badge-ordered { background: #ece6fe; color: var(--purple); border-color: #d6cafb; }
 
 .priority { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; padding: 1px 6px; border-radius: 4px; }
-.priority-normal { color: var(--muted); background: #eef1f4; }
-.priority-high { color: var(--amber); background: #fff3d6; }
-.priority-urgent { color: #fff; background: var(--red); }
 
 /* ---- Forms -------------------------------------------------------------- */
 
@@ -297,7 +288,6 @@ code { background: var(--surface-2); border: 1px solid var(--border); border-rad
 .section-title { font-size: 15px; margin: 24px 0 10px; }
 .page-header + .section-title { margin-top: 0; }
 
-.badge-received { background: #d9f2f5; color: #0e6c78; border-color: #b3e2e8; }
 .timeline > .tl-received::before { border-color: #0e6c78; background: #0e6c78; }
 
 @media (max-width: 980px) {
@@ -519,3 +509,56 @@ th.sorted .sort-ind { opacity: 1; color: var(--orange-dark); }
 .sort-bar label { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--muted); }
 .sort-bar select { flex: 1; }
 @media (max-width: 640px) { .sort-bar { display: block; } }
+
+/* ---- Color tones: statuses, priorities (Admin → Appearance) ------------------ */
+/* Soft tones: tinted background + dark text. "-strong": solid color + white text. */
+
+.tone-gray   { background: #eef1f4; color: #4b5563; border-color: #dfe3e8; }
+.tone-blue   { background: #e3edff; color: #1d4ed8; border-color: #c9dafc; }
+.tone-green  { background: #ddf5e6; color: #17803d; border-color: #b8e8c9; }
+.tone-teal   { background: #d9f2f5; color: #0e6c78; border-color: #b3e2e8; }
+.tone-amber  { background: #fff3d6; color: #8a5a00; border-color: #f7df9f; }
+.tone-orange { background: #ffe9dc; color: #b04a0c; border-color: #fbcfb3; }
+.tone-red    { background: #fde4e2; color: #b42318; border-color: #f8c3be; }
+.tone-pink   { background: #fce7f3; color: #a3195b; border-color: #f7c6e0; }
+.tone-purple { background: #ece6fe; color: #5b3cc4; border-color: #d6cafb; }
+.tone-navy   { background: #e2e8f2; color: #0b2545; border-color: #c8d3e3; }
+.tone-red-strong    { background: #b42318; color: #fff; border-color: #b42318; }
+.tone-orange-strong { background: #d85a10; color: #fff; border-color: #d85a10; }
+.tone-green-strong  { background: #17803d; color: #fff; border-color: #17803d; }
+.tone-navy-strong   { background: #0b2545; color: #fff; border-color: #0b2545; }
+
+/* ---- Admin: roles, lists, appearance, history --------------------------------- */
+
+.role-chips, .filter-checks { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.role-chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid var(--border);
+  border-radius: 999px; font-size: 12.5px; font-weight: 600; color: var(--muted); cursor: pointer; background: #fff; user-select: none;
+}
+.role-chip input { width: 14px; height: 14px; margin: 0; }
+.role-chip.on { color: var(--navy); border-color: #b9c9e4; background: #e8eef8; }
+.role-chip:has(input:focus-visible) { box-shadow: 0 0 0 3px var(--focus); }
+
+.roles-table .rename-row { display: flex; gap: 8px; align-items: center; }
+.roles-table .rename-row input { max-width: 240px; }
+.add-role { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.add-role input { max-width: 280px; }
+#roles { margin-top: 16px; scroll-margin-top: 80px; }
+
+.list-card .sub-heading { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 16px 0 8px; }
+.column-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.column-list li {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 4px 4px 12px; border: 1px solid var(--border);
+  border-radius: 8px; background: var(--surface-2); font-weight: 600; font-size: 13px;
+}
+.column-list li .column-actions { display: inline-flex; }
+.column-list li .icon-btn { width: 24px; height: 24px; font-size: 14px; }
+.add-column { margin-top: 10px; }
+.add-column select { max-width: 280px; }
+.preview-line { margin-top: 10px; }
+.sort-default { display: flex; gap: 8px; flex-wrap: wrap; }
+.sort-default select { width: auto; min-width: 180px; }
+
+.tone-table select { min-width: 130px; }
+.tone-table input { min-width: 140px; }
+.history-table td { vertical-align: top; }

@@ -1,15 +1,14 @@
-/** Treasurer: approved requests to order, and ordered requests awaiting delivery (both sortable). */
+/**
+ * Treasurer: approved requests to order, and ordered requests awaiting delivery.
+ * Both lists are sortable; their columns and default sorts come from Admin → Lists.
+ */
 import { api } from '../api.js';
 import { auth } from '../auth.js';
-import { STATUS, fmtMoney, requestTable, COLUMNS, bindRowLinks, bindSorting, takeFlash } from '../ui.js';
+import { STATUS, fmtMoney, requestTable, bindRowLinks, bindSorting, takeFlash } from '../ui.js';
+import { listColumns, listSort } from '../listColumns.js';
+import { rememberedSort } from './listSortState.js';
 
-// Each list keeps its own sort order while moving around the app.
-const toOrderSort = { key: 'approvedOn', dir: 'asc' };
-const inTransitSort = { key: 'orderedOn', dir: 'asc' };
-const toOrderColumns = [COLUMNS.requested, COLUMNS.title, COLUMNS.requester, COLUMNS.subsystem, COLUMNS.total, COLUMNS.vendors, COLUMNS.approvedOn];
-const inTransitColumns = [COLUMNS.requested, COLUMNS.title, COLUMNS.requester, COLUMNS.total, COLUMNS.vendors, COLUMNS.orderNumber, COLUMNS.orderedOn];
-
-export async function renderTreasurer(el) {
+export async function renderTreasurer(el, { config }) {
   const all = await api.listRequests([STATUS.APPROVED, STATUS.ORDERED]);
   const toOrder = all.filter((r) => r.status === STATUS.APPROVED);
   const inTransit = all.filter((r) => r.status === STATUS.ORDERED);
@@ -32,10 +31,12 @@ export async function renderTreasurer(el) {
     <div id="in-transit"></div>`;
 
   const lists = [
-    [el.querySelector('#to-order'), toOrder, toOrderColumns, toOrderSort, 'No approved requests are waiting to be ordered.'],
-    [el.querySelector('#in-transit'), inTransit, inTransitColumns, inTransitSort, 'Nothing is on order right now.'],
+    ['treasurerToOrder', el.querySelector('#to-order'), toOrder, 'No approved requests are waiting to be ordered.'],
+    ['treasurerOrdered', el.querySelector('#in-transit'), inTransit, 'Nothing is on order right now.'],
   ];
-  for (const [box, rows, columns, sort, empty] of lists) {
+  for (const [name, box, rows, empty] of lists) {
+    const columns = listColumns(name, config);
+    const sort = rememberedSort(name, listSort(name, config), columns);
     const draw = () => (box.innerHTML = requestTable(rows, columns, empty, sort));
     bindSorting(box, sort, columns, draw);
     draw();

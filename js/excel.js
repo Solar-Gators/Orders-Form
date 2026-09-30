@@ -7,7 +7,7 @@
  * field, then every shown item field, then the workflow columns. Renaming or
  * adding a field changes the export automatically.
  */
-import { STATUS } from './ui.js';
+import { STATUS, statusLabel } from './ui.js';
 import { requestFields, itemFields, shown, getValue, MONEY_FIELDS } from './formFields.js';
 
 const EXCELJS_URL = 'https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js';
@@ -47,7 +47,7 @@ export function buildColumns(config) {
     { header: 'Request ID', width: 12, get: (r) => r.request_number },
     { header: 'Season', width: 11, get: (r) => r.season },
     ...shown(requestFields(config)).map((f) => fromField(f, 'request')),
-    { header: 'Request Status', width: 18, get: (r) => r.status },
+    { header: 'Request Status', width: 18, get: (r) => statusLabel(r.status) },
     ...shown(itemFields(config)).map((f) => fromField(f, 'item')),
     { header: 'Item Total', width: 12, type: 'currency', get: (r, i) => i.item_total },
     { header: 'Request Shipping', width: 16, type: 'currency', get: (r) => r.shipping },

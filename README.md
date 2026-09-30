@@ -34,8 +34,23 @@ Every request gets an ID like **SG-001**. Numbering restarts each season with th
 
 ## Who can do what
 
-| | Member | Chief Engineer | Treasurer |
-| --- | :-: | :-: | :-: |
+A person can have **more than one role** (e.g. Treasurer + Admin), and gets everything those roles allow. These are the defaults:
+
+| | Member | Chief Engineer | Treasurer | Admin |
+| --- | :-: | :-: | :-: | :-: |
+| Submit requests and edit your own drafts | ✓ | ✓ | ✓ | ✓ |
+| See every request, search the Archive, export to Excel | ✓ | ✓ | ✓ | ✓ |
+| See the Approvals and Treasurer queues | | ✓ | ✓ | ✓ |
+| Approve, reject, or request changes | | ✓ | | ✓ |
+| Mark requests **Ordered** and **Received**, adjust prices and shipping | | | ✓ | ✓ |
+| Edit the form, dropdowns, and team settings | | ✓ | ✓ | ✓ |
+| Start a new season, import spreadsheets | | ✓ | ✓ | ✓ |
+| Customize lists (columns, filters, sorting) and appearance (labels, colors) | | | | ✓ |
+| Manage people, roles, and permissions | | ✓ | ✓ | ✓ |
+
+All of this can be changed in **Admin → Users & roles → Permissions**, and you can add roles of your own (e.g. "Subsystem Lead", "Faculty Advisor"). The Chief Engineer and Treasurer see every tab; on the other role's queue the page is marked **view only**. Members only see the tabs they can use.
+
+--- | :-: | :-: | :-: |
 | Submit requests and edit your own drafts | ✓ | ✓ | ✓ |
 | See every request, search the Archive, export to Excel | ✓ | ✓ | ✓ |
 | See the Approvals and Treasurer queues | | ✓ | ✓ |
@@ -76,19 +91,28 @@ If the Chief Engineer requests changes, you'll see their comment on the request.
 - **Archive:** orders from past seasons: requests made on this site in earlier seasons, plus the old spreadsheets imported from Excel. Type any words (item, vendor, part number, person, ticket) and filter by season, subteam, or status. Click a row to see every column exactly as it was in the original sheet.
 - **Export:** download a season (or all seasons) as an Excel file. There's one row per item, with request, approval, order, and delivery details on each row, ready to filter or pivot.
 
-### Admin (Chief Engineer and Treasurer)
-- **Users & roles:** new people create their own account and start as Members. Change anyone's role here, including your own.
-- **Permissions** (on the same page): a checkbox grid of what each role can do: approve requests, order & receive, edit form & settings, and manage people. For example, you can let the Chief Engineer also mark orders, or give Members access to the queues. There's one safety rule: at least one person must always keep **Manage people**, so the team can't lock itself out.
+### Admin
+
+Each Admin tab appears only for people whose roles allow it.
+
+- **Users & roles:** tick the roles each person has; someone can hold several.
+  - **Roles:** add your own roles, rename any role, or delete custom ones.
+  - **Permissions:** a checkbox grid of what each role can do. There's one safety rule: at least one person must always keep **Manage people & roles**, so the team can't lock itself out.
 - **Form fields:** change the request form without touching code.
   - Rename, reorder, hide, or require/unrequire fields.
   - Add your own fields: text, number, date, dropdown, yes/no, or link.
   - The Excel export follows the form automatically.
   - Request title, item name, quantity, and unit price are locked because totals and approvals depend on them.
-- **Settings:** the options of every dropdown on the form, one box per dropdown. That covers built-in ones like Subsystem and Priority, plus any you add in Form fields (e.g. "Cost center"). Also the team name, season, request ID prefix, and which email domains can sign up.
+- **Settings:** the options of every dropdown on the form (built-in ones like Subsystem and Priority, plus any you add, e.g. "Cost center"), the team name, request ID prefix, allowed sign-up email domains, request rules, and **Start a new season**.
+- **Lists:** choose the columns of the Requests, Approvals, and Treasurer lists. Any request field works, including custom ones like Cost center, plus values like Total, Vendor, and Approved date. Also set each list's default sort, and which filters appear above the Requests list.
+- **Appearance:** rename how statuses are shown (e.g. "Ordered" → "Purchased") and pick their colors, plus priority colors. Only the display changes; the workflow stays the same.
 - **Import:** bring in an old Excel order sheet.
   - A **past season** goes into the Archive with every column kept.
   - **This season's** sheet becomes real requests, including their approvals, order status, ticket numbers, and shipping.
   - You see a preview before anything is saved.
+- **History:** every change to settings and permissions, with who made it and when.
+  - **Restore** puts back any earlier version, and a restore can itself be undone.
+  - If something looks wrong after a change, this is the first place to go.
 
 ---
 

@@ -196,8 +196,14 @@ export const api = {
 
   // ---- People ---------------------------------------------------------------
 
+  /** Everyone, each with `roles: [roleKey, ...]`. */
   async listProfiles() {
-    return unwrap(await supabase.from('profiles').select('*').order('full_name'));
+    const res = await supabase.from('profiles').select('*, profile_roles(role)').order('full_name');
+    if (res.error && /profile_roles/.test(res.error.message || '')) {
+      // Before migration 008: one role per person.
+      return unwrap(await supabase.from('profiles').select('*').order('full_name')).map((p) => ({ ...p, roles: [p.role] }));
+    }
+    return unwrap(res).map(({ profile_roles, ...p }) => ({ ...p, roles: (profile_roles || []).map((r) => r.role) }));
   },
 
   /** The list of abilities, e.g. { key: "request.review", label: "Approve requests", description }. */
@@ -216,6 +222,32 @@ export const api = {
 
   async setUserRole(userId, role) {
     unwrap(await supabase.rpc('set_user_role', { p_user_id: userId, p_role: role }));
+  },
+
+  /** Give someone exactly these roles (empty list = Member). */
+  async setUserRoles(userId, roles) {
+    unwrap(await supabase.rpc('set_user_roles', { p_user_id: userId, p_roles: roles }));
+  },
+
+  /** Custom roles. createRole returns the new role's key. */
+  async createRole(label) {
+    return unwrap(await supabase.rpc('create_role', { p_label: label }));
+  },
+  async renameRole(key, label) {
+    unwrap(await supabase.rpc('rename_role', { p_key: key, p_label: label }));
+  },
+  async deleteRole(key) {
+    unwrap(await supabase.rpc('delete_role', { p_key: key }));
+  },
+
+  // ---- Settings history ------------------------------------------------------
+
+  /** Saved versions of settings and permissions, newest first. */
+  async listSettingsHistory(limit = 150) {
+    return unwrap(await supabase.from('settings_history').select('*').order('id', { ascending: false }).range(0, limit - 1));
+  },
+  async restoreSettingsVersion(id) {
+    unwrap(await supabase.rpc('restore_settings_version', { p_id: id }));
   },
 
   async updateMyProfile(fullName) {

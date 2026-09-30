@@ -22,7 +22,7 @@ export const siteUrl = () => `${location.origin}${location.pathname}`;
 
 const DB_NAME = 'idb://sg-orders-fake';
 // Keep in sync with the files in supabase/migrations/.
-const MIGRATIONS = ['001_initial.sql', '002_form_fields.sql', '003_archive_and_import.sql', '004_cost_adjustments.sql', '005_editable_permissions.sql', '006_seasons.sql', '007_one_vendor_per_request.sql'];
+const MIGRATIONS = ['001_initial.sql', '002_form_fields.sql', '003_archive_and_import.sql', '004_cost_adjustments.sql', '005_editable_permissions.sql', '006_seasons.sql', '007_one_vendor_per_request.sql', '008_roles_admin_history.sql'];
 const SESSION_KEY = 'sg-orders-fake-session';
 
 const STUB = `
@@ -90,7 +90,7 @@ const toError = (e) => ({ message: e.message, details: e.detail || null, code: e
 // ---- query builder: from(table).select(...).eq().in().order().maybeSingle() -----------
 
 // Embedded relations used by the app: name -> [fk column, one-to-one?]
-const EMBEDS = { request_items: ['request_id', false], approvals: ['request_id', false], order_information: ['request_id', true], cost_changes: ['request_id', false] };
+const EMBEDS = { request_items: ['request_id', false], approvals: ['request_id', false], order_information: ['request_id', true], cost_changes: ['request_id', false], profile_roles: ['user_id', false] };
 
 class Query {
   constructor(table) {
@@ -140,12 +140,15 @@ class Query {
   }
   sql() {
     const parts = this.columns.split(',').map((s) => s.trim()).filter(Boolean).map((c) => {
-      const m = c.match(/^(\w+)\(\*\)$/);
+      // Embeds: "table(*)" or "table(col, col)".
+      const m = c.match(/^(\w+)\(([^)]*)\)$/);
       if (!m) return c === '*' ? 't.*' : `t.${c}`;
       const [fk, one] = EMBEDS[m[1]];
+      const cols = m[2].split(',').map((s) => s.trim()).filter(Boolean);
+      const row = cols.length === 1 && cols[0] === '*' ? 'x' : `json_build_object(${cols.map((k) => `'${k}', x.${k}`).join(', ')})`;
       return one
-        ? `(select row_to_json(x) from ${m[1]} x where x.${fk} = t.id) as ${m[1]}`
-        : `(select coalesce(json_agg(x), '[]') from ${m[1]} x where x.${fk} = t.id) as ${m[1]}`;
+        ? `(select ${row === 'x' ? 'row_to_json(x)' : row} from ${m[1]} x where x.${fk} = t.id) as ${m[1]}`
+        : `(select coalesce(json_agg(${row}), '[]') from ${m[1]} x where x.${fk} = t.id) as ${m[1]}`;
     });
     const where = this.filters.length ? ` where ${this.filters.join(' and ')}` : '';
     const order = this.orders.length ? ` order by ${this.orders.join(', ')}` : '';

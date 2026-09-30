@@ -3,13 +3,13 @@ import { isConfigured } from './supabase.js';
 import { api } from './api.js';
 import { auth } from './auth.js';
 import { startRouter } from './router.js';
-import { STATUS, STATUSES, EDITABLE_STATUSES, esc, errorBox, setCurrentSeason } from './ui.js';
+import { STATUS, STATUSES, EDITABLE_STATUSES, esc, errorBox, setCurrentSeason, setAppearance } from './ui.js';
 
 const app = document.getElementById('app');
 
 // Bump when adding a file to supabase/migrations/ (the migration sets general.schemaVersion).
-const REQUIRED_SCHEMA_VERSION = 7;
-const MIGRATIONS = { 2: '002_form_fields.sql', 3: '003_archive_and_import.sql', 4: '004_cost_adjustments.sql', 5: '005_editable_permissions.sql', 6: '006_seasons.sql', 7: '007_one_vendor_per_request.sql' };
+const REQUIRED_SCHEMA_VERSION = 8;
+const MIGRATIONS = { 2: '002_form_fields.sql', 3: '003_archive_and_import.sql', 4: '004_cost_adjustments.sql', 5: '005_editable_permissions.sql', 6: '006_seasons.sql', 7: '007_one_vendor_per_request.sql', 8: '008_roles_admin_history.sql' };
 
 /** Shared config object handed to every view. Mutated in place on reload. */
 const config = {};
@@ -28,9 +28,12 @@ async function reloadConfig() {
     ...settings.form,
     statuses: STATUSES,
     editableStatuses: EDITABLE_STATUSES,
+    lists: settings.lists || {}, // Admin → Lists
+    appearance: settings.appearance || {}, // Admin → Appearance
   });
   document.title = `${config.teamName} Orders`;
   setCurrentSeason(config.season);
+  setAppearance(config.appearance, { defaultPriority: config.defaultPriority });
   document.getElementById('footer').textContent = `${config.teamName} · ${config.season} season`;
 }
 

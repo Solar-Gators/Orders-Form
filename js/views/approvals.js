@@ -1,15 +1,18 @@
-/** Chief Engineer queue: every Submitted request, most urgent first (sortable). */
+/**
+ * Chief Engineer queue: every Submitted request (sortable).
+ * Columns and the default sort come from Admin → Lists.
+ */
 import { api } from '../api.js';
 import { auth } from '../auth.js';
-import { STATUS, fmtMoney, requestTable, COLUMNS, bindRowLinks, bindSorting, takeFlash } from '../ui.js';
+import { STATUS, fmtMoney, requestTable, bindRowLinks, bindSorting, takeFlash } from '../ui.js';
+import { listColumns, listSort } from '../listColumns.js';
+import { rememberedSort } from './listSortState.js';
 
-// Sort order persists while moving around the app.
-const sort = { key: 'neededBy', dir: 'asc' };
-const columns = [COLUMNS.requested, COLUMNS.title, COLUMNS.requester, COLUMNS.subsystem, COLUMNS.total, COLUMNS.neededBy];
-
-export async function renderApprovals(el) {
+export async function renderApprovals(el, { config }) {
   const rows = await api.listRequests(STATUS.SUBMITTED);
   const total = rows.reduce((s, r) => s + r.total, 0);
+  const columns = listColumns('approvals', config);
+  const sort = rememberedSort('approvals', listSort('approvals', config), columns);
 
   el.innerHTML = `
     ${takeFlash()}

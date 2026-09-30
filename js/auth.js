@@ -27,27 +27,40 @@ async function loadProfile() {
     supabase.from('roles').select('*').order('sort'),
   ]);
   if (error) throw error;
-  state.profile = profile;
   state.roles = roles || [];
-  if (profile) {
-    const { data: perms } = await supabase.from('role_permissions').select('permission').eq('role', profile.role);
-    state.permissions = new Set((perms || []).map((p) => p.permission));
-  }
+  state.profile = profile;
+  if (!profile) return;
+
+  // A person can have several roles (migration 008); before that, one `role` column.
+  const { data: mine, error: rolesError } = await supabase.from('profile_roles').select('role').eq('user_id', uid);
+  profile.roles = rolesError ? [profile.role].filter(Boolean) : mine.map((r) => r.role);
+  if (!profile.roles.length) profile.roles = ['member'];
+
+  const { data: perms } = await supabase.from('role_permissions').select('permission').in('role', profile.roles);
+  state.permissions = new Set((perms || []).map((p) => p.permission));
 }
 
 export const auth = {
   get signedIn() {
     return !!state.session;
   },
-  /** { id, email, full_name, role } or null */
+  /** { id, email, full_name, roles: [roleKey, ...] } or null */
   get user() {
     return state.profile;
   },
   get displayName() {
     return state.profile?.full_name || state.profile?.email || '';
   },
+  /** e.g. "Treasurer · Admin" (Member is only shown when it's the only role). */
   get roleLabel() {
-    return state.roles.find((r) => r.key === state.profile?.role)?.label || state.profile?.role || '';
+    const mine = state.profile?.roles || [];
+    const labels = state.roles.filter((r) => mine.includes(r.key)).map((r) => r.label);
+    const shown = labels.length > 1 ? state.roles.filter((r) => mine.includes(r.key) && r.key !== 'member').map((r) => r.label) : labels;
+    return shown.join(' · ') || 'Member';
+  },
+  /** Does the signed-in person have this role? */
+  hasRole(key) {
+    return (state.profile?.roles || []).includes(key);
   },
   get roles() {
     return state.roles;
