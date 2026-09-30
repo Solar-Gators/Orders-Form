@@ -88,11 +88,17 @@ export const seasonTag = (r) =>
 /** Common column definitions, reused across the list pages. */
 export const COLUMNS = {
   id: { label: 'Request ID', primary: true, cell: (r) => `<a class="mono" href="#/requests/${esc(r.request_number)}">${esc(r.request_number)}</a>` },
+  /** When it was requested — more useful in lists than the SG number. */
+  requested: {
+    label: 'Requested',
+    className: 'nowrap',
+    cell: (r) => `<time datetime="${esc((r.created_at || '').slice(0, 10))}">${fmtDate(r.created_at)}</time>`,
+  },
   title: {
     label: 'Title',
     primary: true,
     cell: (r) =>
-      `<span class="cell-title">${esc(r.title)}</span> ${priorityTag(r.priority !== 'Normal' ? r.priority : '')}${seasonTag(r)}`,
+      `<a class="cell-title title-link" href="#/requests/${esc(r.request_number)}">${esc(r.title || 'Untitled request')}</a> ${priorityTag(r.priority !== 'Normal' ? r.priority : '')}${seasonTag(r)}`,
   },
   requester: { label: 'Requester', cell: (r) => esc(r.requester || '—') },
   subsystem: { label: 'Subsystem', cell: (r) => esc(r.subsystem || '—') },
@@ -102,7 +108,7 @@ export const COLUMNS = {
     label: 'Needed By',
     cell: (r) => `<span class="${isOverdue(r) ? 'overdue' : ''}">${fmtDate(r.needed_by)}</span>`,
   },
-  vendors: { label: 'Vendors', cell: (r) => esc(r.vendors.join(', ') || '—') },
+  vendors: { label: 'Vendor', cell: (r) => esc(r.vendors.join(', ') || '—') },
   approvedOn: { label: 'Approved', cell: (r) => fmtDate(r.latest_approval?.created_at) },
   orderedOn: { label: 'Ordered', cell: (r) => fmtDate(r.order?.order_date) },
   orderNumber: { label: 'Ticket #', cell: (r) => esc(r.order?.department_order_number || '—') },

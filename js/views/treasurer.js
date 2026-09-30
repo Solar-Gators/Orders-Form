@@ -23,14 +23,14 @@ export async function renderTreasurer(el) {
     <h2 class="section-title">To order</h2>
     ${requestTable(
       toOrder,
-      [COLUMNS.id, COLUMNS.title, COLUMNS.requester, COLUMNS.subsystem, COLUMNS.total, COLUMNS.vendors, COLUMNS.approvedOn],
+      [COLUMNS.requested, COLUMNS.title, COLUMNS.requester, COLUMNS.subsystem, COLUMNS.total, COLUMNS.vendors, COLUMNS.approvedOn],
       'No approved requests are waiting to be ordered.'
     )}
 
     <h2 class="section-title">Awaiting delivery</h2>
     ${requestTable(
       inTransit,
-      [COLUMNS.id, COLUMNS.title, COLUMNS.requester, COLUMNS.total, COLUMNS.vendors, COLUMNS.orderNumber, COLUMNS.orderedOn],
+      [COLUMNS.requested, COLUMNS.title, COLUMNS.requester, COLUMNS.total, COLUMNS.vendors, COLUMNS.orderNumber, COLUMNS.orderedOn],
       'Nothing is on order right now.'
     )}`;
   bindRowLinks(el);

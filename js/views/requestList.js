@@ -35,7 +35,7 @@ export async function renderRequestList(el, { config, rerender }) {
     </div>
     <div id="results"></div>`;
 
-  const columns = [COLUMNS.id, COLUMNS.title, COLUMNS.requester, COLUMNS.subsystem, COLUMNS.total, COLUMNS.status, COLUMNS.neededBy];
+  const columns = [COLUMNS.requested, COLUMNS.title, COLUMNS.requester, COLUMNS.subsystem, COLUMNS.total, COLUMNS.status, COLUMNS.neededBy];
 
   const apply = () => {
     const q = filters.q.toLowerCase();

@@ -19,7 +19,7 @@ export async function renderApprovals(el) {
     ${auth.can('request.review') ? '' : '<div class="alert alert-info">View only — only a <strong>Chief Engineer</strong> can approve, reject, or request changes.</div>'}
     ${requestTable(
       rows,
-      [COLUMNS.id, COLUMNS.title, COLUMNS.requester, COLUMNS.subsystem, COLUMNS.total, COLUMNS.neededBy],
+      [COLUMNS.requested, COLUMNS.title, COLUMNS.requester, COLUMNS.subsystem, COLUMNS.total, COLUMNS.neededBy],
       'No requests are waiting for approval.'
     )}`;
   bindRowLinks(el);

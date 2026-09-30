@@ -25,6 +25,9 @@
 
 * { box-sizing: border-box; }
 
+/* The hidden attribute must win over display rules like .nav a { display: inline-flex }. */
+[hidden] { display: none !important; }
+
 html { -webkit-text-size-adjust: 100%; }
 
 body {
@@ -493,3 +496,8 @@ tr:hover .copy-btn, dd:hover .copy-btn, .copy-wrap:hover .copy-btn, .copy-btn:fo
 .vendor-field .alert { margin: 8px 0 0; }
 .rule-toggle { display: flex; gap: 10px; align-items: flex-start; font-weight: 500; }
 .rule-toggle input { width: 18px; height: 18px; margin-top: 2px; flex: none; }
+
+/* ---- Request lists: title is the link --------------------------------------- */
+
+.title-link { color: var(--text); text-decoration: none; font-weight: 600; }
+.title-link:hover { color: var(--blue); text-decoration: underline; }
