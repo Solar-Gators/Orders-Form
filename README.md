@@ -117,7 +117,7 @@ Each Admin tab appears only for people whose roles allow it.
   - A **past season** goes into the Archive with every column kept.
   - **This season's** sheet becomes real requests, including their approvals, order status, ticket numbers, and shipping.
   - Imported requests are linked to people's accounts by the Requester name ("Bella N" → Bella Nguyen, or "Josh" when there's only one Josh), so they show under **My requests** and their requester gets notifications. This also happens when someone signs up later or fixes their name on My account. If a match is wrong or missing, a lead can pick the right person under **Account → Change** on the request's page.
-  - You see a preview before anything is saved.
+  - You see a preview before anything is saved, with a checkbox per request. Orders already on the site (same person, day and total) start unticked, so you can re-import an updated copy of the sheet to add just the new rows.
 - **History:** every change to settings and permissions, with who made it and when.
   - **Restore** puts back any earlier version, and a restore can itself be undone.
   - If something looks wrong after a change, this is the first place to go.

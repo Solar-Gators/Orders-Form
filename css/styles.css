@@ -684,3 +684,6 @@ th.sorted .sort-ind { opacity: 1; color: var(--orange-dark); }
 .owner-card summary .link { color: var(--orange-dark, #c4520f); margin-left: auto; }
 .owner-card details[open] summary .link { visibility: hidden; }
 .owner-card details[open] > :not(summary) { margin-top: 10px; }
+
+/* Import preview: rows left unticked */
+.preview-table tr.is-off td { opacity: 0.5; }

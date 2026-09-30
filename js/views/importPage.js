@@ -11,7 +11,19 @@ import { readWorkbook, pickSheet, guessSeason, toArchiveRows, toRequests, guessS
 import { adminTabs } from './admin.js';
 
 // Kept between re-renders of this page.
-const state = { file: null, sheets: null, sheetName: '', mode: 'archive', season: '', subsystemMap: {}, target: '' };
+const state = { file: null, sheets: null, sheetName: '', mode: 'archive', season: '', subsystemMap: {}, target: '', picked: {} };
+
+/** Same person + same day + same total (or title) as a request already on the site. */
+const nameKey = (s) => String(s || '').toLowerCase().replace(/[^a-z]+/g, ' ').trim();
+const rowId = (r) => [r.date, nameKey(r.requester), r.title, r.total.toFixed(2)].join('|');
+function findExisting(r, existing) {
+  return existing.find(
+    (x) =>
+      (x.created_at || '').slice(0, 10) === r.date &&
+      nameKey(x.requester) === nameKey(r.requester) &&
+      (Math.abs(x.total - r.total) < 0.05 || x.title === r.title)
+  );
+}
 
 /**
  * Request fields the sheet's Subteam column can go into: the built-in Subsystem
@@ -79,6 +91,8 @@ export async function renderImport(el, { config, rerender, reloadConfig }) {
       state.season = guessSeason(file.name);
       state.mode = state.season && state.season === config.season ? 'requests' : 'archive';
       state.subsystemMap = {};
+      state.picked = {};
+      state.existing = null;
       drawSetup();
     } catch (err) {
       el.querySelector('#setup').innerHTML = '';
@@ -130,6 +144,8 @@ export async function renderImport(el, { config, rerender, reloadConfig }) {
     setup.querySelector('#sheet').addEventListener('change', (e) => {
       state.sheetName = e.target.value;
       state.subsystemMap = {};
+      state.picked = {};
+      state.existing = null;
       drawSetup();
     });
     setup.querySelectorAll('input[name="mode"]').forEach((r) =>
@@ -155,7 +171,7 @@ export async function renderImport(el, { config, rerender, reloadConfig }) {
       return;
     }
     if (state.mode === 'archive') drawArchivePreview(box, sheet);
-    else drawRequestsPreview(box, sheet);
+    else drawRequestsPreview(box, sheet).catch((err) => (box.innerHTML = errorBox(err)));
   }
 
   function drawArchivePreview(box, sheet) {
@@ -204,7 +220,9 @@ export async function renderImport(el, { config, rerender, reloadConfig }) {
     });
   }
 
-  function drawRequestsPreview(box, sheet) {
+  async function drawRequestsPreview(box, sheet) {
+    // Requests already on the site this season, to spot rows imported before.
+    state.existing ||= await api.listRequests(null, { season: config.season }).catch(() => []);
     const fields = itemFields(config);
     const targets = subteamTargets(config);
     if (!targets.some((t) => t.key === state.target)) state.target = defaultTarget(config);
@@ -226,6 +244,15 @@ export async function renderImport(el, { config, rerender, reloadConfig }) {
     const added = [...new Set(Object.values(state.subsystemMap).filter((v) => v && !choices.includes(v)))];
     const total = requests.reduce((s, r) => s + r.total, 0);
     const counts = requests.reduce((c, r) => ((c[r.status] = (c[r.status] || 0) + 1), c), {});
+    // Which rows to import: everything new is ticked; anything already on the site isn't.
+    const rows = requests.map((r) => ({ r, id: rowId(r), dup: findExisting(r, state.existing) }));
+    for (const row of rows) if (!(row.id in state.picked)) state.picked[row.id] = !row.dup;
+    const chosen = () => rows.filter((row) => state.picked[row.id]).map((row) => row.r);
+    const dupCount = rows.filter((row) => row.dup).length;
+    const buttonText = () => {
+      const n = chosen().length;
+      return `Import ${n} request${n === 1 ? '' : 's'} into ${config.season}`;
+    };
 
     box.innerHTML = `
       <section class="card">
@@ -261,18 +288,25 @@ export async function renderImport(el, { config, rerender, reloadConfig }) {
                ${added.length ? `<p class="muted small">Will be added to the ${esc(target.label)} list: ${added.map(esc).join(', ')}.</p>` : ''}`
             : ''
         }
+        <h3 class="section-title">Requests to import</h3>
+        <p class="muted small">${
+          dupCount
+            ? `<strong>${dupCount} of ${rows.length}</strong> look like they're already on the site (same person, day and total) and are unticked, so importing an updated copy of the sheet only adds the new orders.`
+            : 'Untick any you don\'t want.'
+        }</p>
         <div class="table-wrap flat preview-table"><table class="table">
-          <thead><tr><th>Date</th><th>Requester</th><th>${esc(target.label)}</th><th>Title</th><th class="num">Items</th><th class="num">Total</th><th>Status</th><th>Approver</th><th>Ticket</th></tr></thead>
-          <tbody>${requests
+          <thead><tr><th><input type="checkbox" id="pick-all" aria-label="Select all" ${rows.every((row) => state.picked[row.id]) ? 'checked' : ''}></th>
+            <th>Date</th><th>Requester</th><th>${esc(target.label)}</th><th>Title</th><th class="num">Items</th><th class="num">Total</th><th>Status</th><th>Approver</th><th>Ticket</th></tr></thead>
+          <tbody>${rows
             .map(
-              (r) => `<tr><td class="nowrap">${fmtDate(r.date)}</td><td>${esc(r.requester)}</td><td>${esc(valueOf(r))}</td>
+              ({ r, id, dup }) => `<tr class="${state.picked[id] ? '' : 'is-off'}"><td><input type="checkbox" data-pick="${esc(id)}" aria-label="Import ${esc(r.title)}" ${state.picked[id] ? 'checked' : ''}></td>
+                <td class="nowrap">${fmtDate(r.date)}${dup ? ` <a class="field-tag" href="#/requests/${esc(dup.request_number)}" target="_blank" title="Already on the site">${esc(dup.request_number)}</a>` : ''}</td><td>${esc(r.requester)}</td><td>${esc(valueOf(r))}</td>
                 <td>${esc(r.title)}</td><td class="num">${r.items.length}</td><td class="num">${fmtMoney(r.total)}</td>
                 <td>${statusBadge(r.status)}</td><td>${esc(r.approver || '—')}</td><td>${esc(r.ticket || '—')}</td></tr>`
             )
             .join('')}</tbody></table></div>
-        <div class="alert alert-warning small">Import this sheet only once — importing it again creates duplicate requests.</div>
         <div class="form-actions">
-          <button type="button" class="btn btn-primary" id="do-import">Import ${requests.length} requests into ${esc(config.season)}</button>
+          <button type="button" class="btn btn-primary" id="do-import" ${chosen().length ? '' : 'disabled'}>${esc(buttonText())}</button>
         </div>
       </section>`;
 
@@ -289,8 +323,29 @@ export async function renderImport(el, { config, rerender, reloadConfig }) {
       })
     );
 
-    box.querySelector('#do-import').addEventListener('click', async (e) => {
-      if (!confirm(`Create ${requests.length} requests from ${state.file.name}?`)) return;
+    const button = box.querySelector('#do-import');
+    box.querySelector('#pick-all').addEventListener('change', (e) => {
+      for (const row of rows) state.picked[row.id] = e.target.checked;
+      box.querySelectorAll('[data-pick]').forEach((c) => {
+        c.checked = e.target.checked;
+        c.closest('tr').classList.toggle('is-off', !c.checked);
+      });
+      button.textContent = buttonText();
+      button.disabled = !chosen().length;
+    });
+    box.querySelectorAll('[data-pick]').forEach((c) =>
+      c.addEventListener('change', () => {
+        state.picked[c.dataset.pick] = c.checked;
+        c.closest('tr').classList.toggle('is-off', !c.checked);
+        box.querySelector('#pick-all').checked = rows.every((row) => state.picked[row.id]);
+        button.textContent = buttonText();
+        button.disabled = !chosen().length;
+      })
+    );
+
+    button.addEventListener('click', async (e) => {
+      const picked = chosen();
+      if (!confirm(`Create ${picked.length} request${picked.length === 1 ? '' : 's'} from ${state.file.name}?`)) return;
       e.target.disabled = true;
       e.target.textContent = 'Importing…';
       try {
@@ -307,15 +362,15 @@ export async function renderImport(el, { config, rerender, reloadConfig }) {
           });
         }
         // One call, so the database imports all of them or none (no half-imported sheets).
-        const created = await api.importRequests(requests.map(({ total, subteam, mapped, ...r }) => r));
+        const created = await api.importRequests(picked.map(({ total, subteam, mapped, ...r }) => r));
         await reloadConfig();
         setFlash(`Imported ${created} requests from ${state.file.name}.`);
-        Object.assign(state, { file: null, sheets: null, subsystemMap: {}, target: '' });
+        Object.assign(state, { file: null, sheets: null, subsystemMap: {}, target: '', picked: {}, existing: null });
         location.hash = '#/requests';
       } catch (err) {
         showError(err);
         e.target.disabled = false;
-        e.target.textContent = `Import ${requests.length} requests into ${config.season}`;
+        e.target.textContent = buttonText();
       }
     });
   }
