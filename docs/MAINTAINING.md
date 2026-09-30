@@ -8,8 +8,9 @@ This guide is for whoever maintains the site: setting it up from scratch, runnin
 - **Live site:** https://solar-gators.github.io/Orders-Form/
 - **Changing the site:** edit files, commit, and push to `main`. Pages redeploys in about a minute.
 
-**Permissions** live in the database (`role_permissions` table), not in code:
-- **Changing what a role can do:** add or remove rows in that table with Supabase's Table Editor.
+**Permissions** live in the database (`permissions` and `role_permissions` tables), not in code:
+- **Changing what a role can do:** use **Admin → Users & roles → Permissions** on the site. The Table Editor works too.
+- **Lockout protection:** the database refuses any change (to a role or to the grid) that would leave nobody with `users.manage`.
 - **Current permissions:**
   - `request.review`: approve, reject, or request changes (Chief Engineer).
   - `request.order`: mark Ordered and Received, and adjust costs (Treasurer).

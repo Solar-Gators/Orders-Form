@@ -173,6 +173,20 @@ export const api = {
     return unwrap(await supabase.from('profiles').select('*').order('full_name'));
   },
 
+  /** The list of abilities, e.g. { key: "request.review", label: "Approve requests", description }. */
+  async listPermissions() {
+    return unwrap(await supabase.from('permissions').select('*').order('sort'));
+  },
+
+  async listRolePermissions() {
+    return unwrap(await supabase.from('role_permissions').select('role, permission'));
+  },
+
+  /** Save what several roles can do in one step: { roleKey: [permissionKey, ...] }. */
+  async setPermissionMatrix(matrix) {
+    unwrap(await supabase.rpc('set_permission_matrix', { p_matrix: matrix }));
+  },
+
   async setUserRole(userId, role) {
     unwrap(await supabase.rpc('set_user_role', { p_user_id: userId, p_role: role }));
   },

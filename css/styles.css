@@ -461,3 +461,10 @@ tr:hover .copy-btn, dd:hover .copy-btn, .copy-wrap:hover .copy-btn, .copy-btn:fo
 .btn.copied { color: var(--green); border-color: #b8e8c9; }
 .big-total .copy-btn { opacity: .7; }
 @media (hover: none) { .copy-btn { opacity: .8; } } /* phones: always visible */
+
+/* ---- Permissions grid ------------------------------------------------------ */
+
+.perm-table td:first-child { min-width: 240px; }
+.perm-table th.center, .perm-table td.center { width: 130px; }
+.perm-table input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; }
+#permissions { margin-top: 16px; scroll-margin-top: 80px; }

@@ -44,7 +44,7 @@ Every request gets an ID like **SG-001**. Its page shows a **History** of who cr
 | Adjust prices and shipping after approval | | | ✓ |
 | Manage roles, edit the form and settings, import spreadsheets | | ✓ | ✓ |
 
-The Chief Engineer and the Treasurer can see every tab. On the other role's queue the page is marked **view only**. Members only see the tabs they can use.
+This is the default setup. The Chief Engineer and Treasurer can change it from **Admin → Users & roles → Permissions**. The Chief Engineer and the Treasurer can see every tab. On the other role's queue the page is marked **view only**. Members only see the tabs they can use.
 
 ---
 
@@ -75,7 +75,8 @@ If the Chief Engineer requests changes, you'll see their comment on the request.
 - **Export:** download everything as an Excel file. There's one row per item, with request, approval, order, and delivery details on each row, ready to filter or pivot.
 
 ### Admin (Chief Engineer and Treasurer)
-- **Users & roles:** new people create their own account and start as Members. Promote them to Chief Engineer or Treasurer here. You can't change your own role.
+- **Users & roles:** new people create their own account and start as Members. Change anyone's role here, including your own.
+- **Permissions** (on the same page): a checkbox grid of what each role can do: approve requests, order & receive, edit form & settings, and manage people. For example, you can let the Chief Engineer also mark orders, or give Members access to the queues. There's one safety rule: at least one person must always keep **Manage people**, so the team can't lock itself out.
 - **Form fields:** change the request form without touching code.
   - Rename, reorder, hide, or require/unrequire fields.
   - Add your own fields: text, number, date, dropdown, yes/no, or link.

@@ -8,8 +8,8 @@ import { STATUS, STATUSES, EDITABLE_STATUSES, esc, errorBox } from './ui.js';
 const app = document.getElementById('app');
 
 // Bump when adding a file to supabase/migrations/ (the migration sets general.schemaVersion).
-const REQUIRED_SCHEMA_VERSION = 4;
-const MIGRATIONS = { 2: '002_form_fields.sql', 3: '003_archive_and_import.sql', 4: '004_cost_adjustments.sql' };
+const REQUIRED_SCHEMA_VERSION = 5;
+const MIGRATIONS = { 2: '002_form_fields.sql', 3: '003_archive_and_import.sql', 4: '004_cost_adjustments.sql', 5: '005_editable_permissions.sql' };
 
 /** Shared config object handed to every view. Mutated in place on reload. */
 const config = {};
@@ -35,7 +35,7 @@ async function reloadConfig() {
 
 /** Show/hide nav links by permission and fill in the account menu. */
 function updateChrome() {
-  document.querySelectorAll('[data-perm]').forEach((node) => {
+  document.querySelectorAll('.topbar [data-perm]').forEach((node) => {
     node.hidden = !auth.signedIn || !node.dataset.perm.split(' ').some((p) => auth.can(p));
   });
   // Tell leads (only) when the live database is missing a migration.

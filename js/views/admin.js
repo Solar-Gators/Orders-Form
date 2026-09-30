@@ -43,9 +43,9 @@ export async function renderUsers(el, { rerender }) {
     ${adminTabs('users')}
     <div class="alert alert-info small">
       New members create their own account from the sign-in page and start as <strong>Member</strong>.
-      Change their role here. Only a <strong>Chief Engineer</strong> can approve requests; only the
-      <strong>Treasurer</strong> can mark them Ordered and Received. Both can manage roles and settings.
-      You can't change your own role.
+      Change anyone's role here, including your own. What each role can do is set under
+      <a href="#permissions">Permissions</a> below. At least one person must always be able to manage people,
+      so the site won't let the last one lose that ability.
     </div>
     <div id="user-errors"></div>
     <div class="table-wrap">
@@ -59,7 +59,7 @@ export async function renderUsers(el, { rerender }) {
                 <td>${esc(p.email)}</td>
                 <td>${fmtDate(p.created_at)}</td>
                 <td>
-                  <select data-user="${esc(p.id)}" aria-label="Role for ${esc(p.full_name || p.email)}" ${p.id === me ? 'disabled' : ''}>
+                  <select data-user="${esc(p.id)}" aria-label="Role for ${esc(p.full_name || p.email)}">
                     ${roles.map((r) => `<option value="${esc(r.key)}" ${r.key === p.role ? 'selected' : ''}>${esc(r.label)}</option>`).join('')}
                   </select>
                 </td>
@@ -68,21 +68,27 @@ export async function renderUsers(el, { rerender }) {
             .join('')}
         </tbody>
       </table>
-    </div>`;
+    </div>
+    <div id="permissions-section"></div>`;
 
   el.querySelectorAll('select[data-user]').forEach((select) => {
     const previous = select.value;
     select.addEventListener('change', async () => {
       const person = people.find((p) => p.id === select.dataset.user);
       const label = roles.find((r) => r.key === select.value)?.label;
-      if (!confirm(`Make ${person.full_name || person.email} a ${label}?`)) {
+      const self = person.id === me;
+      const question = self
+        ? `Change your own role to ${label}? You'll immediately have only what a ${label} can do.`
+        : `Make ${person.full_name || person.email} a ${label}?`;
+      if (!confirm(question)) {
         select.value = previous;
         return;
       }
       select.disabled = true;
       try {
         await api.setUserRole(person.id, select.value);
-        setFlash(`${person.full_name || person.email} is now a ${label}.`);
+        if (self) await auth.refresh(); // your menus and access change right away
+        setFlash(self ? `You are now a ${label}.` : `${person.full_name || person.email} is now a ${label}.`);
         await rerender();
       } catch (err) {
         el.querySelector('#user-errors').innerHTML = errorBox(err);
@@ -90,6 +96,87 @@ export async function renderUsers(el, { rerender }) {
         select.disabled = false;
       }
     });
+  });
+
+  await renderPermissions(el.querySelector('#permissions-section'), { rerender });
+}
+
+// ---- Permissions (what each role can do) -------------------------------------------
+
+async function renderPermissions(box, { rerender }) {
+  let perms, grants;
+  try {
+    [perms, grants] = await Promise.all([api.listPermissions(), api.listRolePermissions()]);
+  } catch {
+    box.innerHTML = `<section class="card" id="permissions"><h2>Permissions</h2>
+      <p class="muted">Editing permissions needs database update <code>005_editable_permissions.sql</code>.</p></section>`;
+    return;
+  }
+  const roles = auth.roles;
+  const has = new Set(grants.map((g) => `${g.role}|${g.permission}`));
+  const myRole = auth.user.role;
+
+  box.innerHTML = `
+    <section class="card" id="permissions">
+      <h2>Permissions</h2>
+      <p class="muted small">Choose what each role can do. Everyone signed in can always submit requests, see all requests,
+        search the Archive, and export. Changes apply to everyone with that role as soon as you save.</p>
+      <div id="perm-errors"></div>
+      <div class="table-wrap flat">
+        <table class="table perm-table">
+          <thead><tr><th>Permission</th>${roles.map((r) => `<th class="center">${esc(r.label)}${r.key === myRole ? '<div class="muted small">(your role)</div>' : ''}</th>`).join('')}</tr></thead>
+          <tbody>${perms
+            .map(
+              (p) => `<tr>
+                <td><strong>${esc(p.label)}</strong><div class="muted small">${esc(p.description)}</div></td>
+                ${roles
+                  .map(
+                    (r) => `<td class="center" data-label="${esc(r.label)}"><input type="checkbox" data-role="${esc(r.key)}" data-grant="${esc(p.key)}"
+                      ${has.has(`${r.key}|${p.key}`) ? 'checked' : ''} aria-label="${esc(r.label)}: ${esc(p.label)}"></td>`
+                  )
+                  .join('')}
+              </tr>`
+            )
+            .join('')}</tbody>
+        </table>
+      </div>
+      <div class="form-actions">
+        <span class="muted small" id="perm-dirty" hidden>Unsaved changes</span>
+        <button type="button" class="btn btn-primary" id="save-perms" disabled>Save permissions</button>
+      </div>
+    </section>`;
+
+  const boxes = [...box.querySelectorAll('input[data-grant]')];
+  const changedRoles = () =>
+    [...new Set(boxes.filter((b) => b.checked !== has.has(`${b.dataset.role}|${b.dataset.grant}`)).map((b) => b.dataset.role))];
+
+  box.addEventListener('change', () => {
+    const dirty = changedRoles().length > 0;
+    box.querySelector('#save-perms').disabled = !dirty;
+    box.querySelector('#perm-dirty').hidden = !dirty;
+  });
+
+  box.querySelector('#save-perms').addEventListener('click', async (e) => {
+    const toSave = changedRoles();
+    const label = (key) => roles.find((r) => r.key === key)?.label || key;
+    const own = toSave.includes(myRole) ? ' This includes your own role.' : '';
+    if (!confirm(`Save new permissions for ${toSave.map(label).join(', ')}?${own}`)) return;
+    e.target.disabled = true;
+    box.querySelector('#perm-errors').innerHTML = '';
+    try {
+      // One save for all changed roles: all-or-nothing, and the "someone can still
+      // manage people" check runs on the final result.
+      const matrix = Object.fromEntries(
+        toSave.map((role) => [role, boxes.filter((b) => b.dataset.role === role && b.checked).map((b) => b.dataset.grant)])
+      );
+      await api.setPermissionMatrix(matrix);
+      await auth.refresh();
+      setFlash('Permissions saved.');
+      await rerender();
+    } catch (err) {
+      box.querySelector('#perm-errors').innerHTML = errorBox(err);
+      e.target.disabled = false;
+    }
   });
 }
 

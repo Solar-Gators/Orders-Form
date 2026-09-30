@@ -22,7 +22,7 @@ export const siteUrl = () => `${location.origin}${location.pathname}`;
 
 const DB_NAME = 'idb://sg-orders-fake';
 // Keep in sync with the files in supabase/migrations/.
-const MIGRATIONS = ['001_initial.sql', '002_form_fields.sql', '003_archive_and_import.sql', '004_cost_adjustments.sql'];
+const MIGRATIONS = ['001_initial.sql', '002_form_fields.sql', '003_archive_and_import.sql', '004_cost_adjustments.sql', '005_editable_permissions.sql'];
 const SESSION_KEY = 'sg-orders-fake-session';
 
 const STUB = `
