@@ -8,7 +8,21 @@
 import { supabase } from './supabase.js';
 import { itemTotal, round2 } from './ui.js';
 
-const REQUEST_SELECT = '*, request_items(*), approvals(*), order_information(*)';
+const BASE_SELECT = '*, request_items(*), approvals(*), order_information(*)';
+// cost_changes arrives with migration 004. Until a database has it, fall back to
+// the base select so the site keeps working (leads see the "update needed" banner).
+let withCostChanges = true;
+const requestSelect = () => (withCostChanges ? `${BASE_SELECT}, cost_changes(*)` : BASE_SELECT);
+
+/** Run a requests query; if the database doesn't have cost_changes yet, retry without it. */
+async function selectRequests(build) {
+  let res = await build(requestSelect());
+  if (res.error && withCostChanges && /cost_changes/.test(res.error.message || '')) {
+    withCostChanges = false;
+    res = await build(requestSelect());
+  }
+  return res;
+}
 
 /** Turn a Supabase/PostgREST error into an Error with a `details` list. */
 function toError(e) {
@@ -29,14 +43,20 @@ function hydrate(row) {
     .map((i) => ({ ...i, item_total: itemTotal(i) }));
   const approvals = [...(row.approvals || [])].sort((a, b) => a.created_at.localeCompare(b.created_at));
   const order = Array.isArray(row.order_information) ? row.order_information[0] || null : row.order_information || null;
-  const { request_items, order_information, ...rest } = row;
+  const costChanges = [...(row.cost_changes || [])].sort((a, b) => a.created_at.localeCompare(b.created_at));
+  const subtotal = round2(items.reduce((s, i) => s + i.item_total, 0));
+  const shipping = round2(items.reduce((s, i) => s + (Number(i.shipping_cost) || 0), 0));
+  const { request_items, order_information, cost_changes, ...rest } = row;
   return {
     ...rest,
     items,
     approvals,
     latest_approval: approvals[approvals.length - 1] || null,
     order,
-    total: round2(items.reduce((s, i) => s + i.item_total, 0)),
+    cost_changes: costChanges,
+    subtotal, // items only (quantity × unit price)
+    shipping,
+    total: round2(subtotal + shipping),
     vendors: [...new Set(items.map((i) => i.vendor).filter(Boolean))],
   };
 }
@@ -58,10 +78,13 @@ export const api = {
 
   /** All requests, newest first. `status` may be a string or an array. */
   async listRequests(status) {
-    let q = supabase.from('requests').select(REQUEST_SELECT).order('created_at', { ascending: false });
-    if (Array.isArray(status)) q = q.in('status', status);
-    else if (status) q = q.eq('status', status);
-    return unwrap(await q).map(hydrate);
+    const res = await selectRequests((select) => {
+      let q = supabase.from('requests').select(select).order('created_at', { ascending: false });
+      if (Array.isArray(status)) q = q.in('status', status);
+      else if (status) q = q.eq('status', status);
+      return q;
+    });
+    return unwrap(res).map(hydrate);
   },
 
   async countByStatus(status) {
@@ -72,7 +95,7 @@ export const api = {
 
   /** Look up by request number, e.g. "SG-001". */
   async getRequest(requestNumber) {
-    const row = unwrap(await supabase.from('requests').select(REQUEST_SELECT).eq('request_number', requestNumber).maybeSingle());
+    const row = unwrap(await selectRequests((select) => supabase.from('requests').select(select).eq('request_number', requestNumber).maybeSingle()));
     if (!row) throw new Error(`Request ${requestNumber} was not found.`);
     return hydrate(row);
   },
@@ -95,6 +118,11 @@ export const api = {
         p_notes: treasurer_notes,
       })
     );
+  },
+
+  /** Treasurer: change unit price / shipping after approval. items: [{ id, unit_price?, shipping_cost? }] */
+  async updateItemCosts(id, items, reason) {
+    return unwrap(await supabase.rpc('update_item_costs', { p_request_id: id, p_items: items, p_reason: reason }));
   },
 
   async markReceived(id, { received_date, received_notes }) {

@@ -102,7 +102,7 @@ export async function renderRequestForm(el, { config, params }) {
             <tbody id="items-body"></tbody>
             <tfoot>
               <tr>
-                <td colspan="${iFields.length + 1}" class="num"><strong>Request total</strong></td>
+                <td colspan="${iFields.length + 1}" class="num"><strong>Request total</strong> <span class="muted small">(incl. shipping)</span></td>
                 <td class="num"><strong id="grand-total">$0.00</strong></td>
                 <td></td>
               </tr>
@@ -124,7 +124,8 @@ export async function renderRequestForm(el, { config, params }) {
   const errorsEl = el.querySelector('#form-errors');
 
   const updateTotals = () => {
-    grandTotal.textContent = fmtMoney(round2(items.reduce((s, i) => s + itemTotal(i), 0)));
+    // Request total = items (quantity × unit price) + shipping.
+    grandTotal.textContent = fmtMoney(round2(items.reduce((s, i) => s + itemTotal(i) + (Number(i.shipping_cost) || 0), 0)));
   };
 
   const renderRows = () => {
@@ -160,10 +161,8 @@ export async function renderRequestForm(el, { config, params }) {
     const row = e.target.closest('tr');
     const item = items[Number(row.dataset.index)];
     setValue(item, iFields.find((f) => f.key === key), e.target.value);
-    if (key === 'quantity' || key === 'unit_price') {
-      row.querySelector('[data-role="row-total"]').textContent = fmtMoney(itemTotal(item));
-      updateTotals();
-    }
+    if (key === 'quantity' || key === 'unit_price') row.querySelector('[data-role="row-total"]').textContent = fmtMoney(itemTotal(item));
+    if (key === 'quantity' || key === 'unit_price' || key === 'shipping_cost') updateTotals();
   };
   tbody.addEventListener('input', onItemInput);
   tbody.addEventListener('change', onItemInput); // selects

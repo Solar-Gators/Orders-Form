@@ -123,3 +123,45 @@ export function takeFlash() {
   flash = null;
   return f ? `<div class="alert alert-${f.type}" role="status">${esc(f.message)}</div>` : '';
 }
+
+// ---- Copy to clipboard (Treasurer: paste into purchasing forms) ------------
+
+/** A small copy button for `value`. Nothing is rendered for empty values. */
+export function copyButton(value, label = 'value') {
+  if (value === null || value === undefined || String(value).trim() === '') return '';
+  return `<button type="button" class="copy-btn" data-copy="${esc(value)}" title="Copy ${esc(label)}" aria-label="Copy ${esc(label)}">
+    <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5" y="5" width="9" height="9" rx="1.5"/><path d="M11 5V3.5A1.5 1.5 0 0 0 9.5 2h-6A1.5 1.5 0 0 0 2 3.5v6A1.5 1.5 0 0 0 3.5 11H5"/></svg>
+  </button>`;
+}
+
+async function writeClipboard(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    // Older browsers / non-secure contexts
+    const ta = Object.assign(document.createElement('textarea'), { value: text });
+    ta.style.cssText = 'position:fixed;opacity:0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    ta.remove();
+  }
+}
+
+/** Wire up every [data-copy] button inside `el` (once per view). */
+export function bindCopyButtons(el) {
+  el.addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-copy]');
+    if (!btn) return;
+    e.preventDefault();
+    e.stopPropagation();
+    await writeClipboard(btn.dataset.copy);
+    btn.classList.add('copied');
+    const label = btn.dataset.copiedLabel;
+    if (label) btn.dataset.text ??= btn.textContent, (btn.textContent = label);
+    setTimeout(() => {
+      btn.classList.remove('copied');
+      if (label) btn.textContent = btn.dataset.text;
+    }, 1200);
+  });
+}

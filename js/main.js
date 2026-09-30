@@ -8,8 +8,8 @@ import { STATUS, STATUSES, EDITABLE_STATUSES, esc, errorBox } from './ui.js';
 const app = document.getElementById('app');
 
 // Bump when adding a file to supabase/migrations/ (the migration sets general.schemaVersion).
-const REQUIRED_SCHEMA_VERSION = 3;
-const MIGRATIONS = { 2: '002_form_fields.sql', 3: '003_archive_and_import.sql' };
+const REQUIRED_SCHEMA_VERSION = 4;
+const MIGRATIONS = { 2: '002_form_fields.sql', 3: '003_archive_and_import.sql', 4: '004_cost_adjustments.sql' };
 
 /** Shared config object handed to every view. Mutated in place on reload. */
 const config = {};

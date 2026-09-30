@@ -25,7 +25,24 @@ const db = new PGlite();
 await db.exec(SUPABASE_STUB);
 const MIGRATIONS = new URL('../supabase/migrations/', import.meta.url);
 for (const file of readdirSync(MIGRATIONS).filter((f) => f.endsWith('.sql')).sort()) {
+  // Before 004: data as it looks after importing an old sheet with a "Shipping Costs"
+  // column (a custom item field). 004 should fold it into the built-in Shipping field.
+  if (file.startsWith('004')) await seedImportedShipping();
   await db.exec(readFileSync(new URL(file, MIGRATIONS), 'utf8'));
+}
+
+async function seedImportedShipping() {
+  await db.exec(`
+    update app_settings set value = jsonb_set(value, '{itemFields}', value -> 'itemFields' ||
+      '[{"key": "c_shipping_costs", "label": "Shipping Costs", "type": "text", "required": false}]')
+    where key = 'form';
+    insert into requests (id, request_number, title, status)
+      values ('00000000-0000-0000-0000-00000000f01d', 'FOLD-1', 'Imported', 'Received');
+    insert into request_items (request_id, position, item_name, quantity, unit_price, notes, data) values
+      ('00000000-0000-0000-0000-00000000f01d', 0, 'Paid shipping', 1, 10, '', '{"c_shipping_costs": "$9.15"}'),
+      ('00000000-0000-0000-0000-00000000f01d', 1, 'Prime', 1, 10, 'Keep dry', '{"c_shipping_costs": "N/A (Prime)"}'),
+      ('00000000-0000-0000-0000-00000000f01d', 2, 'No shipping', 1, 10, '', '{"c_shipping_costs": "n/a"}');
+  `);
 }
 
 // ---- helpers ------------------------------------------------------------------
@@ -269,7 +286,7 @@ await test('the website cannot change the schema version', async () => {
   const general = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
   await as(ce, () => rpc('update_settings', ['general', { ...general, schemaVersion: 99 }]));
   const after = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
-  assert.equal(after.schemaVersion, 3);
+  assert.equal(after.schemaVersion, 4);
 });
 
 console.log('Form fields');
@@ -415,6 +432,80 @@ await test('treasurer can mark an imported order as received', async () => {
   const { rows } = await db.query(`select id from requests where requester = 'Josh' and title = 'Fuse'`);
   await as(treasurer, () => rpc('mark_received', [rows[0].id, '2026-09-30', 'In office']));
   assert.equal((await db.query(`select status from requests where id = $1`, [rows[0].id])).rows[0].status, 'Received');
+});
+
+console.log('Shipping & cost adjustments');
+
+await test('004 folds an imported "Shipping Costs" column into Shipping', async () => {
+  const { rows } = await db.query(`select item_name, shipping_cost::float as ship, notes from request_items
+                                   where request_id = '00000000-0000-0000-0000-00000000f01d' order by position`);
+  assert.deepEqual(rows.map((r) => [r.item_name, r.ship, r.notes]), [
+    ['Paid shipping', 9.15, ''],
+    ['Prime', null, 'Keep dry · Shipping: N/A (Prime)'], // text kept in Notes
+    ['No shipping', null, ''], //                           plain "n/a" dropped
+  ]);
+  const keys = (await currentForm()).itemFields.map((f) => f.key);
+  assert.ok(!keys.includes('c_shipping_costs'));
+  assert.equal(keys[keys.indexOf('unit_price') + 1], 'shipping_cost'); // right after Unit price
+});
+
+let costReq;
+await test('members can enter shipping on a request', async () => {
+  const items = [
+    { item_name: 'Cells', vendor: 'Liion', quantity: 4, unit_price: 5, shipping_cost: '$12.00' },
+    { item_name: 'Tape', vendor: 'Uline', quantity: 1, unit_price: 3 },
+  ];
+  const bad = await as(member, () => rejects(rpc('save_request', [null, { ...completeRequest, subsystem: 'Battery', justification: 'x', c_from_china: 'No', data: { c_from_china: 'No' } }, [{ ...items[0], shipping_cost: 'free' }], 'submit']), /fix/));
+  assert.match(bad.detail, /Item 1: Shipping must be a number/);
+  const { rows } = await as(member, () => rpc('save_request', [null, { ...completeRequest, subsystem: 'Battery', justification: 'x', data: { c_from_china: 'No' } }, items, 'submit']));
+  costReq = (await db.query(`select id from requests where request_number = $1`, [rows[0].result])).rows[0].id;
+  const saved = await db.query(`select item_name, shipping_cost::float as ship from request_items where request_id = $1 order by position`, [costReq]);
+  assert.deepEqual(saved.rows.map((r) => r.ship), [12, null]);
+});
+
+const itemsOf = async (id) => (await db.query(`select id, item_name, unit_price::float as price, shipping_cost::float as ship from request_items where request_id = $1 order by position`, [id])).rows;
+
+await test('costs can only be adjusted after approval, and only by the Treasurer', async () => {
+  const [cells] = await itemsOf(costReq);
+  await as(treasurer, () => rejects(rpc('update_item_costs', [costReq, [{ id: cells.id, unit_price: 6 }], '']), /once a request is approved/));
+  await as(ce, () => rpc('review_request', [costReq, 'approve', '']));
+  await as(ce, () => rejects(rpc('update_item_costs', [costReq, [{ id: cells.id, unit_price: 6 }], '']), /does not allow/));
+  await as(member, () => rejects(rpc('update_item_costs', [costReq, [{ id: cells.id, unit_price: 6 }], '']), /does not allow/));
+});
+
+await test('Treasurer adjusts price and shipping; every change is logged', async () => {
+  const [cells, tape] = await itemsOf(costReq);
+  const { rows } = await as(treasurer, () =>
+    rpc('update_item_costs', [costReq, [
+      { id: cells.id, unit_price: '5.50', shipping_cost: '14.25' }, // both changed
+      { id: tape.id, unit_price: 3, shipping_cost: '' },           // nothing changed
+    ], 'Price went up at checkout'])
+  );
+  assert.equal(rows[0].result, 2);
+  assert.deepEqual((await itemsOf(costReq)).map((i) => [i.price, i.ship]), [[5.5, 14.25], [3, null]]);
+  const log = await db.query(`select field, old_value::float as old, new_value::float as new, reason, changed_by_name from cost_changes where request_id = $1 order by field`, [costReq]);
+  assert.deepEqual(log.rows.map((r) => [r.field, r.old, r.new, r.reason, r.changed_by_name]), [
+    ['shipping_cost', 12, 14.25, 'Price went up at checkout', 'Tess Treasurer'],
+    ['unit_price', 5, 5.5, 'Price went up at checkout', 'Tess Treasurer'],
+  ]);
+});
+
+await test('costs can still be changed after Ordered and Received; bad values are refused', async () => {
+  const [cells] = await itemsOf(costReq);
+  await as(treasurer, () => rpc('mark_ordered', [costReq, null, '7001', '']));
+  await as(treasurer, () => rpc('update_item_costs', [costReq, [{ id: cells.id, shipping_cost: '0' }], 'Free shipping applied']));
+  await as(treasurer, () => rpc('mark_received', [costReq, null, '']));
+  await as(treasurer, () => rpc('update_item_costs', [costReq, [{ id: cells.id, unit_price: '5.25' }], 'Refund']));
+  assert.deepEqual((await itemsOf(costReq))[0], { ...cells, price: 5.25, ship: 0 });
+  await as(treasurer, () => rejects(rpc('update_item_costs', [costReq, [{ id: cells.id, unit_price: '-1' }], '']), /number of 0 or more/));
+  await as(treasurer, () => rejects(rpc('update_item_costs', [costReq, [{ id: '00000000-0000-0000-0000-000000000abc', unit_price: 1 }], '']), /not on/));
+  assert.equal((await db.query(`select count(*)::int as n from cost_changes where request_id = $1`, [costReq])).rows[0].n, 4);
+});
+
+await test('members can read the cost history but not write it', async () => {
+  const { rows } = await as(member, () => db.query(`select count(*)::int as n from cost_changes`));
+  assert.ok(rows[0].n >= 4);
+  await as(member, () => rejects(db.query(`delete from cost_changes`), /permission denied/));
 });
 
 console.log(`\n${passed} passed${process.exitCode ? ', some FAILED' : ''}`);

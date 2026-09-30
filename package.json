@@ -6,7 +6,9 @@
   "type": "module",
   "scripts": {
     "dev": "node tools/dev-server.mjs",
-    "test:db": "node tests/db.test.mjs"
+    "test": "node tests/sheetImport.test.mjs && node tests/db.test.mjs",
+    "test:db": "node tests/db.test.mjs",
+    "test:import": "node tests/sheetImport.test.mjs"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.8"

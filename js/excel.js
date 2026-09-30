@@ -8,7 +8,7 @@
  * adding a field changes the export automatically.
  */
 import { STATUS } from './ui.js';
-import { requestFields, itemFields, shown, getValue } from './formFields.js';
+import { requestFields, itemFields, shown, getValue, MONEY_FIELDS } from './formFields.js';
 
 const EXCELJS_URL = 'https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js';
 const CURRENCY = '"$"#,##0.00';
@@ -25,7 +25,7 @@ function widthFor(field) {
 
 /** Export type for a form field: currency | date | link | number | text. */
 function typeFor(field) {
-  if (field.key === 'unit_price') return 'currency';
+  if (MONEY_FIELDS.has(field.key)) return 'currency';
   if (field.type === 'date') return 'date';
   if (field.type === 'url') return 'link';
   if (field.type === 'number') return 'number';
@@ -49,6 +49,7 @@ export function buildColumns(config) {
     { header: 'Request Status', width: 18, get: (r) => r.status },
     ...shown(itemFields(config)).map((f) => fromField(f, 'item')),
     { header: 'Item Total', width: 12, type: 'currency', get: (r, i) => i.item_total },
+    { header: 'Request Shipping', width: 16, type: 'currency', get: (r) => r.shipping },
     { header: 'Request Total', width: 14, type: 'currency', get: (r) => r.total },
     { header: 'Approver', width: 18, get: (r, i, x) => x.approval.approver },
     { header: 'Approval Date', width: 14, type: 'date', get: (r, i, x) => localDate(x.approval.created_at) },

@@ -10,9 +10,29 @@ import { api } from '../api.js';
 import { auth } from '../auth.js';
 import {
   STATUS, DECISION_LABELS, esc, fmtMoney, fmtDate, fmtDateTime, todayISO,
-  statusBadge, priorityTag, isOverdue, errorBox, setFlash, takeFlash,
+  statusBadge, priorityTag, isOverdue, errorBox, setFlash, takeFlash, copyButton, bindCopyButtons,
 } from '../ui.js';
-import { requestFields, itemFields, shown, getValue, displayValue } from '../formFields.js';
+import { requestFields, itemFields, shown, getValue, displayValue, MONEY_FIELDS } from '../formFields.js';
+
+/** The Treasurer copies values into purchasing forms, so they get copy buttons. */
+const showCopy = () => auth.can('request.order');
+
+/** Plain text to copy for a field value (dollars without "$", URLs as-is). */
+function copyText(field, value) {
+  if (value === null || value === undefined || value === '') return '';
+  if (MONEY_FIELDS.has(field.key)) return Number(value).toFixed(2);
+  return String(value);
+}
+const copyFor = (field, value) => (showCopy() ? copyButton(copyText(field, value), field.label) : '');
+
+/** All items as tab-separated text (with a header row) — pastes into Excel or Sheets as a table. */
+function itemsAsTable(r, config) {
+  const fields = shown(itemFields(config));
+  const clean = (v) => String(v ?? '').replace(/[\t\n\r]+/g, ' ');
+  const header = [...fields.map((f) => f.label), 'Line total'];
+  const rows = r.items.map((i) => [...fields.map((f) => clean(copyText(f, getValue(i, f)))), (i.item_total + (Number(i.shipping_cost) || 0)).toFixed(2)]);
+  return [header, ...rows].map((row) => row.join('\t')).join('\n');
+}
 
 function itemsTable(r, config) {
   if (!r.items.length) return '<div class="empty">No items yet.</div>';
@@ -26,8 +46,8 @@ function itemsTable(r, config) {
     .map(
       (i, idx) => `<tr>
         <td class="muted hide-mobile">${idx + 1}</td>
-        <td class="cell-primary" data-label=""><strong>${esc(i.item_name || '—')}</strong>${notesField && i.notes ? `<div class="muted small">${esc(i.notes)}</div>` : ''}</td>
-        ${cols.map((f) => `<td class="${isNum(f) ? 'num' : ''}" data-label="${esc(f.label)}">${displayValue(f, getValue(i, f))}</td>`).join('')}
+        <td class="cell-primary" data-label=""><strong>${esc(i.item_name || '—')}</strong>${nameField ? copyFor(nameField, i.item_name) : ''}${notesField && i.notes ? `<div class="muted small">${esc(i.notes)}</div>` : ''}</td>
+        ${cols.map((f) => `<td class="${isNum(f) ? 'num' : ''}" data-label="${esc(f.label)}"><span class="copy-wrap">${displayValue(f, getValue(i, f))}${copyFor(f, getValue(i, f))}</span></td>`).join('')}
         <td class="num" data-label="Total">${fmtMoney(i.item_total)}</td>
       </tr>`
     )
@@ -37,8 +57,68 @@ function itemsTable(r, config) {
       .map((f) => `<th class="${isNum(f) ? 'num' : ''}">${esc(f.label)}</th>`)
       .join('')}<th class="num">Total</th></tr></thead>
     <tbody>${rows}</tbody>
-    <tfoot><tr><td colspan="${cols.length + 2}" class="num"><strong>Request total</strong></td><td class="num"><strong>${fmtMoney(r.total)}</strong></td></tr></tfoot>
+    <tfoot>
+      ${r.shipping ? `<tr class="subtotal"><td colspan="${cols.length + 2}" class="num">Items</td><td class="num">${fmtMoney(r.subtotal)}</td></tr>
+      <tr class="subtotal"><td colspan="${cols.length + 2}" class="num">Shipping</td><td class="num">${fmtMoney(r.shipping)}</td></tr>` : ''}
+      <tr><td colspan="${cols.length + 2}" class="num"><strong>Request total</strong></td><td class="num"><strong>${fmtMoney(r.total)}</strong></td></tr>
+    </tfoot>
   </table></div>`;
+}
+
+/** Statuses in which the Treasurer can still adjust costs. */
+const COST_EDITABLE = [STATUS.APPROVED, STATUS.ORDERED, STATUS.RECEIVED];
+const canEditCosts = (r) => auth.can('request.order') && COST_EDITABLE.includes(r.status);
+
+/** Treasurer's "Edit costs" mode: unit price + shipping per item, with a reason. */
+function costEditor(r) {
+  const money = (v) => (v === null || v === undefined || v === '' ? '' : String(Number(v)));
+  return `<form id="cost-form" novalidate>
+    <p class="muted small">Change what was actually paid. Every change is recorded in the history with your name and the reason.</p>
+    <div class="table-wrap flat"><table class="table cost-table stack-form">
+      <thead><tr><th>Item</th><th class="num">Qty</th><th class="num">Unit price</th><th class="num">Shipping</th><th class="num">Line total</th></tr></thead>
+      <tbody>${r.items
+        .map(
+          (i) => `<tr data-id="${esc(i.id)}">
+            <td class="w-idx"><strong>${esc(i.item_name || '—')}</strong></td>
+            <td class="num" data-label="Quantity">${esc(i.quantity ?? '—')}</td>
+            <td class="w-number" data-label="Unit price"><input type="number" min="0" step="0.01" inputmode="decimal" name="unit_price"
+              value="${esc(money(i.unit_price))}" data-original="${esc(money(i.unit_price))}" aria-label="Unit price for ${esc(i.item_name)}"></td>
+            <td class="w-number" data-label="Shipping"><input type="number" min="0" step="0.01" inputmode="decimal" name="shipping_cost"
+              value="${esc(money(i.shipping_cost))}" data-original="${esc(money(i.shipping_cost))}" placeholder="—" aria-label="Shipping for ${esc(i.item_name)}"></td>
+            <td class="num w-total" data-label="Line total" data-role="line">${fmtMoney((Number(i.quantity) || 0) * (Number(i.unit_price) || 0) + (Number(i.shipping_cost) || 0))}</td>
+          </tr>`
+        )
+        .join('')}</tbody>
+    </table></div>
+    <div class="field">
+      <label for="cost-reason">Reason <span class="muted">(optional, e.g. "price changed at checkout", "free shipping")</span></label>
+      <input id="cost-reason" name="reason" type="text" maxlength="300">
+    </div>
+    <div id="cost-errors"></div>
+    <div class="form-actions">
+      <span class="muted small" id="cost-new-total"></span>
+      <button type="button" class="btn btn-ghost" id="cost-cancel">Cancel</button>
+      <button type="submit" class="btn btn-primary">Save costs</button>
+    </div>
+  </form>`;
+}
+
+/** Cost changes made in one save share a timestamp; show each save as one history entry. */
+function costEvents(r) {
+  const FIELD = { unit_price: 'unit price', shipping_cost: 'shipping' };
+  const fmt = (v) => (v === null || v === undefined ? 'none' : fmtMoney(v));
+  const groups = new Map();
+  for (const c of r.cost_changes) {
+    const key = `${c.created_at}|${c.changed_by_name}|${c.reason}`;
+    if (!groups.has(key)) groups.set(key, { when: c.created_at, who: c.changed_by_name, reason: c.reason, lines: [] });
+    groups.get(key).lines.push(`${esc(c.item_name)}: ${FIELD[c.field]} ${fmt(c.old_value)} → <strong>${fmt(c.new_value)}</strong>`);
+  }
+  return [...groups.values()].map((g) => ({
+    when: g.when,
+    text: `<strong>Costs adjusted</strong> by ${esc(g.who)}<ul class="change-list">${g.lines.map((l) => `<li>${l}</li>`).join('')}</ul>`,
+    comment: g.reason,
+    kind: 'cost',
+  }));
 }
 
 /** Request fields except the title/priority (shown in the header). Long text goes full width. */
@@ -47,7 +127,7 @@ function detailsGrid(r, config) {
   const cell = (f) => {
     const value = getValue(r, f);
     const cls = f.key === 'needed_by' && isOverdue(r) ? 'overdue' : f.type === 'textarea' ? 'prewrap' : '';
-    return `<div class="${f.type === 'textarea' ? 'span-full' : ''}"><dt>${esc(f.label)}</dt><dd class="${cls}">${displayValue(f, value)}</dd></div>`;
+    return `<div class="${f.type === 'textarea' ? 'span-full' : ''}"><dt>${esc(f.label)}</dt><dd class="${cls}"><span class="copy-wrap">${displayValue(f, value)}${copyFor(f, value)}</span></dd></div>`;
   };
   const short = fields.filter((f) => f.type !== 'textarea').map(cell).join('');
   const long = fields.filter((f) => f.type === 'textarea').map(cell).join('');
@@ -82,6 +162,10 @@ function historyCard(r) {
       });
     }
   }
+  events.push(...costEvents(r));
+  // Cost changes happen at a time; order dates are just dates — sort by day, keeping same-day order stable.
+  const day = (e) => String(e.when || '9999').slice(0, 10);
+  events.sort((a, b) => day(a).localeCompare(day(b)));
   return `<section class="card">
     <h2>History</h2>
     <ol class="timeline">
@@ -189,11 +273,11 @@ export async function renderRequestDetail(el, { config, params, rerender }) {
     <a class="back-link" href="#/requests">← All requests</a>
     <div class="page-header">
       <div>
-        <div class="eyebrow mono">${esc(r.request_number)}</div>
+        <div class="eyebrow mono"><span class="copy-wrap">${esc(r.request_number)}${showCopy() ? copyButton(r.request_number, 'request ID') : ''}</span></div>
         <h1>${esc(r.title || 'Untitled request')}</h1>
         <p class="subtitle">${statusBadge(r.status)} ${priorityTag(r.priority)}</p>
       </div>
-      <div class="big-total"><span class="muted small">Request total</span>${fmtMoney(r.total)}</div>
+      <div class="big-total"><span class="muted small">Request total</span><span class="copy-wrap">${fmtMoney(r.total)}${showCopy() ? copyButton(r.total.toFixed(2), 'request total') : ''}</span></div>
     </div>
 
     <div class="detail-layout">
@@ -202,9 +286,16 @@ export async function renderRequestDetail(el, { config, params, rerender }) {
           <h2>Details</h2>
           ${detailsGrid(r, config)}
         </section>
-        <section class="card">
-          <h2>Items (${r.items.length})</h2>
-          ${itemsTable(r, config)}
+        <section class="card" id="items-card">
+          <div class="card-head">
+            <h2>Items (${r.items.length})${r.cost_changes.length ? ' <span class="field-tag" title="See History">Costs adjusted</span>' : ''}</h2>
+            <div class="card-actions">
+              ${showCopy() && r.items.length ? `<button type="button" class="btn btn-sm" data-copy="${esc(itemsAsTable(r, config))}" data-copied-label="Copied ✓"
+                title="Copies every item as a table — paste into Excel, Sheets, or a form">Copy all items</button>` : ''}
+              ${canEditCosts(r) && r.items.length ? '<button type="button" class="btn btn-sm" id="edit-costs">Edit costs</button>' : ''}
+            </div>
+          </div>
+          <div id="items-body">${itemsTable(r, config)}</div>
         </section>
       </div>
       <aside class="detail-side">
@@ -212,6 +303,8 @@ export async function renderRequestDetail(el, { config, params, rerender }) {
         ${historyCard(r)}
       </aside>
     </div>`;
+
+  bindCopyButtons(el);
 
   const errors = el.querySelector('#action-errors');
   const run = async (form, fn, message) => {
@@ -247,5 +340,64 @@ export async function renderRequestDetail(el, { config, params, rerender }) {
   el.querySelector('#receive-form')?.addEventListener('submit', (e) => {
     e.preventDefault();
     run(e.target, () => api.markReceived(r.id, Object.fromEntries(new FormData(e.target))), `${r.request_number} marked as received.`);
+  });
+
+  // ---- Treasurer: edit costs ------------------------------------------------------
+  el.querySelector('#edit-costs')?.addEventListener('click', (e) => {
+    e.target.hidden = true;
+    const body = el.querySelector('#items-body');
+    body.innerHTML = costEditor(r);
+    const form = body.querySelector('#cost-form');
+    const newTotal = body.querySelector('#cost-new-total');
+
+    const recalc = () => {
+      let total = 0;
+      form.querySelectorAll('tr[data-id]').forEach((tr) => {
+        const item = r.items.find((i) => i.id === tr.dataset.id);
+        const line = (Number(item.quantity) || 0) * (Number(tr.querySelector('[name=unit_price]').value) || 0) +
+          (Number(tr.querySelector('[name=shipping_cost]').value) || 0);
+        tr.querySelector('[data-role=line]').textContent = fmtMoney(line);
+        total += line;
+      });
+      newTotal.innerHTML = Math.abs(total - r.total) > 0.004
+        ? `New total <strong>${fmtMoney(total)}</strong> (was ${fmtMoney(r.total)})`
+        : '';
+    };
+    form.addEventListener('input', recalc);
+    form.querySelector('input[name=unit_price]')?.focus();
+
+    body.querySelector('#cost-cancel').addEventListener('click', () => rerender());
+
+    form.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const errs = body.querySelector('#cost-errors');
+      errs.innerHTML = '';
+      // Only send values that actually changed.
+      const changes = [];
+      for (const tr of form.querySelectorAll('tr[data-id]')) {
+        const change = { id: tr.dataset.id };
+        for (const input of tr.querySelectorAll('input')) {
+          if (input.value.trim() !== input.dataset.original) change[input.name] = input.value.trim();
+        }
+        if (Object.keys(change).length > 1) changes.push(change);
+      }
+      if (!changes.length) return rerender();
+      const bad = changes.find((c) => c.unit_price !== undefined && c.unit_price === '');
+      if (bad) {
+        errs.innerHTML = errorBox(new Error('Unit price can’t be blank — enter 0 if the item was free.'));
+        return;
+      }
+      const buttons = form.querySelectorAll('button');
+      buttons.forEach((b) => (b.disabled = true));
+      try {
+        const n = await api.updateItemCosts(r.id, changes, form.reason.value.trim());
+        setFlash(`Costs updated for ${r.request_number} (${n} change${n === 1 ? '' : 's'}).`);
+        await rerender();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      } catch (err) {
+        errs.innerHTML = errorBox(err);
+        buttons.forEach((b) => (b.disabled = false));
+      }
+    });
   });
 }

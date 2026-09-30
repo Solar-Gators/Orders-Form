@@ -122,6 +122,8 @@ export function detectColumns(columns) {
     vendor: find(columns, /vendor/i),
     description: find(columns, /description|why you need/i),
     cost: find(columns, /gross cost/i, /^cost/i),
+    // Not "Gross Cost (Before Shipping)" — only a column that is about shipping itself.
+    shipping: find(columns, /^shipping/i, /shipping cost/i),
     info: find(columns, /additional info/i),
     priority: find(columns, /priority/i),
     approver: find(columns, /ce approval/i, /approv/i),
@@ -239,6 +241,9 @@ export function toRequests(sheet, { config, itemFields, subsystemMap = {} }) {
       const qty = qm ? Number(qm[1]) : 1;
       const gross = toNumber(get(r, m.cost)); // the sheets record the line total
       const vendorText = get(r, m.vendor);
+      const shipText = get(r, m.shipping);
+      const ship = toNumber(shipText);
+      const shipNote = ship === null && shipText && !/^(n\/?a|none|-|0)$/i.test(shipText) ? `Shipping: ${shipText}` : '';
       const data = {};
       for (const x of extra) if (r.values[x.header]) data[x.key] = r.values[x.header];
       return {
@@ -248,7 +253,8 @@ export function toRequests(sheet, { config, itemFields, subsystemMap = {} }) {
         part_number: '',
         quantity: String(qty),
         unit_price: gross === null ? '' : String(Math.round((gross / (qty || 1)) * 10000) / 10000),
-        notes: [get(r, m.info), qtyText && qtyText !== String(qty) ? `Qty: ${qtyText}` : '', gross === null && get(r, m.cost) ? `Cost: ${get(r, m.cost)}` : '']
+        shipping_cost: ship === null ? '' : String(ship),
+        notes: [get(r, m.info), qtyText && qtyText !== String(qty) ? `Qty: ${qtyText}` : '', gross === null && get(r, m.cost) ? `Cost: ${get(r, m.cost)}` : '', shipNote]
           .filter(Boolean)
           .join(' · '),
         data,
@@ -270,7 +276,7 @@ export function toRequests(sheet, { config, itemFields, subsystemMap = {} }) {
       ticket: get(first, m.ticket),
       received_notes: status === 'Received' ? statusText : '',
       items,
-      total: items.reduce((s, i) => s + (Number(i.unit_price) || 0) * (Number(i.quantity) || 0), 0),
+      total: items.reduce((s, i) => s + (Number(i.unit_price) || 0) * (Number(i.quantity) || 0) + (Number(i.shipping_cost) || 0), 0),
     };
   });
 

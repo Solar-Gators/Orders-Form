@@ -22,7 +22,7 @@ export const siteUrl = () => `${location.origin}${location.pathname}`;
 
 const DB_NAME = 'idb://sg-orders-fake';
 // Keep in sync with the files in supabase/migrations/.
-const MIGRATIONS = ['001_initial.sql', '002_form_fields.sql', '003_archive_and_import.sql'];
+const MIGRATIONS = ['001_initial.sql', '002_form_fields.sql', '003_archive_and_import.sql', '004_cost_adjustments.sql'];
 const SESSION_KEY = 'sg-orders-fake-session';
 
 const STUB = `
@@ -90,7 +90,7 @@ const toError = (e) => ({ message: e.message, details: e.detail || null, code: e
 // ---- query builder: from(table).select(...).eq().in().order().maybeSingle() -----------
 
 // Embedded relations used by the app: name -> [fk column, one-to-one?]
-const EMBEDS = { request_items: ['request_id', false], approvals: ['request_id', false], order_information: ['request_id', true] };
+const EMBEDS = { request_items: ['request_id', false], approvals: ['request_id', false], order_information: ['request_id', true], cost_changes: ['request_id', false] };
 
 class Query {
   constructor(table) {

@@ -24,10 +24,13 @@ export const typeLabel = (type) => FIELD_TYPES.find((t) => t.key === type)?.labe
 /** Always shown and required — the workflow and totals depend on them. */
 export const LOCKED = new Set(['title', 'item_name', 'quantity', 'unit_price']);
 
+/** Built-in number fields shown as dollars. */
+export const MONEY_FIELDS = new Set(['unit_price', 'shipping_cost']);
+
 /** Built-in dropdowns whose options are edited on the Settings tab. */
 export const LIST_FIELDS = { subsystem: 'subsystems', priority: 'priorities' };
 
-// Defaults match migration 002 and are used if settings don't have field lists yet.
+// Defaults match migrations 002/004 and are used if settings don't have field lists yet.
 export const DEFAULT_REQUEST_FIELDS = [
   { key: 'title', label: 'Request title', type: 'text', builtin: true, required: true },
   { key: 'requester', label: 'Requester name', type: 'text', builtin: true, required: true },
@@ -46,6 +49,7 @@ export const DEFAULT_ITEM_FIELDS = [
   { key: 'part_number', label: 'Part number', type: 'text', builtin: true, required: false },
   { key: 'quantity', label: 'Quantity', type: 'number', builtin: true, required: true },
   { key: 'unit_price', label: 'Unit price', type: 'number', builtin: true, required: true },
+  { key: 'shipping_cost', label: 'Shipping', type: 'number', builtin: true, required: false },
   { key: 'notes', label: 'Notes', type: 'text', builtin: true, required: false, help: 'Pack size, shipping, special instructions' },
 ];
 
@@ -105,7 +109,7 @@ export function renderInput(field, value, config, attrs = '') {
 /** Read-only HTML for a value (detail page). */
 export function displayValue(field, value) {
   if (value === '' || value === null || value === undefined) return '—';
-  if (field.key === 'unit_price') return fmtMoney(value);
+  if (MONEY_FIELDS.has(field.key)) return fmtMoney(value);
   if (field.type === 'date') return fmtDate(value);
   if (field.type === 'url' || /^https?:\/\//i.test(value)) {
     return /^https?:\/\//i.test(value)
