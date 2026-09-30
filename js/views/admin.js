@@ -249,6 +249,15 @@ export async function renderSettings(el, { rerender, reloadConfig }) {
           <div class="field"><label for="s-domains">Allowed sign-up email domains <span class="muted">(one per line)</span></label>
             <textarea id="s-domains" name="allowedEmailDomains" rows="2">${esc((general.allowedEmailDomains || []).join('\n'))}</textarea>
             <div class="hint">Leave empty to allow any email address.</div></div>
+          <h2 class="section-title">Request rules</h2>
+          <div class="field">
+            <label class="rule-toggle">
+              <input type="checkbox" name="oneVendorPerRequest" ${form.oneVendorPerRequest !== false ? 'checked' : ''}>
+              <span>One vendor per request
+                <span class="hint">Each request is a single purchase: the vendor is entered once and applies to every item.
+                  Items from another vendor go in a separate request.</span></span>
+            </label>
+          </div>
         </section>
       </div>
       <div class="form-actions">
@@ -326,6 +335,7 @@ export async function renderSettings(el, { rerender, reloadConfig }) {
     const priorities = nextForm.priorities || [];
     const wanted = (data.defaultPriority ?? form.defaultPriority ?? '').trim();
     nextForm.defaultPriority = priorities.includes(wanted) ? wanted : priorities[0] || '';
+    nextForm.oneVendorPerRequest = data.oneVendorPerRequest === 'on';
     const nextGeneral = {
       ...general,
       teamName: data.teamName.trim() || 'Solar Gators',

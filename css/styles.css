@@ -486,3 +486,10 @@ tr:hover .copy-btn, dd:hover .copy-btn, .copy-wrap:hover .copy-btn, .copy-btn:fo
 .season-row { display: flex; gap: 10px; flex-wrap: wrap; }
 .season-row input { width: 160px; }
 .export-season { margin: 0; min-width: 190px; }
+
+/* ---- One vendor per request ------------------------------------------------ */
+
+.vendor-field { max-width: 460px; margin-bottom: 14px; }
+.vendor-field .alert { margin: 8px 0 0; }
+.rule-toggle { display: flex; gap: 10px; align-items: flex-start; font-weight: 500; }
+.rule-toggle input { width: 18px; height: 18px; margin-top: 2px; flex: none; }

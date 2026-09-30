@@ -49,6 +49,21 @@ export async function renderRequestForm(el, { config, params }) {
   const blankItem = () => ({ data: {} });
   const items = existing?.items.length ? existing.items.map((i) => ({ ...i, data: { ...i.data } })) : [blankItem()];
 
+  // One vendor per request (Settings, on by default): the vendor is entered once,
+  // above the items, instead of in every row. The database enforces the same rule.
+  const vendorField = iFields.find((f) => f.key === 'vendor');
+  const oneVendor = config.oneVendorPerRequest !== false && !!vendorField;
+  const tableFields = oneVendor ? iFields.filter((f) => f !== vendorField) : iFields;
+  const existingVendors = [...new Set(items.map((i) => (i.vendor || '').trim()).filter(Boolean))];
+  const vendorBox = oneVendor
+    ? `<div class="field vendor-field">
+        <label for="f-vendor">${esc(vendorField.label)}${vendorField.required ? ' <span class="req">*</span>' : ''}</label>
+        <input id="f-vendor" type="text" value="${esc(existingVendors[0] || '')}" placeholder="e.g. McMaster-Carr" autocomplete="off">
+        <div class="hint">Every item in this request comes from this ${esc(vendorField.label.toLowerCase())}. Buying from another one? Submit a separate request for it.</div>
+        ${existingVendors.length > 1 ? `<div class="alert alert-warning small">This request has items from ${existingVendors.map(esc).join(', ')}. Keep one ${esc(vendorField.label.toLowerCase())} here and move the other items into a new request.</div>` : ''}
+      </div>`
+    : '';
+
   const latest = existing?.latest_approval;
   const changesNote =
     existing?.status === 'Changes Requested' && latest
@@ -89,12 +104,13 @@ export async function renderRequestForm(el, { config, params }) {
           <h2>Items</h2>
           <button type="button" class="btn btn-sm" data-action="add-item">+ Add item</button>
         </div>
+        ${vendorBox}
         <div class="table-wrap flat">
           <table class="table items-table stack-form">
             <thead>
               <tr>
                 <th class="w-idx">#</th>
-                ${iFields.map((f) => `<th class="w-${esc(f.type)} k-${esc(f.key)}">${esc(f.label)}${star(f)}</th>`).join('')}
+                ${tableFields.map((f) => `<th class="w-${esc(f.type)} k-${esc(f.key)}">${esc(f.label)}${star(f)}</th>`).join('')}
                 <th class="num w-total">Total</th>
                 <th class="w-remove"><span class="sr-only">Remove</span></th>
               </tr>
@@ -102,7 +118,7 @@ export async function renderRequestForm(el, { config, params }) {
             <tbody id="items-body"></tbody>
             <tfoot>
               <tr>
-                <td colspan="${iFields.length + 1}" class="num"><strong>Request total</strong> <span class="muted small">(incl. shipping)</span></td>
+                <td colspan="${tableFields.length + 1}" class="num"><strong>Request total</strong> <span class="muted small">(incl. shipping)</span></td>
                 <td class="num"><strong id="grand-total">$0.00</strong></td>
                 <td></td>
               </tr>
@@ -134,7 +150,7 @@ export async function renderRequestForm(el, { config, params }) {
         (item, idx) => `
         <tr data-index="${idx}">
           <td class="w-idx muted"><span class="only-mobile">Item </span>${idx + 1}</td>
-          ${iFields
+          ${tableFields
             .map(
               (f) => `<td class="w-${esc(f.type)} k-${esc(f.key)}" data-label="${esc(f.label)}${f.required ? ' *' : ''}">${renderInput(
                 f,
@@ -192,6 +208,7 @@ export async function renderRequestForm(el, { config, params }) {
       items: items.map((i) => {
         const out = { data: {} };
         for (const f of iFields) setValue(out, f, getValue(i, f));
+        if (oneVendor) out.vendor = form.querySelector('#f-vendor').value.trim(); // same vendor for every item
         return out;
       }),
     };

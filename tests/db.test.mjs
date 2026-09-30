@@ -98,7 +98,7 @@ const completeRequest = {
 const completeItems = [
   { item_name: 'M3 SHCS', vendor: 'McMaster-Carr', quantity: '2', unit_price: '7.11' },
   { item_name: '', vendor: '', quantity: '', unit_price: '' }, // blank row is dropped
-  { item_name: 'Control cable', vendor: 'Aircraft Spruce', quantity: 15, unit_price: '$2.38' },
+  { item_name: 'Control cable', vendor: '  mcmaster-CARR ', quantity: 15, unit_price: '$2.38' }, // same vendor, different spelling
 ];
 
 // ---- tests ----------------------------------------------------------------------
@@ -285,7 +285,7 @@ await test('the website cannot change the schema version', async () => {
   const general = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
   await as(ce, () => rpc('update_settings', ['general', { ...general, schemaVersion: 99 }]));
   const after = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
-  assert.equal(after.schemaVersion, 6);
+  assert.equal(after.schemaVersion, 7);
 });
 
 console.log('Form fields');
@@ -452,7 +452,7 @@ let costReq;
 await test('members can enter shipping on a request', async () => {
   const items = [
     { item_name: 'Cells', vendor: 'Liion', quantity: 4, unit_price: 5, shipping_cost: '$12.00' },
-    { item_name: 'Tape', vendor: 'Uline', quantity: 1, unit_price: 3 },
+    { item_name: 'Tape', vendor: 'Liion', quantity: 1, unit_price: 3 },
   ];
   const bad = await as(member, () => rejects(rpc('save_request', [null, { ...completeRequest, subsystem: 'Battery', justification: 'x', c_from_china: 'No', data: { c_from_china: 'No' } }, [{ ...items[0], shipping_cost: 'free' }], 'submit']), /fix/));
   assert.match(bad.detail, /Item 1: Shipping must be a number/);
@@ -629,6 +629,36 @@ await test('last season\'s requests keep their season and can still be finished'
 
 await test('you can\'t start the same (or an earlier) season twice', async () => {
   await as(ce, () => rejects(rpc('start_new_season', ['2027-2028']), /must come after/));
+});
+
+console.log('One vendor per request');
+
+const twoVendors = [
+  { item_name: 'Bolts', vendor: 'McMaster-Carr', quantity: 1, unit_price: 5 },
+  { item_name: 'Cable', vendor: 'Aircraft Spruce', quantity: 1, unit_price: 9 },
+];
+const vendorRequest = { ...completeRequest, subsystem: 'Battery', justification: 'x', data: { c_from_china: 'No' } };
+
+await test('a request with items from two vendors is refused (drafts too)', async () => {
+  const err = await as(member, () => rejects(rpc('save_request', [null, vendorRequest, twoVendors, 'submit']), /fix/));
+  assert.match(err.detail, /same vendor\. This one has: Aircraft Spruce, McMaster-Carr\. Split them/);
+  await as(member, () => rejects(rpc('save_request', [null, { title: 'Draft' }, twoVendors, 'draft']), /fix/));
+});
+
+await test('the rule can be turned off in settings', async () => {
+  const form = await currentForm();
+  await as(ce, () => rpc('update_settings', ['form', { ...form, oneVendorPerRequest: false }]));
+  const { rows } = await as(member, () => rpc('save_request', [null, vendorRequest, twoVendors, 'submit']));
+  assert.match(rows[0].result, /-\d{3}$/);
+  await as(ce, () => rpc('update_settings', ['form', { ...form, oneVendorPerRequest: true }]));
+});
+
+await test('the rule is skipped when the Vendor field is hidden', async () => {
+  const form = await currentForm();
+  const hidden = { ...form, itemFields: form.itemFields.map((f) => (f.key === 'vendor' ? { ...f, hidden: true, required: false } : f)) };
+  await as(ce, () => rpc('update_settings', ['form', hidden]));
+  await as(member, () => rpc('save_request', [null, vendorRequest, twoVendors, 'submit']));
+  await as(ce, () => rpc('update_settings', ['form', form]));
 });
 
 console.log(`\n${passed} passed${process.exitCode ? ', some FAILED' : ''}`);

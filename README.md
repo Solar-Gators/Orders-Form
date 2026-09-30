@@ -53,7 +53,8 @@ This is the default setup. The Chief Engineer and Treasurer can change it from *
 ### Requesting parts (everyone)
 1. Click **New Request**.
 2. Fill in the request details: title, subsystem, needed-by date, priority, and why you need the items.
-3. Add one row per item: name, vendor, link, quantity, unit price, and shipping if you know it. Totals update as you type.
+3. Enter the **vendor** once, then add one row per item: name, link, quantity, unit price, and shipping if you know it. Totals update as you type.
+   - **One vendor per request:** each request is a single purchase. Buying from McMaster-Carr and Amazon? Submit two requests. (Leads can turn this rule off in Admin → Settings.)
 4. Click **Submit Request**, or **Save Draft** to finish later.
 
 If the Chief Engineer requests changes, you'll see their comment on the request. Click **Edit request**, fix it, and resubmit.
