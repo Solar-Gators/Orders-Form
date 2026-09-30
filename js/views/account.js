@@ -33,6 +33,22 @@ function bindPasswordForm(el, onDone) {
   });
 }
 
+/** The messages this person can get, worded for them. */
+function myEvents(config) {
+  const me = auth.user.id;
+  const namedInRule = (config.workflow?.rules || []).some((r) => !r.disabled && (r.then?.people || []).includes(me));
+  const approver = auth.can('request.review') || auth.can('workflow.edit') || namedInRule;
+  return [
+    approver && { key: 'submitted', mine: 'A request needs your approval' },
+    auth.can('request.order') && { key: 'ready_to_order', mine: 'A request is approved and ready to order' },
+    { key: 'approved', mine: 'Your request was approved' },
+    { key: 'changes_requested', mine: 'Changes were requested on your request' },
+    { key: 'rejected', mine: 'Your request was rejected' },
+    { key: 'ordered', mine: 'Your request was ordered' },
+    { key: 'received', mine: 'Your request arrived' },
+  ].filter(Boolean);
+}
+
 export async function renderAccount(el, { config, rerender }) {
   const user = auth.user;
   const notify = config.notifications || {};
@@ -55,22 +71,21 @@ export async function renderAccount(el, { config, rerender }) {
         </form>
       </section>
       <section class="card">
-        <h2>Notifications</h2>
-        <p class="muted small">${notify.enabled
-          ? `Messages go to <strong>${esc(user.email)}</strong> when a request needs you, or when yours is approved, ordered or received.`
-          : 'Email and Teams messages are turned off for the whole team right now.'}</p>
-        <label class="rule-toggle"><input type="checkbox" id="n-email" ${user.notify_email === false ? '' : 'checked'}> <span>Email</span></label>
-        <label class="rule-toggle"><input type="checkbox" id="n-teams" ${user.notify_teams === false ? '' : 'checked'}> <span>Microsoft Teams chat</span></label>
-        <div id="notify-errors"></div>
-        <p class="muted small" id="notify-saved" hidden>Saved.</p>
-      </section>
-      <section class="card">
         <h2>Change password</h2>
         ${passwordForm('Update password')}
         <hr>
         <button type="button" class="btn btn-ghost" id="sign-out">Sign out</button>
       </section>
-    </div>`;
+    </div>
+    <section class="card">
+      <h2>Notifications</h2>
+      <p class="muted small">${notify.enabled
+        ? `Messages go to <strong>${esc(user.email)}</strong> (email and/or Teams). Untick anything you don't want; changes save right away.`
+        : 'Email and Teams messages are turned off for the whole team right now. Your choices here apply once they are turned on.'}</p>
+      <div id="notify-table"></div>
+      <div id="notify-errors"></div>
+      <p class="muted small" id="notify-saved" hidden>Saved.</p>
+    </section>`;
 
   el.querySelector('#profile-form').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -85,20 +100,70 @@ export async function renderAccount(el, { config, rerender }) {
     }
   });
 
-  for (const id of ['n-email', 'n-teams']) {
-    el.querySelector(`#${id}`).addEventListener('change', async () => {
-      const email = el.querySelector('#n-email').checked;
-      const teams = el.querySelector('#n-teams').checked;
-      try {
+  // ---- Notifications: an overall switch per channel, then one row per event ----
+  const CHANNELS = [['email', 'Email', 'notify_email'], ['teams', 'Teams', 'notify_teams']];
+  const choices = structuredClone(user.notify_events || {});
+  const teamOn = (ev, ch) => notify.events?.[ev]?.[ch] === true;
+  const mineOn = (ev, ch) => choices[ev]?.[ch] !== false;
+  const events = myEvents(config);
+
+  const drawNotify = () => {
+    const box = (checked, attrs, disabled, title = '') =>
+      `<input type="checkbox" ${attrs} ${checked ? 'checked' : ''} ${disabled ? 'disabled' : ''} ${title ? `title="${esc(title)}"` : ''}>`;
+    el.querySelector('#notify-table').innerHTML = `
+      <div class="table-wrap flat"><table class="table events-table">
+        <thead><tr><th></th>${CHANNELS.map(([, label]) => `<th class="center">${label}</th>`).join('')}</tr></thead>
+        <tbody>
+          <tr class="notify-all"><td><strong>All messages</strong><div class="muted small">Turn a channel off completely</div></td>
+            ${CHANNELS.map(([ch, label, col]) => `<td class="center">${box(user[col] !== false, `data-all="${ch}" aria-label="All ${label}"`, false)}</td>`).join('')}</tr>
+          ${events
+            .map(
+              (ev) => `<tr><td>${esc(ev.mine)}</td>
+                ${CHANNELS.map(([ch, label, col]) => {
+                  const off = !teamOn(ev.key, ch);
+                  return `<td class="center">${
+                    off ? `<span class="muted small" title="Your leads turned ${label} off for this message">—</span>`
+                      : box(mineOn(ev.key, ch), `data-ev="${ev.key}" data-ch="${ch}" aria-label="${esc(label)}: ${esc(ev.mine)}"`, user[col] === false)
+                  }</td>`;
+                }).join('')}</tr>`
+            )
+            .join('')}
+        </tbody>
+      </table></div>
+      <p class="muted small">— means your leads don't send that message by that channel (Admin → Notifications).</p>`;
+  };
+
+  const saved = async (fn) => {
+    try {
+      await fn();
+      el.querySelector('#notify-errors').innerHTML = '';
+      el.querySelector('#notify-saved').hidden = false;
+    } catch (err) {
+      el.querySelector('#notify-errors').innerHTML = errorBox(err);
+    }
+  };
+  el.querySelector('#notify-table').addEventListener('change', async (e) => {
+    const t = e.target;
+    if (t.dataset.all) {
+      const email = el.querySelector('[data-all="email"]').checked;
+      const teams = el.querySelector('[data-all="teams"]').checked;
+      await saved(async () => {
         await api.updateMyNotificationPrefs(email, teams);
         Object.assign(user, { notify_email: email, notify_teams: teams });
-        el.querySelector('#notify-errors').innerHTML = '';
-        el.querySelector('#notify-saved').hidden = false;
-      } catch (err) {
-        el.querySelector('#notify-errors').innerHTML = errorBox(err);
-      }
-    });
-  }
+      });
+      drawNotify();
+    } else if (t.dataset.ev) {
+      const { ev, ch } = t.dataset;
+      choices[ev] = { ...(choices[ev] || {}), [ch]: t.checked };
+      if (t.checked) delete choices[ev][ch]; // on is the default; only "off" is stored
+      if (!Object.keys(choices[ev]).length) delete choices[ev];
+      await saved(async () => {
+        await api.updateMyNotificationEvents(choices);
+        user.notify_events = structuredClone(choices);
+      });
+    }
+  });
+  drawNotify();
 
   bindPasswordForm(el, async () => {
     setFlash('Password updated.');

@@ -276,6 +276,10 @@ export const api = {
   async updateMyNotificationPrefs(email, teams) {
     unwrap(await supabase.rpc('update_my_notification_prefs', { p_email: email, p_teams: teams }));
   },
+  /** Per-event choices: { event: { email: false, teams: false } } (missing = on). */
+  async updateMyNotificationEvents(events) {
+    unwrap(await supabase.rpc('update_my_notification_events', { p_events: events }));
+  },
   /** Recent queued / sent messages (needs "Workflow, budgets & notifications"). */
   async listNotifications(limit = 100) {
     return unwrap(

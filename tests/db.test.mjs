@@ -293,7 +293,7 @@ await test('the website cannot change the schema version', async () => {
   const general = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
   await as(ce, () => rpc('update_settings', ['general', { ...general, schemaVersion: 99 }]));
   const after = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
-  assert.equal(after.schemaVersion, 10);
+  assert.equal(after.schemaVersion, 11);
 });
 
 console.log('Form fields');
@@ -1038,6 +1038,28 @@ await test('the sender claims each message once, retries failures, then gives up
     await rpc('retry_notification', [rows[0].id]);
     assert.equal((await db.query(`select status from notification_outbox where id = $1`, [rows[0].id])).rows[0].status, 'pending');
   });
+});
+
+await test('each person can mute single events per channel (011)', async () => {
+  await db.exec(`delete from notification_outbox`);
+  await as(member, () => rpc('update_my_notification_prefs', [true, true]));
+  // Mia: no "approved" email, no "received" at all; junk keys are dropped.
+  await as(member, () => rpc('update_my_notification_events', [{
+    approved: { email: false }, received: { email: false, teams: false }, launched: { email: false }, ordered: { email: 'no' },
+  }]));
+  const { rows: [p] } = await db.query(`select notify_events from profiles where id = $1`, [member]);
+  assert.deepEqual(p.notify_events, { approved: { email: false }, received: { email: false, teams: false }, ordered: {} });
+  await as(admin, () => rpc('update_settings', ['notifications', {
+    enabled: true, events: Object.fromEntries(['approved', 'ordered', 'received'].map((e) => [e, { email: true, teams: true }])),
+  }]));
+  const number = numberOf(await submit(vendorRequest, [{ ...oneItem[0], unit_price: 20 }]));
+  await review(ce, number, 'approve');
+  const { rows } = await db.query(`select id from requests where request_number = $1`, [number]);
+  await as(treasurer, () => rpc('mark_ordered', [rows[0].id, '2026-09-30', 'PO-78', '']));
+  await as(treasurer, () => rpc('mark_received', [rows[0].id, '2026-10-03', '']));
+  const mine = (await outbox()).filter((m) => m.email === 'member@ufl.edu').map((m) => `${m.event} ${m.channel}`).sort();
+  assert.deepEqual(mine, ['approved teams', 'ordered email', 'ordered teams']);
+  await as(member, () => rejects(rpc('update_my_notification_events', [[]]), /JSON object/));
 });
 
 console.log(`\n${passed} passed${process.exitCode ? ', some FAILED' : ''}`);

@@ -134,7 +134,7 @@ Once your leads turn them on (**Admin → Notifications**), the site messages pe
 | Changes requested / Rejected | The requester, with the comment |
 | Ordered / Received | The requester |
 
-Messages go to your UF email and/or a Teams chat from the Power Automate bot, with a button that opens the request. Leads choose which events use email, Teams, or both, and can reword every message. You can turn either one off for yourself on **My account**.
+Messages go to your UF email and/or a Teams chat from the Power Automate bot, with a button that opens the request. Leads choose which events use email, Teams, or both, and can reword every message. On **My account** you choose for yourself: turn email or Teams off completely, or mute single messages (e.g. keep "needs your approval" but skip "your order arrived").
 
 ## Starting a new season
 
