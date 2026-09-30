@@ -1,11 +1,12 @@
 /** Requests page: this season's requests (or a past season), filterable. */
 import { api } from '../api.js';
 import { auth } from '../auth.js';
-import { esc, requestTable, COLUMNS, bindRowLinks, takeFlash } from '../ui.js';
+import { esc, requestTable, COLUMNS, bindRowLinks, bindSorting, takeFlash } from '../ui.js';
 
 // Filters persist while navigating around the app (not across reloads).
 // season '' means "the current season".
 const filters = { season: '', owner: '', status: '', subsystem: '', q: '' };
+const sort = { key: 'requested', dir: 'desc' }; // newest first until a header is clicked
 
 export async function renderRequestList(el, { config, rerender }) {
   const season = filters.season || config.season;
@@ -50,7 +51,8 @@ export async function renderRequestList(el, { config, rerender }) {
     el.querySelector('#results').innerHTML = requestTable(
       rows,
       columns,
-      all.length ? 'No requests match these filters.' : isCurrent ? 'No requests yet this season. Create one with “New Request”.' : 'No requests in this season.'
+      all.length ? 'No requests match these filters.' : isCurrent ? 'No requests yet this season. Create one with “New Request”.' : 'No requests in this season.',
+      sort
     );
   };
 
@@ -71,6 +73,7 @@ export async function renderRequestList(el, { config, rerender }) {
     rerender();
   });
 
+  bindSorting(el.querySelector('#results'), sort, columns, apply);
   bindRowLinks(el);
   apply();
 }

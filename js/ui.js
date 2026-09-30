@@ -66,9 +66,34 @@ export function isOverdue(r) {
  * Render a table of requests. Each column: { label, cell(r) => html, className }.
  * Rows link to the request detail page.
  */
-export function requestTable(rows, columns, emptyMessage = 'Nothing here yet.') {
+export function requestTable(rows, columns, emptyMessage = 'Nothing here yet.', sort = null) {
   if (!rows.length) return `<div class="empty">${esc(emptyMessage)}</div>`;
-  const head = columns.map((c) => `<th class="${c.className || ''}">${esc(c.label)}</th>`).join('');
+  if (sort) rows = sortRows(rows, columns, sort);
+  const head = columns
+    .map((c) => {
+      if (!sort || !c.sort) return `<th class="${c.className || ''}">${esc(c.label)}</th>`;
+      const active = sort.key === c.key;
+      const aria = active ? (sort.dir === 'desc' ? 'descending' : 'ascending') : 'none';
+      return `<th class="${c.className || ''} sortable${active ? ' sorted' : ''}" aria-sort="${aria}">
+        <button type="button" class="sort-btn" data-sort="${esc(c.key)}" title="Sort by ${esc(c.label)}">${esc(c.label)}<span class="sort-ind" aria-hidden="true">${
+          active ? (sort.dir === 'desc' ? '▼' : '▲') : '↕'
+        }</span></button></th>`;
+    })
+    .join('');
+  // Phones hide the header row (card layout), so offer a "Sort by" menu instead.
+  const sortBar = sort
+    ? `<div class="sort-bar"><label>Sort by
+        <select data-sort-select aria-label="Sort by">${columns
+          .filter((c) => c.sort)
+          .flatMap((c) =>
+            [c.defaultDir || 'asc', c.defaultDir === 'desc' ? 'asc' : 'desc'].map(
+              (dir) => `<option value="${esc(c.key)}:${dir}" ${sort.key === c.key && sort.dir === dir ? 'selected' : ''}>${esc(c.label)} (${esc(
+                (c.dirLabels || DIR_LABELS)[dir]
+              )})</option>`
+            )
+          )
+          .join('')}</select></label></div>`
+    : '';
   const body = rows
     .map(
       (r) => `<tr class="clickable" data-href="#/requests/${esc(r.request_number)}">
@@ -76,7 +101,51 @@ export function requestTable(rows, columns, emptyMessage = 'Nothing here yet.') 
       </tr>`
     )
     .join('');
-  return `<div class="table-wrap"><table class="table stack-mobile"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+  return `${sortBar}<div class="table-wrap"><table class="table stack-mobile"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+}
+
+// ---- Sorting ----------------------------------------------------------------
+
+const DIR_LABELS = { asc: 'A → Z', desc: 'Z → A' };
+const DATE_LABELS = { desc: 'newest first', asc: 'oldest first' };
+const NUM_LABELS = { desc: 'highest first', asc: 'lowest first' };
+
+const isBlank = (v) => v === null || v === undefined || v === '';
+
+/** Sort rows by the column `sort.key` (`sort.dir` 'asc' | 'desc'). Blanks always go last. */
+export function sortRows(rows, columns, sort) {
+  const col = columns.find((c) => c.key === sort?.key);
+  if (!col?.sort) return rows;
+  const dir = sort.dir === 'desc' ? -1 : 1;
+  return [...rows].sort((a, b) => {
+    const x = col.sort(a);
+    const y = col.sort(b);
+    if (isBlank(x) || isBlank(y)) return isBlank(x) === isBlank(y) ? 0 : isBlank(x) ? 1 : -1;
+    if (typeof x === 'number' && typeof y === 'number') return (x - y) * dir;
+    return String(x).localeCompare(String(y), undefined, { numeric: true, sensitivity: 'base' }) * dir;
+  });
+}
+
+/**
+ * Make the tables rendered inside `container` sortable. `state` ({ key, dir }) is
+ * updated in place; `redraw()` re-renders. Clicking the active column flips the
+ * direction; a new column starts in its natural direction (e.g. newest first).
+ */
+export function bindSorting(container, state, columns, redraw) {
+  container.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-sort]');
+    if (!btn) return;
+    const col = columns.find((c) => c.key === btn.dataset.sort);
+    if (state.key === col.key) state.dir = state.dir === 'asc' ? 'desc' : 'asc';
+    else Object.assign(state, { key: col.key, dir: col.defaultDir || 'asc' });
+    redraw();
+  });
+  container.addEventListener('change', (e) => {
+    if (!e.target.matches('[data-sort-select]')) return;
+    const [key, dir] = e.target.value.split(':');
+    Object.assign(state, { key, dir });
+    redraw();
+  });
 }
 
 // Requests from an earlier season (still waiting on someone) are labelled with it.
@@ -93,26 +162,55 @@ export const COLUMNS = {
     label: 'Requested',
     className: 'nowrap',
     cell: (r) => `<time datetime="${esc((r.created_at || '').slice(0, 10))}">${fmtDate(r.created_at)}</time>`,
+    sort: (r) => r.created_at,
+    defaultDir: 'desc',
+    dirLabels: DATE_LABELS,
   },
   title: {
     label: 'Title',
     primary: true,
     cell: (r) =>
       `<a class="cell-title title-link" href="#/requests/${esc(r.request_number)}">${esc(r.title || 'Untitled request')}</a> ${priorityTag(r.priority !== 'Normal' ? r.priority : '')}${seasonTag(r)}`,
+    sort: (r) => r.title,
   },
-  requester: { label: 'Requester', cell: (r) => esc(r.requester || '—') },
-  subsystem: { label: 'Subsystem', cell: (r) => esc(r.subsystem || '—') },
-  total: { label: 'Total', className: 'num', cell: (r) => fmtMoney(r.total) },
-  status: { label: 'Status', cell: (r) => statusBadge(r.status) },
+  requester: { label: 'Requester', cell: (r) => esc(r.requester || '—'), sort: (r) => r.requester },
+  subsystem: { label: 'Subsystem', cell: (r) => esc(r.subsystem || '—'), sort: (r) => r.subsystem },
+  total: {
+    label: 'Total',
+    className: 'num',
+    cell: (r) => fmtMoney(r.total),
+    sort: (r) => Number(r.total) || 0,
+    defaultDir: 'desc',
+    dirLabels: NUM_LABELS,
+  },
+  status: {
+    label: 'Status',
+    cell: (r) => statusBadge(r.status),
+    sort: (r) => STATUSES.indexOf(r.status), // workflow order, not alphabetical
+    dirLabels: { asc: 'Draft → Received', desc: 'Received → Draft' },
+  },
   neededBy: {
     label: 'Needed By',
     cell: (r) => `<span class="${isOverdue(r) ? 'overdue' : ''}">${fmtDate(r.needed_by)}</span>`,
+    sort: (r) => r.needed_by,
+    dirLabels: { asc: 'soonest first', desc: 'latest first' },
   },
-  vendors: { label: 'Vendor', cell: (r) => esc(r.vendors.join(', ') || '—') },
-  approvedOn: { label: 'Approved', cell: (r) => fmtDate(r.latest_approval?.created_at) },
-  orderedOn: { label: 'Ordered', cell: (r) => fmtDate(r.order?.order_date) },
-  orderNumber: { label: 'Ticket #', cell: (r) => esc(r.order?.department_order_number || '—') },
+  vendors: { label: 'Vendor', cell: (r) => esc(r.vendors.join(', ') || '—'), sort: (r) => r.vendors[0] },
+  approvedOn: {
+    label: 'Approved',
+    cell: (r) => fmtDate(r.latest_approval?.created_at),
+    sort: (r) => r.latest_approval?.created_at,
+    dirLabels: { asc: 'oldest first', desc: 'newest first' },
+  },
+  orderedOn: {
+    label: 'Ordered',
+    cell: (r) => fmtDate(r.order?.order_date),
+    sort: (r) => r.order?.order_date,
+    dirLabels: { asc: 'oldest first', desc: 'newest first' },
+  },
+  orderNumber: { label: 'Ticket #', cell: (r) => esc(r.order?.department_order_number || '—'), sort: (r) => r.order?.department_order_number },
 };
+for (const [key, col] of Object.entries(COLUMNS)) col.key = key;
 
 /** Make clickable table rows navigate (event delegation, once per view). */
 export function bindRowLinks(el) {

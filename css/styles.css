@@ -501,3 +501,21 @@ tr:hover .copy-btn, dd:hover .copy-btn, .copy-wrap:hover .copy-btn, .copy-btn:fo
 
 .title-link { color: var(--text); text-decoration: none; font-weight: 600; }
 .title-link:hover { color: var(--blue); text-decoration: underline; }
+
+/* ---- Sortable tables --------------------------------------------------------- */
+
+.table th.sortable { padding: 0; }
+.sort-btn {
+  all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 5px; width: 100%;
+  padding: 10px 12px; cursor: pointer; font: inherit; color: inherit; text-transform: inherit; letter-spacing: inherit;
+}
+.num .sort-btn { justify-content: flex-end; }
+.sort-btn:hover { color: var(--navy); background: #eef2f7; }
+.sort-btn:focus-visible { outline: 2px solid var(--orange); outline-offset: -2px; }
+.sort-ind { font-size: 10px; opacity: .45; }
+th.sorted { color: var(--navy); }
+th.sorted .sort-ind { opacity: 1; color: var(--orange-dark); }
+.sort-bar { display: none; margin-bottom: 10px; }
+.sort-bar label { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--muted); }
+.sort-bar select { flex: 1; }
+@media (max-width: 640px) { .sort-bar { display: block; } }

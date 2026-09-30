@@ -71,7 +71,8 @@ If the Chief Engineer requests changes, you'll see their comment on the request.
 - **Edit costs:** if a price or shipping cost turns out different from what was requested, open the request and click **Edit costs**. This works on Approved, Ordered, and Received requests. Change the unit price or shipping for any item and add a reason. The new total is previewed before saving. Every change is logged in the request's History (who, when, old → new, and why), and the item list is tagged **Costs adjusted**.
 
 ### Finding things
-- **Requests:** this season's requests. A season picker lets you look back at earlier seasons. Search by ID, title, requester, or vendor, and filter by status, subsystem, or "My requests".
+- **Requests:** this season's requests. A season picker lets you look back at earlier seasons.
+- **Sorting:** click any column heading on Requests, Approvals, or Treasurer to sort by it, and click again to reverse. On a phone, use the **Sort by** menu above the list. Search by ID, title, requester, or vendor, and filter by status, subsystem, or "My requests".
 - **Archive:** orders from past seasons: requests made on this site in earlier seasons, plus the old spreadsheets imported from Excel. Type any words (item, vendor, part number, person, ticket) and filter by season, subteam, or status. Click a row to see every column exactly as it was in the original sheet.
 - **Export:** download a season (or all seasons) as an Excel file. There's one row per item, with request, approval, order, and delivery details on each row, ready to filter or pivot.
 
