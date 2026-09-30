@@ -14,6 +14,7 @@ import { renderAccount, renderResetPassword } from './views/account.js';
 import { renderUsers, renderSettings, renderFormFields, ADMIN_TABS } from './views/admin.js';
 import { renderLists, renderAppearance, renderHistory } from './views/adminSetup.js';
 import { renderPageLayout, renderExportTemplates, renderTextBanner } from './views/adminPages.js';
+import { renderWorkflow, renderNotifications } from './views/adminWorkflow.js';
 import { renderHelp } from './views/help.js';
 import { renderRequestForm } from './views/requestForm.js';
 import { renderRequestList } from './views/requestList.js';
@@ -47,6 +48,8 @@ const ROUTES = [
   { pattern: /^\/admin\/exports$/, nav: 'admin', view: renderExportTemplates, perm: tabPerms('exports') },
   { pattern: /^\/admin\/appearance$/, nav: 'admin', view: renderAppearance, perm: tabPerms('appearance') },
   { pattern: /^\/admin\/text$/, nav: 'admin', view: renderTextBanner, perm: tabPerms('text') },
+  { pattern: /^\/admin\/workflow$/, nav: 'admin', view: renderWorkflow, perm: tabPerms('workflow') },
+  { pattern: /^\/admin\/notifications$/, nav: 'admin', view: renderNotifications, perm: tabPerms('notifications') },
   { pattern: /^\/help$/, nav: 'help', view: renderHelp },
   { pattern: /^\/admin\/import$/, nav: 'admin', view: renderImport, perm: tabPerms('import') },
   { pattern: /^\/admin\/history$/, nav: 'admin', view: renderHistory, perm: tabPerms('history') },

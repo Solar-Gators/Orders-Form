@@ -412,13 +412,21 @@ const WHAT = {
   form: 'Form fields & dropdowns',
   lists: 'Lists',
   appearance: 'Appearance',
+  layout: 'Request page',
+  exports: 'Export templates',
+  workflow: 'Workflow & budgets',
+  notifications: 'Notifications',
   permissions: 'Permissions',
 };
 // Which permission restoring each kind of version needs (the database checks it too).
-const RESTORE_PERM = { general: 'settings.edit', form: 'settings.edit', lists: 'site.customize', appearance: 'site.customize', permissions: 'users.manage' };
+const RESTORE_PERM = {
+  general: 'settings.edit', form: 'settings.edit', lists: 'site.customize', appearance: 'site.customize', layout: 'site.customize',
+  exports: 'site.customize', workflow: 'workflow.edit', notifications: 'workflow.edit', permissions: 'users.manage',
+};
 
 const PART = {
   requestFields: 'request fields', itemFields: 'item fields', subsystems: 'subsystem list', priorities: 'priority list',
+  rules: 'approval rules', budgets: 'budgets', enabled: 'on/off', events: 'who gets what', templates: 'message wording', siteUrl: 'website address',
   defaultPriority: 'default priority', oneVendorPerRequest: 'one-vendor rule', teamName: 'team name',
   requestIdPrefix: 'request ID prefix', allowedEmailDomains: 'allowed email domains', statuses: 'status labels & colors',
   showDefaultPriority: 'default priority display', requests: 'Requests list', approvals: 'Approvals list',

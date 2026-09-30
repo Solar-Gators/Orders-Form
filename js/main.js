@@ -1,6 +1,6 @@
 /** App bootstrap: connect to Supabase, load settings + the signed-in user, start the router. */
 import { isConfigured } from './supabase.js';
-import { api } from './api.js';
+import { api, setNotificationsOn } from './api.js';
 import { auth } from './auth.js';
 import { startRouter } from './router.js';
 import { STATUS, STATUSES, EDITABLE_STATUSES, esc, errorBox, setCurrentSeason, setAppearance, renderRichText } from './ui.js';
@@ -8,8 +8,8 @@ import { STATUS, STATUSES, EDITABLE_STATUSES, esc, errorBox, setCurrentSeason, s
 const app = document.getElementById('app');
 
 // Bump when adding a file to supabase/migrations/ (the migration sets general.schemaVersion).
-const REQUIRED_SCHEMA_VERSION = 9;
-const MIGRATIONS = { 2: '002_form_fields.sql', 3: '003_archive_and_import.sql', 4: '004_cost_adjustments.sql', 5: '005_editable_permissions.sql', 6: '006_seasons.sql', 7: '007_one_vendor_per_request.sql', 8: '008_roles_admin_history.sql', 9: '009_form_rules_layout_exports.sql' };
+const REQUIRED_SCHEMA_VERSION = 10;
+const MIGRATIONS = { 2: '002_form_fields.sql', 3: '003_archive_and_import.sql', 4: '004_cost_adjustments.sql', 5: '005_editable_permissions.sql', 6: '006_seasons.sql', 7: '007_one_vendor_per_request.sql', 8: '008_roles_admin_history.sql', 9: '009_form_rules_layout_exports.sql', 10: '010_workflow_budgets_notifications.sql' };
 
 /** Shared config object handed to every view. Mutated in place on reload. */
 const config = {};
@@ -32,9 +32,12 @@ async function reloadConfig() {
     appearance: settings.appearance || {}, // Admin → Appearance, Text & banner
     layout: settings.layout || {}, // Admin → Request page
     exports: settings.exports || {}, // Admin → Exports
+    workflow: settings.workflow || {}, // Admin → Workflow (rules, budgets)
+    notifications: settings.notifications || {}, // Admin → Notifications
   });
   document.title = `${config.teamName} Orders`;
   setCurrentSeason(config.season);
+  setNotificationsOn(config.notifications.enabled);
   setAppearance(config.appearance, { defaultPriority: config.defaultPriority });
   applyBranding();
   document.getElementById('footer').textContent = `${config.teamName} · ${config.season} season`;

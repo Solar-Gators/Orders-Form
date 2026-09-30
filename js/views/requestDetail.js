@@ -14,6 +14,7 @@ import {
 } from '../ui.js';
 import { getValue, displayValue, isVisible, MONEY_FIELDS } from '../formFields.js';
 import { pageLayout, copyAllowed, detailFieldList, itemColumnList } from '../pageLayout.js';
+import { approvalState, canReview, workflowSettings, budgetSummary, budgetFor } from '../workflow.js';
 
 /** Copy buttons (for pasting into purchasing forms) go to whoever Admin → Request page says. */
 let layout = null; // set on each render from the `layout` settings
@@ -198,7 +199,30 @@ const isLead = () => auth.can('request.review') || auth.can('request.order');
 
 const waitingCard = (title, text) => `<section class="card action-card"><h2>${title}</h2><p class="muted">${text}</p></section>`;
 
-function actionPanel(r, config) {
+/** Who has to approve (from Admin → Workflow rules). */
+function approvalNote(r, names) {
+  const s = approvalState(r);
+  const rule = s.rule ? ` <span class="muted">(rule "${esc(s.rule)}")</span>` : '';
+  if (s.type !== 'people') return `<p class="small">Any Chief Engineer can approve${rule}.</p>`;
+  const people = s.people
+    .map((id) => `<li>${esc(names[id] || 'Someone who left')}${s.approvedBy.includes(id) ? ' <span class="approval-done">✓ approved</span>' : ''}</li>`)
+    .join('');
+  return `<p class="small">Needs approval from <strong>${s.needAll ? 'all' : 'any one'}</strong> of${rule}:</p><ul class="approver-list">${people}</ul>`;
+}
+
+/** Budget for this request's cost center / subsystem (leads only). */
+function budgetNote(r, config, budget) {
+  if (!budget) return '';
+  const after = budget.used + (r.status === STATUS.SUBMITTED ? r.total : 0);
+  const over = after > budget.amount;
+  const blocks = over && r.status === STATUS.SUBMITTED && workflowSettings(config).budgets.block;
+  return `<div class="budget-note ${over ? 'is-over' : ''}">
+    <strong>${esc(budget.value)} budget:</strong> ${fmtMoney(budget.used)} of ${fmtMoney(budget.amount)} used · ${fmtMoney(budget.remaining)} left
+    ${r.status === STATUS.SUBMITTED ? `<br>Approving this makes it ${fmtMoney(after)}${over ? ` — <strong>${fmtMoney(after - budget.amount)} over</strong>${blocks ? '. Approval is blocked by Admin → Workflow.' : '.'}` : '.'}` : ''}
+  </div>`;
+}
+
+function actionPanel(r, config, { names = {}, budget = null } = {}) {
   const isOwner = r.created_by === auth.user.id;
 
   if (config.editableStatuses.includes(r.status)) {
@@ -212,9 +236,18 @@ function actionPanel(r, config) {
   }
 
   if (r.status === STATUS.SUBMITTED) {
-    if (!auth.can('request.review')) return waitingCard('Awaiting approval', isLead() ? 'View only — only a <strong>Chief Engineer</strong> can approve, reject, or request changes.' : 'A Chief Engineer will review this request.');
+    const state = approvalState(r);
+    const steppingIn = state.type === 'people' && !state.people.includes(auth.user.id)
+      ? '<p class="muted small">You aren\'t one of the listed approvers, but "Workflow, budgets &amp; notifications" lets you decide anyway.</p>'
+      : '';
+    const who = approvalNote(r, names) + budgetNote(r, config, budget) + steppingIn;
+    if (!canReview(r)) {
+      return `<section class="card action-card"><h2>Awaiting approval</h2>${who}
+        ${isLead() ? '<p class="muted small">View only — you are not one of the approvers for this request.</p>' : ''}</section>`;
+    }
     return `<section class="card action-card">
       <h2>Review</h2>
+      ${who}
       <form id="review-form" novalidate>
         <p class="muted small">Signing as <strong>${esc(auth.displayName)}</strong></p>
         <div class="field">
@@ -279,6 +312,16 @@ function actionPanel(r, config) {
 export async function renderRequestDetail(el, { config, params, rerender }) {
   const r = await api.getRequest(params.id);
   layout = pageLayout(config);
+  // Approvers' names and the budget, for the action panel.
+  const [names, summary] = await Promise.all([
+    r.status === STATUS.SUBMITTED && approvalState(r).type === 'people'
+      ? api.listProfiles().then((ps) => Object.fromEntries(ps.map((p) => [p.id, p.full_name || p.email]))).catch(() => ({}))
+      : {},
+    isLead() && workflowSettings(config).budgets.field && [STATUS.SUBMITTED, STATUS.APPROVED].includes(r.status)
+      ? api.listRequests(null, { season: config.season }).then((rows) => budgetSummary(config, rows)).catch(() => [])
+      : [],
+  ]);
+  const budget = budgetFor(config, r, summary);
   const detailsCard = `<section class="card"><h2>Details</h2>${detailsGrid(r, config)}</section>`;
 
   el.innerHTML = `
@@ -310,7 +353,7 @@ export async function renderRequestDetail(el, { config, params, rerender }) {
         ${layout.itemsFirst ? detailsCard : ''}
       </div>
       <aside class="detail-side">
-        ${actionPanel(r, config)}
+        ${actionPanel(r, config, { names, budget })}
         ${historyCard(r)}
       </aside>
     </div>`;

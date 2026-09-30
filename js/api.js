@@ -62,6 +62,18 @@ function hydrate(row) {
   };
 }
 
+// Email / Teams: after each workflow step, ask the send-notifications Edge
+// Function to deliver what the database queued. Only when turned on in
+// Admin → Notifications (so nothing is called before the function exists).
+let notificationsOn = false;
+export function setNotificationsOn(on) {
+  notificationsOn = !!on;
+}
+function deliver() {
+  if (!notificationsOn || !supabase.functions) return;
+  supabase.functions.invoke('send-notifications', { body: {} }).catch(() => {}); // failures are retried next time
+}
+
 export const api = {
   // ---- Settings -------------------------------------------------------------
 
@@ -129,11 +141,14 @@ export const api = {
 
   /** Create (id null) or update. action: 'draft' | 'submit'. Returns the request number. */
   async saveRequest(id, { action, request, items }) {
-    return unwrap(await supabase.rpc('save_request', { p_id: id || null, p_request: request, p_items: items, p_action: action }));
+    const number = unwrap(await supabase.rpc('save_request', { p_id: id || null, p_request: request, p_items: items, p_action: action }));
+    if (action === 'submit') deliver();
+    return number;
   },
 
   async review(id, decision, comment) {
     unwrap(await supabase.rpc('review_request', { p_id: id, p_decision: decision, p_comment: comment }));
+    deliver();
   },
 
   async markOrdered(id, { order_date, department_order_number, treasurer_notes }) {
@@ -145,6 +160,7 @@ export const api = {
         p_notes: treasurer_notes,
       })
     );
+    deliver();
   },
 
   /** Treasurer: change unit price / shipping after approval. items: [{ id, unit_price?, shipping_cost? }] */
@@ -154,6 +170,7 @@ export const api = {
 
   async markReceived(id, { received_date, received_notes }) {
     unwrap(await supabase.rpc('mark_received', { p_id: id, p_received_date: received_date || null, p_notes: received_notes }));
+    deliver();
   },
 
   // ---- Archive & import -----------------------------------------------------
@@ -252,5 +269,36 @@ export const api = {
 
   async updateMyProfile(fullName) {
     unwrap(await supabase.rpc('update_my_profile', { p_full_name: fullName }));
+  },
+
+  // ---- Notifications ---------------------------------------------------------
+
+  async updateMyNotificationPrefs(email, teams) {
+    unwrap(await supabase.rpc('update_my_notification_prefs', { p_email: email, p_teams: teams }));
+  },
+  /** Recent queued / sent messages (needs "Workflow, budgets & notifications"). */
+  async listNotifications(limit = 100) {
+    return unwrap(
+      await supabase.from('notification_outbox').select('id, created_at, event, email, channel, status, attempts, sent_at, error, payload').order('id', { ascending: false }).range(0, limit - 1)
+    );
+  },
+  async queueTestNotification(channel) {
+    unwrap(await supabase.rpc('queue_test_notification', { p_channel: channel }));
+  },
+  async retryNotification(id) {
+    unwrap(await supabase.rpc('retry_notification', { p_id: id }));
+  },
+  /** Run the sender now and wait for its answer: { sent, failed, errors }. */
+  async sendNotificationsNow() {
+    if (!supabase.functions) throw new Error('Sending is not available in local test mode.');
+    const { data, error } = await supabase.functions.invoke('send-notifications', { body: {} });
+    if (error) {
+      let detail = '';
+      try {
+        detail = (await error.context?.json?.())?.error || '';
+      } catch {}
+      throw new Error(detail || `The send-notifications function didn't answer (${error.message}). Is it deployed? See docs/MAINTAINING.md.`);
+    }
+    return data;
   },
 };

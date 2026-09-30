@@ -86,7 +86,7 @@ await fakeReset()   // wipe local data
 npm test
 ```
 
-`npm test` runs both test files. `npm run test:import` checks spreadsheet column recognition against the real headers of the 2024-25, 2025-26, and 2026-27 sheets. `npm run test:db` runs every file in `supabase/migrations/` in PGlite and checks the security rules as different users, e.g. "a Member can't approve", "a Chief Engineer can't mark ordered", "you can't edit someone else's draft", and "non-UF emails can't sign up". Run it after any database change.
+`npm test` runs all three test files. `npm run test:import` checks spreadsheet column recognition against the real headers of the 2024-25, 2025-26, and 2026-27 sheets. `npm run test:db` runs every file in `supabase/migrations/` in PGlite and checks the security rules as different users, e.g. "a Member can't approve", "a Chief Engineer can't mark ordered", "you can't edit someone else's draft", and "non-UF emails can't sign up". Run it after any database change. `tests/notify.test.mjs` checks how notification messages are written (placeholders, email HTML, the Teams card).
 
 ## How it works
 
@@ -107,7 +107,10 @@ supabase/migrations/     Database changes, in order: tables, security, permissio
 js/formFields.js         Form field definitions, inputs, and display (used by form, detail, export)
 js/sheetImport.js        Reads old Excel order sheets (archive + this-season import)
 assets/                  Solar Gators logo
+js/workflow.js           Approval rules + budgets (who approves, what's left)
+supabase/functions/send-notifications/index.ts   Sends queued email / Teams messages
 tests/db.test.mjs        Database security + workflow tests
+tests/notify.test.mjs    Notification message tests
 tools/dev-server.mjs     Local static server (+ --fake mode)
 tools/fake-supabase.js   Fake backend for local development
 ```
@@ -138,6 +141,59 @@ New features sometimes need a database change. These live in `supabase/migration
 
 Each migration only needs to run once.
 
+## Email & Teams notifications
+
+How it works: every workflow step (submit, approve, order, …) writes messages into the `notification_outbox` table in the same database transaction, so nothing is lost. The **send-notifications** Edge Function delivers them. The website calls it right after each action, and **Admin → Notifications → Send waiting messages now** does too. Failed messages are retried up to 5 times, and the log on that page shows each one.
+
+Nothing is sent until an Admin turns it on in **Admin → Notifications**. You need the Edge Function plus **at least one** way to send:
+- **Email via Gmail** (simplest, reliable): a team Gmail account sends the emails.
+- **Power Automate** (for Teams, and it can also send the emails from Outlook): one flow receives every message and either posts it to the person in Teams or emails it.
+
+### 1. Deploy the Edge Function (once)
+1. Supabase → **Edge Functions → Deploy a new function → Via Editor**.
+2. Name it exactly `send-notifications`.
+3. Replace the sample code with the contents of `supabase/functions/send-notifications/index.ts` and click **Deploy**. Leave "Verify JWT" on.
+4. To update it later, open the function → **Code**, paste the new file, and deploy again.
+
+(With the Supabase CLI instead: `supabase functions deploy send-notifications`.)
+
+### 2a. Email with Gmail
+1. Make a team Gmail account, e.g. `solargators.orders@gmail.com`. Don't use a personal one; it has to outlive your time on the team.
+2. Turn on **2-Step Verification** for it, then create an **App password** at https://myaccount.google.com/apppasswords.
+3. Supabase → **Edge Functions → Secrets**, add:
+   - `SMTP_USER` = the Gmail address
+   - `SMTP_PASS` = the 16-letter app password
+   - optional `SMTP_FROM_NAME` = e.g. `Solar Gators Orders`
+
+Gmail allows about 500 emails a day, far more than the team needs. Other providers work too: also set `SMTP_HOST` and `SMTP_PORT` (use port 465; Supabase blocks 25 and 587).
+
+### 2b. Teams (and optionally email) with Power Automate
+The flow runs under the UF account of whoever builds it, so build it with a lead's account, and add the next lead as a co-owner at handover.
+
+1. Go to https://make.powerautomate.com and sign in with your UF account.
+2. **Create → Instant cloud flow**, name it "Orders notifications", and choose the trigger **When a Teams webhook request is received**. Set **Who can trigger the flow** to **Anyone**.
+3. Add a **Condition**: `triggerBody()?['channel']` *is equal to* `teams`.
+4. Under **True**, add **Microsoft Teams → Post card in a chat or channel**:
+   - Post as: **Flow bot** · Post in: **Chat with Flow bot**
+   - Recipient: expression `triggerBody()?['recipient']`
+   - Adaptive Card: expression `triggerBody()?['card']`
+5. Under **False** (email; only if you are *not* using Gmail), add **Office 365 Outlook → Send an email (V2)**:
+   - To: `triggerBody()?['recipient']` · Subject: `triggerBody()?['subject']`
+   - Body: switch the editor to code view (`</>`) and use `triggerBody()?['html']`
+   - The emails then come from the flow owner's UF mailbox. If the team has a shared mailbox, use **Send an email from a shared mailbox** instead.
+6. **Save**, open the trigger again, and copy its URL.
+7. Supabase → **Edge Functions → Secrets**, add `FLOW_URL` = that URL. Treat it like a password: anyone with it can make the bot post.
+
+If both are set, email goes through Gmail and Teams through the flow. If only `FLOW_URL` is set, both go through the flow.
+
+If UF's tenant doesn't offer the trigger, or says it needs a premium license, post into a team channel instead: in step 4 choose **Post in: Channel** and pick your team's channel. The card still names the request; it just isn't a private message.
+
+### 3. Turn it on
+1. **Admin → Notifications**: tick **Send notifications**, check the website address, choose email / Teams per event, and **Save**.
+2. Click **Send me a test email** and **Send me a test Teams message**. Setup problems (missing secret, wrong password, flow error) show right there and in **Recent messages**.
+
+Optional: to retry failed messages without waiting for the next action, schedule the function in Supabase → **Integrations → Cron → Create job**, type "Supabase Edge Function", `send-notifications`, every 10 minutes.
+
 ## Yearly handover checklist
 
 When the new leads take over (usually with **Admin → Settings → Start a new season**):
@@ -146,3 +202,5 @@ When the new leads take over (usually with **Admin → Settings → Start a new 
 3. **Supabase:** invite the new leads to the Supabase organization (Organization settings → Team) so someone can run database updates and restore the project if it pauses.
 4. **GitHub:** give the new leads access to the `Solar-Gators/Orders-Form` repository.
 5. **Email (optional):** if you set up custom SMTP for sign-up and password-reset emails, make sure the account behind it isn't tied to someone who's graduating.
+6. **Notifications:** the Power Automate flow belongs to whoever built it. Add the new leads as co-owners (flow → **Share**) before the old owner's UF account goes away, or rebuild it and update `FLOW_URL`. Hand over the team Gmail's password too.
+7. **Workflow rules:** rules that name specific people (Admin → Workflow) need updating when those people leave. A rule whose people are all gone falls back to "any Chief Engineer".

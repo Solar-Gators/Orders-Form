@@ -1,4 +1,4 @@
-/** "My account": name, role, change password, sign out. Also the password-reset landing page. */
+/** "My account": name, role, notifications, change password, sign out. Also the password-reset landing page. */
 import { api } from '../api.js';
 import { auth } from '../auth.js';
 import { esc, errorBox, setFlash, takeFlash } from '../ui.js';
@@ -33,8 +33,9 @@ function bindPasswordForm(el, onDone) {
   });
 }
 
-export async function renderAccount(el, { rerender }) {
+export async function renderAccount(el, { config, rerender }) {
   const user = auth.user;
+  const notify = config.notifications || {};
   el.innerHTML = `
     ${takeFlash()}
     <div class="page-header"><div><h1>My account</h1></div></div>
@@ -52,6 +53,16 @@ export async function renderAccount(el, { rerender }) {
           <div id="profile-errors"></div>
           <button type="submit" class="btn btn-primary">Save profile</button>
         </form>
+      </section>
+      <section class="card">
+        <h2>Notifications</h2>
+        <p class="muted small">${notify.enabled
+          ? `Messages go to <strong>${esc(user.email)}</strong> when a request needs you, or when yours is approved, ordered or received.`
+          : 'Email and Teams messages are turned off for the whole team right now.'}</p>
+        <label class="rule-toggle"><input type="checkbox" id="n-email" ${user.notify_email === false ? '' : 'checked'}> <span>Email</span></label>
+        <label class="rule-toggle"><input type="checkbox" id="n-teams" ${user.notify_teams === false ? '' : 'checked'}> <span>Microsoft Teams chat</span></label>
+        <div id="notify-errors"></div>
+        <p class="muted small" id="notify-saved" hidden>Saved.</p>
       </section>
       <section class="card">
         <h2>Change password</h2>
@@ -73,6 +84,21 @@ export async function renderAccount(el, { rerender }) {
       el.querySelector('#profile-errors').innerHTML = errorBox(err);
     }
   });
+
+  for (const id of ['n-email', 'n-teams']) {
+    el.querySelector(`#${id}`).addEventListener('change', async () => {
+      const email = el.querySelector('#n-email').checked;
+      const teams = el.querySelector('#n-teams').checked;
+      try {
+        await api.updateMyNotificationPrefs(email, teams);
+        Object.assign(user, { notify_email: email, notify_teams: teams });
+        el.querySelector('#notify-errors').innerHTML = '';
+        el.querySelector('#notify-saved').hidden = false;
+      } catch (err) {
+        el.querySelector('#notify-errors').innerHTML = errorBox(err);
+      }
+    });
+  }
 
   bindPasswordForm(el, async () => {
     setFlash('Password updated.');

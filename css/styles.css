@@ -635,3 +635,35 @@ th.sorted .sort-ind { opacity: 1; color: var(--orange-dark); }
 .help-page h3 { font-size: 15px; margin: 14px 0 6px; }
 .help-page ul, .help-preview ul { padding-left: 20px; }
 .help-preview { min-height: 200px; margin: 0; }
+
+/* ---- Workflow rules, budgets, notifications (Admin → Workflow / Notifications) ---- */
+.workflow-rules { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.workflow-rules > li { border: 1px solid var(--border, #e5e7eb); border-radius: 8px; padding: 10px 12px; background: #fff; }
+.workflow-rules > li.is-off { opacity: 0.6; }
+.workflow-rule-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.workflow-rule-head .rule-text { flex: 1 1 260px; display: grid; gap: 2px; }
+.workflow-rule-head .column-actions { display: flex; align-items: center; gap: 6px; }
+.rule-order { width: 24px; height: 24px; border-radius: 50%; background: #e8eef8; color: var(--navy, #0b2545); display: grid; place-items: center; font-size: 12px; font-weight: 700; flex: none; }
+.workflow-rules .rules-panel { margin-top: 10px; border-top: 1px dashed var(--border, #e5e7eb); padding-top: 10px; }
+.budget-table { max-width: 420px; margin: 8px 0 12px; }
+.budget-table input { max-width: 160px; }
+.budget-note { font-size: 13px; margin: 8px 0 12px; padding: 8px 10px; border-radius: 6px; background: #f3f6fb; }
+.budget-note.is-over { background: #fde4e2; color: #8f1d14; }
+.budget-card tr.is-over td { color: #b42318; }
+.budget-bar-cell { width: 25%; min-width: 90px; }
+.budget-bar { display: block; height: 8px; border-radius: 4px; background: #eef1f4; overflow: hidden; }
+.budget-bar > span { display: block; height: 100%; background: var(--orange, #f26b1d); }
+.budget-card tr.is-over .budget-bar > span { background: #b42318; }
+.approver-list { margin: 4px 0 10px; padding-left: 18px; font-size: 14px; }
+.approval-done { color: #17803d; font-size: 12px; font-weight: 600; }
+.template-editor { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; padding: 6px 0; }
+.template-preview { border: 1px solid var(--border, #e5e7eb); border-radius: 8px; padding: 10px 12px; background: #fafbfc; font-size: 14px; }
+.template-preview p { margin: 6px 0; }
+.placeholders { margin-top: 10px; }
+.placeholders code { font-size: 12px; }
+.events-table td { vertical-align: middle; }
+.events-table input[type="checkbox"] { width: 18px; height: 18px; }
+.error-text { color: #b42318; margin-top: 2px; }
+@media (max-width: 720px) {
+  .template-editor { grid-template-columns: minmax(0, 1fr); }
+}

@@ -293,7 +293,7 @@ await test('the website cannot change the schema version', async () => {
   const general = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
   await as(ce, () => rpc('update_settings', ['general', { ...general, schemaVersion: 99 }]));
   const after = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
-  assert.equal(after.schemaVersion, 9);
+  assert.equal(after.schemaVersion, 10);
 });
 
 console.log('Form fields');
@@ -522,7 +522,7 @@ const permsOf = async (role) =>
 
 await test('everyone signed in can read the permission list', async () => {
   const { rows } = await as(member, () => db.query(`select key from permissions order by sort`));
-  assert.deepEqual(rows.map((r) => r.key), ['request.review', 'request.order', 'settings.edit', 'site.customize', 'seasons.manage', 'users.manage']);
+  assert.deepEqual(rows.map((r) => r.key), ['request.review', 'request.order', 'settings.edit', 'site.customize', 'seasons.manage', 'workflow.edit', 'users.manage']);
 });
 
 await test('members cannot change permissions', async () => {
@@ -693,7 +693,7 @@ await test('no roles means Member; unknown roles are refused', async () => {
 
 await test('Admin has every permission, including the new ones', async () => {
   const perms = (await db.query(`select string_agg(permission, ',' order by permission) as p from role_permissions where role = 'admin'`)).rows[0].p;
-  assert.equal(perms, 'request.order,request.review,seasons.manage,settings.edit,site.customize,users.manage');
+  assert.equal(perms, 'request.order,request.review,seasons.manage,settings.edit,site.customize,users.manage,workflow.edit');
 });
 
 await test('custom roles: create, rename, grant, and delete', async () => {
@@ -874,6 +874,170 @@ await test('request page layout and export templates need "Customize lists & app
   await as(other, () => rpc('update_settings', ['layout', { detailFields: ['requester', 'c_cost_center'] }]));
   await as(other, () => rejects(rpc('update_settings', ['appearance', { accent: 'orange' }]), /accent color/));
   await as(other, () => rpc('update_settings', ['appearance', { accent: '#0b7a3e' }]));
+});
+
+console.log('\nWorkflow rules, budgets, notifications (010)');
+
+const admin = await signUp('admin@ufl.edu', 'Ada Admin');
+const ce2 = await signUp('ce2@ufl.edu', 'Cara Second');
+await setRole(admin, 'admin');
+await setRole(ce2, 'ce');
+await setRole(other, 'member'); // earlier tests made Otto an admin
+await saveForm((f) => f.subsystems.push('Aero', 'Suspension'));
+const numberOf = (res) => res.rows[0].result;
+const planOf = async (number) => (await db.query(`select approval_plan from requests where request_number = $1`, [number])).rows[0].approval_plan;
+const setWorkflow = (value) => as(admin, () => rpc('update_settings', ['workflow', value]));
+const outbox = async () => (await db.query(`select event, email, channel from notification_outbox order by id`)).rows;
+const review = (who, number, decision, comment = '') =>
+  as(who, async () => {
+    const { rows } = await db.query(`select id from requests where request_number = $1`, [number]);
+    return rpc('review_request', [rows[0].id, decision, comment]);
+  });
+
+await test('workflow settings need "Workflow, budgets & notifications" (Admin by default)', async () => {
+  await as(ce, () => rejects(rpc('update_settings', ['workflow', { rules: [] }]), /workflow.edit/));
+  await as(ce, () => rejects(rpc('update_settings', ['notifications', { enabled: true }]), /workflow.edit/));
+  await as(admin, () => rejects(rpc('update_settings', ['workflow', { rules: {} }]), /must be a list/));
+  await as(admin, () => rejects(rpc('update_settings', ['notifications', { siteUrl: 'example.com' }]), /https/));
+});
+
+await test('no rules: any CE approves, as before', async () => {
+  const number = numberOf(await submit(vendorRequest));
+  assert.equal((await planOf(number)).type, 'any');
+  await review(ce2, number, 'approve');
+  assert.equal(await statusOf(number), 'Approved');
+});
+
+await test('rules: auto-approve small orders, specific CE for a cost center, first match wins', async () => {
+  await setWorkflow({
+    rules: [
+      { name: 'Battery', when: { field: 'subsystem', op: 'equals', value: 'battery' }, then: { type: 'people', people: [ce2] } },
+      { name: 'Small', when: { maxTotal: '10' }, then: { type: 'auto' } },
+    ],
+  });
+  // $5 Battery order: Battery matches first, so it waits for Cara.
+  const battery = numberOf(await submit(vendorRequest));
+  assert.deepEqual(await planOf(battery).then((p) => [p.rule, p.type, p.people]), ['Battery', 'people', [ce2]]);
+  await rejects(review(ce, battery, 'approve'), /Only Cara Second can review/);
+  await review(admin, battery, 'request_changes', 'Admins can step in'); // workflow.edit can always review
+  assert.equal(await statusOf(battery), 'Changes Requested');
+
+  // $5 Suspension order: auto-approved with a note in the history.
+  const small = numberOf(await submit({ ...vendorRequest, subsystem: 'Suspension' }));
+  assert.equal(await statusOf(small), 'Approved');
+  const { rows } = await db.query(`select approver, comment from approvals a join requests r on r.id = a.request_id where request_number = $1`, [small]);
+  assert.deepEqual(rows.map((r) => r.approver), ['Automatic']);
+  assert.match(rows[0].comment, /"Small"/);
+
+  // $50 Suspension order: no rule matches → any CE.
+  const big = numberOf(await submit({ ...vendorRequest, subsystem: 'Suspension' }, [{ ...oneItem[0], unit_price: 50 }]));
+  assert.equal((await planOf(big)).type, 'any');
+  await rejects(review(member, big, 'approve'), /request.review/);
+});
+
+await test('"all of" needs every listed person, counted since the last submit', async () => {
+  await setWorkflow({ rules: [{ name: 'Big', when: { minTotal: '100' }, then: { type: 'people', people: [ce, ce2], needAll: true } }] });
+  const items = [{ ...oneItem[0], unit_price: 150 }];
+  const number = numberOf(await submit(vendorRequest, items));
+  await review(ce, number, 'approve');
+  assert.equal(await statusOf(number), 'Submitted'); // still waiting on Cara
+  await review(ce2, number, 'request_changes', 'Cheaper please');
+  // Resubmitted: Griffin's earlier approval no longer counts.
+  const { rows } = await db.query(`select id from requests where request_number = $1`, [number]);
+  await as(member, () => rpc('save_request', [rows[0].id, vendorRequest, items, 'submit']));
+  await review(ce2, number, 'approve');
+  assert.equal(await statusOf(number), 'Submitted');
+  await review(ce, number, 'approve');
+  assert.equal(await statusOf(number), 'Approved');
+});
+
+await test('budgets can block the approval that would go over', async () => {
+  await setWorkflow({ rules: [], budgets: { field: 'subsystem', amounts: { Aero: '100' }, block: true } });
+  const aero = { ...vendorRequest, subsystem: 'Aero' };
+  const first = numberOf(await submit(aero, [{ ...oneItem[0], unit_price: 60 }]));
+  await review(ce, first, 'approve');
+  const second = numberOf(await submit(aero, [{ ...oneItem[0], unit_price: 60 }]));
+  await rejects(review(ce, second, 'approve'), /over its budget: \$60\.00 used \+ \$60\.00 = \$120\.00 of \$100\.00/);
+  assert.equal(await statusOf(second), 'Submitted');
+  await review(ce, second, 'reject', 'Over budget'); // rejecting is always allowed
+  // Without "block" it's only shown on the website.
+  await setWorkflow({ rules: [], budgets: { field: 'subsystem', amounts: { Aero: '100' }, block: false } });
+  const third = numberOf(await submit(aero, [{ ...oneItem[0], unit_price: 60 }]));
+  await review(ce, third, 'approve');
+  assert.equal(await statusOf(third), 'Approved');
+});
+
+await test('notifications are off until turned on', async () => {
+  await submit(vendorRequest);
+  assert.equal((await outbox()).length, 0);
+});
+
+await test('each step queues email / Teams messages for the right people', async () => {
+  await setWorkflow({ rules: [] });
+  await db.exec(`delete from profile_roles where role = 'ce' and user_id <> '${ce}'`); // one CE, to keep this readable
+  await as(admin, () => rpc('update_settings', ['notifications', {
+    enabled: true, siteUrl: 'https://solar-gators.github.io/Orders-Form/',
+    events: { submitted: { email: true, teams: true }, approved: { email: true }, ready_to_order: { teams: true }, ordered: { email: true }, received: { email: true, teams: true } },
+  }]));
+  await as(member, () => rpc('update_my_notification_prefs', [true, false])); // Mia: email only
+  const number = numberOf(await submit(vendorRequest, [{ ...oneItem[0], unit_price: 20 }]));
+  await review(ce, number, 'approve', 'Go for it');
+  const { rows } = await db.query(`select id from requests where request_number = $1`, [number]);
+  await as(treasurer, () => rpc('mark_ordered', [rows[0].id, '2026-09-30', 'PO-77', '']));
+  await as(treasurer, () => rpc('mark_received', [rows[0].id, '2026-10-03', '']));
+  // Admins have every permission, so they hear about approvals and orders too.
+  assert.deepEqual((await outbox()).map((m) => `${m.event} ${m.email} ${m.channel}`).sort(), [
+    'submitted admin@ufl.edu email', 'submitted admin@ufl.edu teams',
+    'submitted ce@ufl.edu email', 'submitted ce@ufl.edu teams',
+    'approved member@ufl.edu email',
+    'ready_to_order admin@ufl.edu teams', 'ready_to_order treasurer@ufl.edu teams',
+    'ordered member@ufl.edu email',
+    'received member@ufl.edu email', // Mia turned Teams off
+  ].sort());
+  const { rows: [msg] } = await db.query(`select payload from notification_outbox where event = 'ordered'`);
+  assert.equal(msg.payload.request_number, number);
+  assert.equal(msg.payload.ticket, 'PO-77');
+  assert.equal(Number(msg.payload.total), 20);
+  assert.match(msg.payload.recipient_name, /^Mia/);
+  await db.exec(`insert into profile_roles (user_id, role) values ('${ce2}', 'ce')`);
+});
+
+await test('the outbox is private to workflow admins; test messages go to yourself', async () => {
+  await as(member, async () => assert.equal((await db.query(`select * from notification_outbox`)).rows.length, 0));
+  await as(member, () => rejects(db.query(`delete from notification_outbox`), /permission denied/));
+  await as(ce, () => rejects(rpc('queue_test_notification', ['email']), /workflow.edit/));
+  await as(admin, () => rpc('queue_test_notification', ['teams']));
+  await as(admin, async () => {
+    const { rows } = await db.query(`select event, email, channel from notification_outbox order by id desc limit 1`);
+    assert.deepEqual(rows[0], { event: 'test', email: 'admin@ufl.edu', channel: 'teams' });
+  });
+});
+
+await test('the sender claims each message once, retries failures, then gives up', async () => {
+  await as(member, () => rejects(rpc('claim_notifications', [5]), /permission denied/));
+  await db.exec('grant all on notification_outbox to service_role'); // Supabase grants this by default
+  await db.exec('set role service_role');
+  try {
+    const first = (await db.query(`select * from claim_notifications(3)`)).rows;
+    const second = (await db.query(`select * from claim_notifications(100)`)).rows;
+    assert.equal(first.length, 3);
+    assert.equal(new Set([...first, ...second].map((r) => r.id)).size, first.length + second.length); // no overlap
+    const id = first[0].id;
+    await db.query(`select finish_notification($1, true, '')`, [first[1].id]);
+    for (let i = 0; i < 5; i++) {
+      await db.query(`select finish_notification($1, false, 'Mailbox unavailable')`, [id]);
+      if (i < 4) await db.query(`select * from claim_notifications(100)`); // back to pending → picked up again
+    }
+    const { rows } = await db.query(`select id, status, attempts, error from notification_outbox where id in ($1, $2) order by id`, [id, first[1].id]);
+    assert.deepEqual(rows.map((r) => [r.status, r.attempts, r.error]), [['failed', 5, 'Mailbox unavailable'], ['sent', 1, '']]);
+  } finally {
+    await db.exec('reset role');
+  }
+  await as(admin, async () => {
+    const { rows } = await db.query(`select id from notification_outbox where status = 'failed'`);
+    await rpc('retry_notification', [rows[0].id]);
+    assert.equal((await db.query(`select status from notification_outbox where id = $1`, [rows[0].id])).rows[0].status, 'pending');
+  });
 });
 
 console.log(`\n${passed} passed${process.exitCode ? ', some FAILED' : ''}`);

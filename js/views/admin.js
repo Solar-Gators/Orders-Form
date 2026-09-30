@@ -22,8 +22,10 @@ export const ADMIN_TABS = [
   ['exports', 'Exports', ['site.customize']],
   ['appearance', 'Appearance', ['site.customize']],
   ['text', 'Text & banner', ['site.customize']],
+  ['workflow', 'Workflow', ['workflow.edit']],
+  ['notifications', 'Notifications', ['workflow.edit']],
   ['import', 'Import', ['seasons.manage']],
-  ['history', 'History', ['users.manage', 'settings.edit', 'site.customize']],
+  ['history', 'History', ['users.manage', 'settings.edit', 'site.customize', 'workflow.edit']],
 ];
 
 export function adminTabs(active) {

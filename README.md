@@ -21,7 +21,7 @@ It works on phones and laptops. Sign in with your **@ufl.edu** email.
 | Status | What it means | Who acts next |
 | --- | --- | --- |
 | **Draft** | Saved but not sent. Only the person who created it can see the Edit button. | The requester |
-| **Submitted** | Waiting for approval. Shows up in the **Approvals** tab. | A Chief Engineer |
+| **Submitted** | Waiting for approval. Shows up in the **Approvals** tab. | A Chief Engineer, or whoever the approval rules name |
 | **Changes Requested** | The Chief Engineer asked for changes. Their comment shows at the top of the request. | The requester edits and resubmits |
 | **Rejected** | Won't be ordered. The Chief Engineer's comment explains why. | — |
 | **Approved** | Ready to buy. Shows up in the **Treasurer** tab. | The Treasurer |
@@ -47,19 +47,9 @@ A person can have **more than one role** (e.g. Treasurer + Admin), and gets ever
 | Start a new season, import spreadsheets | | ✓ | ✓ | ✓ |
 | Customize lists (columns, filters, sorting) and appearance (labels, colors) | | | | ✓ |
 | Manage people, roles, and permissions | | ✓ | ✓ | ✓ |
+| Approval rules, budgets, email / Teams notifications | | | | ✓ |
 
 All of this can be changed in **Admin → Users & roles → Permissions**, and you can add roles of your own (e.g. "Subsystem Lead", "Faculty Advisor"). The Chief Engineer and Treasurer see every tab; on the other role's queue the page is marked **view only**. Members only see the tabs they can use.
-
---- | :-: | :-: | :-: |
-| Submit requests and edit your own drafts | ✓ | ✓ | ✓ |
-| See every request, search the Archive, export to Excel | ✓ | ✓ | ✓ |
-| See the Approvals and Treasurer queues | | ✓ | ✓ |
-| Approve, reject, or request changes | | ✓ | |
-| Mark requests **Ordered** and **Received** | | | ✓ |
-| Adjust prices and shipping after approval | | | ✓ |
-| Manage roles, edit the form and settings, import spreadsheets | | ✓ | ✓ |
-
-This is the default setup. The Chief Engineer and Treasurer can change it from **Admin → Users & roles → Permissions**. The Chief Engineer and the Treasurer can see every tab. On the other role's queue the page is marked **view only**. Members only see the tabs they can use.
 
 ---
 
@@ -77,11 +67,14 @@ If the Chief Engineer requests changes, you'll see their comment on the request.
 ### Approving (Chief Engineer)
 - The **Approvals** tab lists everything waiting, sorted by needed-by date. The number on the tab is how many are waiting.
 - Open a request and choose **Approve**, **Request Changes**, or **Reject**. Changes and rejections need a comment so the requester knows why.
+- When approval rules send some requests to specific people, the Approvals tab splits into **Waiting on you** and **Waiting on someone else**.
+- The review box says who has to approve (e.g. "all of: Griffin ✓, Cara") and, if budgets are set up, how much of the budget is used and what approving would bring it to.
 
 ### Ordering and delivery (Treasurer)
 - The **Treasurer** tab has two lists: **To order** (approved) and **Awaiting delivery** (ordered).
 - **Mark as Ordered:** record the order date, ticket / department order number, and any notes.
 - **Mark as Received:** record when it arrived, e.g. "in office".
+- **Budgets:** if your leads set budgets (per Cost center, Subsystem, …), the top of the Treasurer tab shows each budget, how much is used this season, what's left, and what's waiting for approval.
 - **Copy buttons:** every value on a request has a small copy icon (item name, vendor, link, part #, quantity, prices, request ID, total), for pasting into purchasing forms. **Copy all items** copies the whole item list as a table that pastes straight into Excel or Google Sheets.
 - **Edit costs:** if a price or shipping cost turns out different from what was requested, open the request and click **Edit costs**. This works on Approved, Ordered, and Received requests. Change the unit price or shipping for any item and add a reason. The new total is previewed before saving. Every change is logged in the request's History (who, when, old → new, and why), and the item list is tagged **Costs adjusted**.
 
@@ -113,6 +106,12 @@ Each Admin tab appears only for people whose roles allow it.
 - **Request page:** which fields show in a request's Details box and Items table, and in what order. Also: fields only leads see, who gets copy buttons, and whether Items comes first.
 - **Exports:** Excel templates with your own columns and headings, one row per item or per request, an optional status filter, and a file name.
 - **Appearance:** upload the logo, pick the accent color, and give dropdown answers colors (e.g. one per Cost center). Also rename how statuses are shown (e.g. "Ordered" → "Purchased") and pick their colors, plus priority colors. Only the display changes; the workflow stays the same.
+- **Workflow:** approval rules and budgets.
+  - **Rules** are checked from the top when a request is submitted; the first that matches decides who approves. A rule can look at any answer on the form (e.g. Cost center is Battery) and/or the total (e.g. $1,000 or more).
+  - Each rule lets **any Chief Engineer** approve, sends it to **specific people** (any one of them, or **all** of them, e.g. two CEs for big orders), or **approves automatically** (e.g. under $25).
+  - No matching rule → any Chief Engineer, as before. Admins can always step in.
+  - **Budgets:** pick a dropdown (e.g. Cost center), enter an amount for each option, and optionally **block approvals that would go over**.
+- **Notifications:** email and Microsoft Teams messages (see below).
 - **Text & banner:** an announcement banner at the top of every page (with an optional end date), a message on the sign-in page, your own intro line for each page, and a **Help** page for the team (a Help tab appears once it has text).
 - **Import:** bring in an old Excel order sheet.
   - A **past season** goes into the Archive with every column kept.
@@ -123,6 +122,19 @@ Each Admin tab appears only for people whose roles allow it.
   - If something looks wrong after a change, this is the first place to go.
 
 ---
+
+## Email and Teams notifications
+
+Once your leads turn them on (**Admin → Notifications**), the site messages people when something needs them:
+
+| When a request is… | Who hears about it |
+| --- | --- |
+| Submitted | Whoever has to approve it (any CE, or the people its rule names) |
+| Approved | The requester, and the Treasurer ("ready to order") |
+| Changes requested / Rejected | The requester, with the comment |
+| Ordered / Received | The requester |
+
+Messages go to your UF email and/or a Teams chat from the Power Automate bot, with a button that opens the request. Leads choose which events use email, Teams, or both, and can reword every message. You can turn either one off for yourself on **My account**.
 
 ## Starting a new season
 
