@@ -60,7 +60,19 @@ export async function renderRequestForm(el, { config, params }) {
   // above the items, instead of in every row. The database enforces the same rule.
   const vendorField = iFields.find((f) => f.key === 'vendor');
   const oneVendor = config.oneVendorPerRequest !== false && !!vendorField;
-  const tableFields = oneVendor ? iFields.filter((f) => f !== vendorField) : iFields;
+  // "All items use the same link" (e.g. one shared Digi-Key / McMaster cart):
+  // one link box above the items instead of a Link column; it's saved on every item.
+  const linkField = iFields.find((f) => f.key === 'product_link');
+  const itemLinks = items.map((i) => (i.product_link || '').trim());
+  let sameLink = !!linkField && items.length > 1 && !!itemLinks[0] && itemLinks.every((l) => l === itemLinks[0]);
+  const tableFields = () => iFields.filter((f) => !(oneVendor && f === vendorField) && !(sameLink && f === linkField));
+  const linkBox = linkField
+    ? `<div class="field same-link-field">
+        <label class="rule-toggle"><input type="checkbox" id="same-link" ${sameLink ? 'checked' : ''}>
+          <span>All items use the same ${esc(linkField.label.toLowerCase())} <span class="hint">e.g. a shared Digi-Key or McMaster-Carr cart</span></span></label>
+        <input id="f-link" type="url" value="${esc(sameLink ? itemLinks[0] : '')}" placeholder="https://…" aria-label="${esc(linkField.label)} for every item" ${sameLink ? '' : 'hidden'}>
+      </div>`
+    : '';
   const existingVendors = [...new Set(items.map((i) => (i.vendor || '').trim()).filter(Boolean))];
   const vendorBox = oneVendor
     ? `<div class="field vendor-field">
@@ -116,20 +128,14 @@ export async function renderRequestForm(el, { config, params }) {
           <button type="button" class="btn btn-sm" data-action="add-item">+ Add item</button>
         </div>
         ${vendorBox}
+        ${linkBox}
         <div class="table-wrap flat">
           <table class="table items-table stack-form">
-            <thead>
-              <tr>
-                <th class="w-idx">#</th>
-                ${tableFields.map((f) => `<th class="w-${esc(f.type)} k-${esc(f.key)}">${esc(f.label)}${star(f)}</th>`).join('')}
-                <th class="num w-total">Total</th>
-                <th class="w-remove"><span class="sr-only">Remove</span></th>
-              </tr>
-            </thead>
+            <thead id="items-head"></thead>
             <tbody id="items-body"></tbody>
             <tfoot>
               <tr>
-                <td colspan="${tableFields.length + 1}" class="num"><strong>Request total</strong> <span class="muted small">(incl. shipping)</span></td>
+                <td id="total-label" class="num"><strong>Request total</strong> <span class="muted small">(incl. shipping)</span></td>
                 <td class="num"><strong id="grand-total">$0.00</strong></td>
                 <td></td>
               </tr>
@@ -159,7 +165,11 @@ export async function renderRequestForm(el, { config, params }) {
     return r;
   };
   /** Item as the conditions see it: the single vendor box counts as each item's vendor. */
-  const itemForRules = (item) => (oneVendor ? { ...item, vendor: form.querySelector('#f-vendor').value } : item);
+  const itemForRules = (item) => ({
+    ...item,
+    ...(oneVendor ? { vendor: form.querySelector('#f-vendor').value } : {}),
+    ...(sameLink ? { product_link: form.querySelector('#f-link').value } : {}),
+  });
 
   const applyConditions = () => {
     const r = currentRequest();
@@ -170,7 +180,7 @@ export async function renderRequestForm(el, { config, params }) {
     }
     tbody.querySelectorAll('tr[data-index]').forEach((tr) => {
       const item = itemForRules(items[Number(tr.dataset.index)]);
-      for (const f of tableFields) {
+      for (const f of tableFields()) {
         if (!f.showIf) continue;
         const td = tr.querySelector(`td.k-${f.key}`);
         const on = isVisible(f, r, item);
@@ -188,12 +198,20 @@ export async function renderRequestForm(el, { config, params }) {
   };
 
   const renderRows = () => {
+    const cols = tableFields();
+    el.querySelector('#items-head').innerHTML = `<tr>
+      <th class="w-idx">#</th>
+      ${cols.map((f) => `<th class="w-${esc(f.type)} k-${esc(f.key)}">${esc(f.label)}${star(f)}</th>`).join('')}
+      <th class="num w-total">Total</th>
+      <th class="w-remove"><span class="sr-only">Remove</span></th>
+    </tr>`;
+    el.querySelector('#total-label').colSpan = cols.length + 1;
     tbody.innerHTML = items
       .map(
         (item, idx) => `
         <tr data-index="${idx}">
           <td class="w-idx muted"><span class="only-mobile">Item </span>${idx + 1}</td>
-          ${tableFields
+          ${cols
             .map(
               (f) => `<td class="w-${esc(f.type)} k-${esc(f.key)}" data-label="${esc(f.label)}${f.required ? ' *' : ''}">${renderInput(
                 f,
@@ -227,6 +245,21 @@ export async function renderRequestForm(el, { config, params }) {
   tbody.addEventListener('input', onItemInput);
   tbody.addEventListener('change', onItemInput); // selects
 
+  el.querySelector('#same-link')?.addEventListener('change', (e) => {
+    const box = el.querySelector('#f-link');
+    sameLink = e.target.checked;
+    if (sameLink) {
+      box.value ||= items.map((i) => (i.product_link || '').trim()).find(Boolean) || ''; // start from the first link typed
+      box.hidden = false;
+      box.focus();
+    } else {
+      // Back to one link per item: every row keeps the shared link, ready to edit.
+      for (const i of items) i.product_link = box.value.trim();
+      box.hidden = true;
+    }
+    renderRows();
+  });
+
   el.addEventListener('click', (e) => {
     const action = e.target.closest('[data-action]')?.dataset.action;
     if (action === 'add-item') {
@@ -254,6 +287,7 @@ export async function renderRequestForm(el, { config, params }) {
         const out = { data: {} };
         for (const f of iFields) setValue(out, f, getValue(i, f));
         if (oneVendor) out.vendor = form.querySelector('#f-vendor').value.trim(); // same vendor for every item
+        if (sameLink) out.product_link = form.querySelector('#f-link').value.trim(); // same link for every item
         for (const f of iFields) if (!isVisible(f, request, out)) setValue(out, f, '');
         return out;
       }),
