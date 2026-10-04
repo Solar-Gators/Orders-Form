@@ -269,8 +269,9 @@ export async function renderRequestForm(el, { config, params }) {
                 </div>`
               )
               .join('')}</div>`
-          : '<p class="hint">Tick a field to fill it in once here instead of on every row, e.g. the cart link or the quantity.</p>'
-      }`;
+          : ''
+      }
+      <p class="hint">Every item still needs its own row below${on.length ? '' : ' (name, price, …)'}. Ticking a field only means you type it once for all rows${on.length ? '' : ', e.g. one cart link or the same quantity'}.</p>`;
   };
   sharedBox?.addEventListener('change', (e) => {
     const key = e.target.dataset.share;
