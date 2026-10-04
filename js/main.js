@@ -144,7 +144,7 @@ async function main() {
     await auth.init(async (event) => {
       await reloadConfig().catch(() => {});
       updateChrome();
-      if (event === 'SIGNED_OUT') location.hash = '#/requests';
+      if (event === 'SIGNED_OUT') location.hash = '#/home';
       render();
     });
     await reloadConfig();

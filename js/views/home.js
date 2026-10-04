@@ -1,6 +1,6 @@
 /**
- * Home (#/home): the landing page. Opened by clicking the logo or "Orders" in the
- * header, and shown automatically the first time someone signs in on a device.
+ * Home (#/home): the landing page and the site's default page. Also opened by
+ * clicking the logo or "Orders" in the header.
  * A welcome, what needs you right now, your latest requests, and how ordering works.
  */
 import { api } from '../api.js';
@@ -8,23 +8,7 @@ import { auth } from '../auth.js';
 import { STATUS, esc, fmtDate, fmtMoney, statusBadge, takeFlash, introText } from '../ui.js';
 import { shippingPerRequest } from '../formFields.js';
 
-const seenKey = () => `sg-orders-home-seen:${auth.user?.id || ''}`;
-
-/** Has this person seen Home on this device? (First visit lands here instead of Requests.) */
-export function homeSeen() {
-  try {
-    return localStorage.getItem(seenKey()) === '1';
-  } catch {
-    return true; // no storage (private window): don't keep redirecting
-  }
-}
-
 export async function renderHome(el, { config }) {
-  try {
-    localStorage.setItem(seenKey(), '1');
-  } catch {
-    /* fine without it */
-  }
   const me = auth.user.id;
   const reviews = auth.can('request.review');
   const orders = auth.can('request.order');

@@ -183,6 +183,6 @@ export async function renderResetPassword(el) {
     </div>`;
   bindPasswordForm(el, () => {
     setFlash('Password updated. You are signed in.');
-    location.hash = '#/requests';
+    location.hash = '#/home';
   });
 }

@@ -85,7 +85,7 @@ Changed your mind? Open a submitted request and click **Withdraw request** to tu
 
 ### Finding things
 - **Requests:** this season's requests. A season picker lets you look back at earlier seasons.
-- **Home:** click the logo (or "Orders") at the top left. It shows what needs you right now, your latest requests, and how ordering works. It opens on its own the first time someone uses the site on a device.
+- **Home:** click the logo (or "Orders") at the top left. It shows what needs you right now, your latest requests, and how ordering works. It is the page the site opens on.
 - **Sorting:** click any column heading on Requests, Approvals, or Treasurer to sort by it, and click again to reverse. On a phone, use the **Sort by** menu above the list. Search by ID, title, requester, vendor, item name, part number or ticket number, and filter by status, subsystem, or "My requests".
 - **Archive:** orders from past seasons: requests made on this site in earlier seasons, plus the old spreadsheets imported from Excel. Type any words (item, vendor, part number, person, ticket) and filter by season, subteam, or status. Click a row to see every column exactly as it was in the original sheet.
 - **Export:** download a season (or all seasons) as an Excel file. Pick a **template**: the full export (every column, one row per item), or ones your leads made, e.g. the exact columns the department's purchasing form wants. There's one row per item, with request, approval, order, and delivery details on each row, ready to filter or pivot.

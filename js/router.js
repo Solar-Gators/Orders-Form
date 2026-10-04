@@ -16,7 +16,7 @@ import { renderLists, renderAppearance, renderHistory } from './views/adminSetup
 import { renderPageLayout, renderExportTemplates, renderTextBanner } from './views/adminPages.js';
 import { renderWorkflow, renderNotifications } from './views/adminWorkflow.js';
 import { renderHelp } from './views/help.js';
-import { renderHome, homeSeen } from './views/home.js';
+import { renderHome } from './views/home.js';
 import { renderRequestForm } from './views/requestForm.js';
 import { renderRequestList } from './views/requestList.js';
 import { renderRequestDetail } from './views/requestDetail.js';
@@ -71,14 +71,14 @@ let renderToken = 0;
 export function startRouter(ctx, { onRender } = {}) {
   const render = async () => {
     const token = ++renderToken;
-    // No address (e.g. the site was just opened): Home the first time on this device, then Requests.
-    const path = location.hash.replace(/^#/, '') || (auth.signedIn && !homeSeen() ? '/home' : '/requests');
+    // No address (the site was just opened): Home is the default page.
+    const path = location.hash.replace(/^#/, '') || '/home';
     let route = ROUTES.find((r) => r.pattern.test(path));
 
     if (auth.signedIn && auth.recovering) route = { view: renderResetPassword };
     else if (!auth.signedIn) route = { view: renderLogin, bare: true };
     else if (!route) {
-      location.hash = '#/requests';
+      location.hash = '#/home';
       return;
     } else if (route.redirect) {
       location.hash = route.redirect();
