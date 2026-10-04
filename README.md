@@ -58,7 +58,7 @@ All of this can be changed in **Admin → Users & roles → Permissions**, and y
 ### Requesting parts (everyone)
 1. Click **New Request**.
 2. Fill in the request details: title, subsystem, needed-by date, priority, and why you need the items.
-3. Enter the **vendor** once, then add one row per item: name, link, quantity, unit price, and shipping if you know it. Totals update as you type.
+3. Enter the **vendor** once, then add one row per item: name, link, quantity and unit price. Enter **shipping once for the whole order** (under the items), the way the vendor charges it. Totals update as you type. (Leads can switch to per-item shipping in Admin → Settings → Request rules.)
    - **Same for every item:** you still add a row for every item, but you can tick a field (the link, quantity, unit price, or any other required item field) to type it once for all rows, e.g. one shared Digi-Key or McMaster-Carr cart link.
    - **One vendor per request:** each request is a single purchase. Buying from McMaster-Carr and Amazon? Submit two requests. (Leads can turn this rule off in Admin → Settings.)
 4. Click **Submit Request**, or **Save Draft** to finish later.
@@ -77,7 +77,7 @@ If the Chief Engineer requests changes, you'll see their comment on the request.
 - **Mark as Received:** record when it arrived, e.g. "in office".
 - **Budgets:** if your leads set budgets (per Cost center, Subsystem, …), the top of the Treasurer tab shows each budget, how much is used this season, what's left, and what's waiting for approval.
 - **Copy buttons:** every value on a request has a small copy icon (item name, vendor, link, part #, quantity, prices, request ID, total), for pasting into purchasing forms. **Copy all items** copies the whole item list as a table that pastes straight into Excel or Google Sheets.
-- **Edit costs:** if a price or shipping cost turns out different from what was requested, open the request and click **Edit costs**. This works on Approved, Ordered, and Received requests. Change the unit price or shipping for any item and add a reason. The new total is previewed before saving. Every change is logged in the request's History (who, when, old → new, and why), and the item list is tagged **Costs adjusted**.
+- **Edit costs:** if a price or shipping cost turns out different from what was requested, open the request and click **Edit costs**. This works on Approved, Ordered, and Received requests. Change any item's unit price or the order's shipping, and add a reason. The new total is previewed before saving. Every change is logged in the request's History (who, when, old → new, and why), and the item list is tagged **Costs adjusted**.
 
 ### Finding things
 - **Requests:** this season's requests. A season picker lets you look back at earlier seasons.

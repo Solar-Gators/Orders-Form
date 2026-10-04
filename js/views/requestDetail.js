@@ -12,12 +12,13 @@ import {
   STATUS, DECISION_LABELS, esc, fmtMoney, fmtDate, fmtDateTime, todayISO,
   statusBadge, priorityTag, isOverdue, errorBox, setFlash, takeFlash, copyButton, bindCopyButtons,
 } from '../ui.js';
-import { getValue, displayValue, isVisible, MONEY_FIELDS } from '../formFields.js';
+import { getValue, displayValue, isVisible, MONEY_FIELDS, shippingPerRequest } from '../formFields.js';
 import { pageLayout, copyAllowed, detailFieldList, itemColumnList } from '../pageLayout.js';
 import { approvalState, canReview, workflowSettings, budgetSummary, budgetFor } from '../workflow.js';
 
 /** Copy buttons (for pasting into purchasing forms) go to whoever Admin → Request page says. */
 let layout = null; // set on each render from the `layout` settings
+let wholeOrderShipping = true; // Admin → Settings: shipping is one total per request
 const showCopy = () => copyAllowed(layout);
 
 /** Plain text to copy for a field value (dollars without "$", URLs as-is). */
@@ -30,17 +31,26 @@ const copyFor = (field, value) => (showCopy() ? copyButton(copyText(field, value
 
 /** All items as tab-separated text (with a header row) — pastes into Excel or Sheets as a table. */
 function itemsAsTable(r, config) {
-  const fields = itemColumnList(config, layout);
+  const perRequest = shippingPerRequest(config);
+  const fields = itemFieldsShown(config);
   const clean = (v) => String(v ?? '').replace(/[\t\n\r]+/g, ' ');
   const header = [...fields.map((f) => f.label), 'Line total'];
-  const rows = r.items.map((i) => [...fields.map((f) => clean(copyText(f, getValue(i, f)))), (i.item_total + (Number(i.shipping_cost) || 0)).toFixed(2)]);
+  const rows = r.items.map((i) => [...fields.map((f) => clean(copyText(f, getValue(i, f)))), (i.item_total + (perRequest ? 0 : Number(i.shipping_cost) || 0)).toFixed(2)]);
+  // Whole-order shipping: one extra line at the end.
+  if (perRequest && r.shipping) rows.push(['Shipping (whole order)', ...fields.slice(1).map(() => ''), r.shipping.toFixed(2)]);
   return [header, ...rows].map((row) => row.join('\t')).join('\n');
+}
+
+/** Item columns on this page; whole-order shipping is a line under the items, not a column. */
+function itemFieldsShown(config) {
+  const fields = itemColumnList(config, layout);
+  return shippingPerRequest(config) ? fields.filter((f) => f.key !== 'shipping_cost') : fields;
 }
 
 function itemsTable(r, config) {
   if (!r.items.length) return '<div class="empty">No items yet.</div>';
   // Item name gets its own column with notes underneath; the other chosen fields follow.
-  const fields = itemColumnList(config, layout);
+  const fields = itemFieldsShown(config);
   const nameField = fields.find((f) => f.key === 'item_name');
   const notesField = fields.find((f) => f.key === 'notes');
   const cols = fields.filter((f) => f !== nameField && f !== notesField);
@@ -64,7 +74,8 @@ function itemsTable(r, config) {
     <tbody>${rows}</tbody>
     <tfoot>
       ${r.shipping ? `<tr class="subtotal"><td colspan="${cols.length + 2}" class="num">Items</td><td class="num">${fmtMoney(r.subtotal)}</td></tr>
-      <tr class="subtotal"><td colspan="${cols.length + 2}" class="num">Shipping</td><td class="num">${fmtMoney(r.shipping)}</td></tr>` : ''}
+      <tr class="subtotal"><td colspan="${cols.length + 2}" class="num">Shipping${shippingPerRequest(config) ? ' <span class="muted small">(whole order)</span>' : ''}</td>
+        <td class="num"><span class="copy-wrap">${fmtMoney(r.shipping)}${showCopy() ? copyButton(r.shipping.toFixed(2), 'shipping') : ''}</span></td></tr>` : ''}
       <tr><td colspan="${cols.length + 2}" class="num"><strong>Request total</strong></td><td class="num"><strong>${fmtMoney(r.total)}</strong></td></tr>
     </tfoot>
   </table></div>`;
@@ -74,13 +85,14 @@ function itemsTable(r, config) {
 const COST_EDITABLE = [STATUS.APPROVED, STATUS.ORDERED, STATUS.RECEIVED];
 const canEditCosts = (r) => auth.can('request.order') && COST_EDITABLE.includes(r.status);
 
-/** Treasurer's "Edit costs" mode: unit price + shipping per item, with a reason. */
-function costEditor(r) {
+/** Treasurer's "Edit costs" mode: unit price per item, shipping per item or for the whole order, with a reason. */
+function costEditor(r, config) {
+  const perRequest = shippingPerRequest(config);
   const money = (v) => (v === null || v === undefined || v === '' ? '' : String(Number(v)));
   return `<form id="cost-form" novalidate>
     <p class="muted small">Change what was actually paid. Every change is recorded in the history with your name and the reason.</p>
     <div class="table-wrap flat"><table class="table cost-table stack-form">
-      <thead><tr><th>Item</th><th class="num">Qty</th><th class="num">Unit price</th><th class="num">Shipping</th><th class="num">Line total</th></tr></thead>
+      <thead><tr><th>Item</th><th class="num">Qty</th><th class="num">Unit price</th>${perRequest ? '' : '<th class="num">Shipping</th>'}<th class="num">Line total</th></tr></thead>
       <tbody>${r.items
         .map(
           (i) => `<tr data-id="${esc(i.id)}">
@@ -88,13 +100,22 @@ function costEditor(r) {
             <td class="num" data-label="Quantity">${esc(i.quantity ?? '—')}</td>
             <td class="w-number" data-label="Unit price"><input type="number" min="0" step="0.01" inputmode="decimal" name="unit_price"
               value="${esc(money(i.unit_price))}" data-original="${esc(money(i.unit_price))}" aria-label="Unit price for ${esc(i.item_name)}"></td>
-            <td class="w-number" data-label="Shipping"><input type="number" min="0" step="0.01" inputmode="decimal" name="shipping_cost"
-              value="${esc(money(i.shipping_cost))}" data-original="${esc(money(i.shipping_cost))}" placeholder="—" aria-label="Shipping for ${esc(i.item_name)}"></td>
-            <td class="num w-total" data-label="Line total" data-role="line">${fmtMoney((Number(i.quantity) || 0) * (Number(i.unit_price) || 0) + (Number(i.shipping_cost) || 0))}</td>
+            ${perRequest ? '' : `<td class="w-number" data-label="Shipping"><input type="number" min="0" step="0.01" inputmode="decimal" name="shipping_cost"
+              value="${esc(money(i.shipping_cost))}" data-original="${esc(money(i.shipping_cost))}" placeholder="—" aria-label="Shipping for ${esc(i.item_name)}"></td>`}
+            <td class="num w-total" data-label="Line total" data-role="line">${fmtMoney((Number(i.quantity) || 0) * (Number(i.unit_price) || 0) + (perRequest ? 0 : Number(i.shipping_cost) || 0))}</td>
           </tr>`
         )
         .join('')}</tbody>
     </table></div>
+    ${
+      perRequest
+        ? `<div class="field order-shipping-field">
+            <label for="cost-shipping">Shipping <span class="muted">(whole order)</span></label>
+            <input id="cost-shipping" name="order_shipping" type="number" min="0" step="0.01" inputmode="decimal"
+              value="${esc(r.shipping ? String(r.shipping) : '')}" data-original="${esc(r.shipping ? String(r.shipping) : '')}" placeholder="0.00">
+          </div>`
+        : ''
+    }
     <div class="field">
       <label for="cost-reason">Reason <span class="muted">(optional, e.g. "price changed at checkout", "free shipping")</span></label>
       <input id="cost-reason" name="reason" type="text" maxlength="300">
@@ -116,7 +137,11 @@ function costEvents(r) {
   for (const c of r.cost_changes) {
     const key = `${c.created_at}|${c.changed_by_name}|${c.reason}`;
     if (!groups.has(key)) groups.set(key, { when: c.created_at, who: c.changed_by_name, reason: c.reason, lines: [] });
-    groups.get(key).lines.push(`${esc(c.item_name)}: ${FIELD[c.field]} ${fmt(c.old_value)} → <strong>${fmt(c.new_value)}</strong>`);
+    // Whole-order shipping lives on the first item, so call it what it is.
+    const what = wholeOrderShipping && c.field === 'shipping_cost' && c.item_id === r.items[0]?.id
+      ? 'Shipping (whole order)'
+      : `${esc(c.item_name)}: ${FIELD[c.field]}`;
+    groups.get(key).lines.push(`${what} ${fmt(c.old_value)} → <strong>${fmt(c.new_value)}</strong>`);
   }
   return [...groups.values()].map((g) => ({
     when: g.when,
@@ -334,6 +359,7 @@ function ownerCard(r, people, names) {
 export async function renderRequestDetail(el, { config, params, rerender }) {
   const r = await api.getRequest(params.id);
   layout = pageLayout(config);
+  wholeOrderShipping = shippingPerRequest(config);
   // People (approvers' names, whose request it is) and the budget, for the side panel.
   const [people, summary] = await Promise.all([
     isLead() || (r.status === STATUS.SUBMITTED && approvalState(r).type === 'people') ? api.listProfiles().catch(() => []) : [],
@@ -434,7 +460,7 @@ export async function renderRequestDetail(el, { config, params, rerender }) {
   el.querySelector('#edit-costs')?.addEventListener('click', (e) => {
     e.target.hidden = true;
     const body = el.querySelector('#items-body');
-    body.innerHTML = costEditor(r);
+    body.innerHTML = costEditor(r, config);
     const form = body.querySelector('#cost-form');
     const newTotal = body.querySelector('#cost-new-total');
 
@@ -443,10 +469,11 @@ export async function renderRequestDetail(el, { config, params, rerender }) {
       form.querySelectorAll('tr[data-id]').forEach((tr) => {
         const item = r.items.find((i) => i.id === tr.dataset.id);
         const line = (Number(item.quantity) || 0) * (Number(tr.querySelector('[name=unit_price]').value) || 0) +
-          (Number(tr.querySelector('[name=shipping_cost]').value) || 0);
+          (Number(tr.querySelector('[name=shipping_cost]')?.value) || 0);
         tr.querySelector('[data-role=line]').textContent = fmtMoney(line);
         total += line;
       });
+      total += Number(form.querySelector('[name=order_shipping]')?.value) || 0; // whole-order shipping
       newTotal.innerHTML = Math.abs(total - r.total) > 0.004
         ? `New total <strong>${fmtMoney(total)}</strong> (was ${fmtMoney(r.total)})`
         : '';
@@ -468,6 +495,19 @@ export async function renderRequestDetail(el, { config, params, rerender }) {
           if (input.value.trim() !== input.dataset.original) change[input.name] = input.value.trim();
         }
         if (Object.keys(change).length > 1) changes.push(change);
+      }
+      // Whole-order shipping: the new amount goes on the first item, and any
+      // shipping left on other items (e.g. from an old import) is cleared.
+      const ship = form.querySelector('[name=order_shipping]');
+      if (ship && ship.value.trim() !== ship.dataset.original) {
+        r.items.forEach((item, idx) => {
+          const value = idx === 0 ? ship.value.trim() : '';
+          const had = item.shipping_cost === null || item.shipping_cost === undefined ? '' : String(Number(item.shipping_cost));
+          if (value === had) return;
+          const change = changes.find((c) => c.id === item.id);
+          if (change) change.shipping_cost = value;
+          else changes.push({ id: item.id, shipping_cost: value });
+        });
       }
       if (!changes.length) return rerender();
       const bad = changes.find((c) => c.unit_price !== undefined && c.unit_price === '');

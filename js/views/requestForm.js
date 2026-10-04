@@ -8,7 +8,7 @@
 import { api } from '../api.js';
 import { auth } from '../auth.js';
 import { esc, fmtMoney, itemTotal, round2, statusBadge, errorBox, setFlash, introText } from '../ui.js';
-import { requestFields, itemFields, shown, getValue, setValue, renderInput, isVisible } from '../formFields.js';
+import { requestFields, itemFields, shown, getValue, setValue, renderInput, isVisible, shippingPerRequest } from '../formFields.js';
 
 // Example placeholders for built-in item columns (custom fields use their help text).
 const ITEM_PLACEHOLDERS = {
@@ -66,18 +66,25 @@ export async function renderRequestForm(el, { config, params }) {
   // above the items, instead of in every row. The database enforces the same rule.
   const vendorField = iFields.find((f) => f.key === 'vendor');
   const oneVendor = config.oneVendorPerRequest !== false && !!vendorField;
+  // Shipping for the whole order (Settings, on by default): one box under the
+  // items instead of a column. Saved on the first item, so totals add up the same.
+  const shipField = iFields.find((f) => f.key === 'shipping_cost');
+  const oneShipping = shippingPerRequest(config) && !!shipField;
+  const shipNumbers = items.map((i) => i.shipping_cost).filter((v) => v !== null && v !== undefined && String(v).trim() !== '');
+  let orderShipping = shipNumbers.length ? String(round2(shipNumbers.reduce((s, v) => s + (Number(v) || 0), 0))) : '';
+  const inTable = (f) => !(oneVendor && f === vendorField) && !(oneShipping && f === shipField);
   // "Same for every item": any required item field (plus the link, e.g. one
   // shared Digi-Key / McMaster cart) can be filled in once instead of per row.
   // Every item keeps a copy of the value, so totals, rules and saving work as usual.
   const sharable = iFields.filter(
-    (f) => f.type !== 'section' && f.key !== 'item_name' && !(oneVendor && f === vendorField) && (f.required || f.key === 'product_link')
+    (f) => f.type !== 'section' && f.key !== 'item_name' && inTable(f) && (f.required || f.key === 'product_link')
   );
   const sameEverywhere = (f) => {
     const values = items.map((i) => String(getValue(i, f) ?? '').trim());
     return items.length > 1 && values[0] !== '' && values.every((v) => v === values[0]);
   };
   for (const f of sharable.filter(sameEverywhere)) shared.add(f.key); // reopening a draft keeps them
-  const tableFields = () => iFields.filter((f) => !(oneVendor && f === vendorField) && !shared.has(f.key));
+  const tableFields = () => iFields.filter((f) => inTable(f) && !shared.has(f.key));
   const fillAll = (f, value) => items.forEach((i) => setValue(i, f, value));
   const existingVendors = [...new Set(items.map((i) => (i.vendor || '').trim()).filter(Boolean))];
   const vendorBox = oneVendor
@@ -140,6 +147,16 @@ export async function renderRequestForm(el, { config, params }) {
             <thead id="items-head"></thead>
             <tbody id="items-body"></tbody>
             <tfoot>
+              ${
+                oneShipping
+                  ? `<tr class="shipping-row">
+                      <td id="ship-label" class="num"><label for="f-shipping"><strong>${esc(shipField.label)}${star(shipField)}</strong>
+                        <span class="muted small">for the whole order, as the vendor charges it</span></label></td>
+                      <td class="num"><input id="f-shipping" type="number" min="0" step="0.01" inputmode="decimal" value="${esc(orderShipping)}" placeholder="0.00"></td>
+                      <td></td>
+                    </tr>`
+                  : ''
+              }
               <tr>
                 <td id="total-label" class="num"><strong>Request total</strong> <span class="muted small">(incl. shipping)</span></td>
                 <td class="num"><strong id="grand-total">$0.00</strong></td>
@@ -196,7 +213,8 @@ export async function renderRequestForm(el, { config, params }) {
 
   const updateTotals = () => {
     // Request total = items (quantity × unit price) + shipping.
-    grandTotal.textContent = fmtMoney(round2(items.reduce((s, i) => s + itemTotal(i) + (Number(i.shipping_cost) || 0), 0)));
+    const shipping = oneShipping ? Number(orderShipping) || 0 : items.reduce((s, i) => s + (Number(i.shipping_cost) || 0), 0);
+    grandTotal.textContent = fmtMoney(round2(items.reduce((s, i) => s + itemTotal(i), 0) + shipping));
   };
 
   const renderRows = () => {
@@ -208,6 +226,7 @@ export async function renderRequestForm(el, { config, params }) {
       <th class="w-remove"><span class="sr-only">Remove</span></th>
     </tr>`;
     el.querySelector('#total-label').colSpan = cols.length + 1;
+    if (oneShipping) el.querySelector('#ship-label').colSpan = cols.length + 1;
     tbody.innerHTML = items
       .map(
         (item, idx) => `
@@ -246,6 +265,11 @@ export async function renderRequestForm(el, { config, params }) {
   };
   tbody.addEventListener('input', onItemInput);
   tbody.addEventListener('change', onItemInput); // selects
+
+  el.querySelector('#f-shipping')?.addEventListener('input', (e) => {
+    orderShipping = e.target.value;
+    updateTotals();
+  });
 
   // ---- "Same for every item" ----
   const sharedBox = el.querySelector('#shared-box');
@@ -320,10 +344,13 @@ export async function renderRequestForm(el, { config, params }) {
     const payload = {
       action,
       request,
-      items: items.map((i) => {
+      items: items.map((i, idx) => {
         const out = { data: {} };
         for (const f of iFields) setValue(out, f, getValue(i, f));
-        if (oneVendor) out.vendor = form.querySelector('#f-vendor').value.trim(); // same vendor for every item        for (const f of iFields) if (!isVisible(f, request, out)) setValue(out, f, '');
+        if (oneVendor) out.vendor = form.querySelector('#f-vendor').value.trim(); // same vendor for every item
+        // Whole-order shipping goes on the first item (0 on the rest if Shipping is required).
+        if (oneShipping) out.shipping_cost = idx === 0 ? orderShipping.trim() : shipField.required ? '0' : '';
+        for (const f of iFields) if (!isVisible(f, request, out)) setValue(out, f, '');
         return out;
       }),
     };

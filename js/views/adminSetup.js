@@ -427,7 +427,7 @@ const RESTORE_PERM = {
 const PART = {
   requestFields: 'request fields', itemFields: 'item fields', subsystems: 'subsystem list', priorities: 'priority list',
   rules: 'approval rules', budgets: 'budgets', enabled: 'on/off', events: 'who gets what', templates: 'message wording', siteUrl: 'website address',
-  defaultPriority: 'default priority', oneVendorPerRequest: 'one-vendor rule', teamName: 'team name',
+  defaultPriority: 'default priority', oneVendorPerRequest: 'one-vendor rule', shippingPerRequest: 'shipping rule', teamName: 'team name',
   requestIdPrefix: 'request ID prefix', allowedEmailDomains: 'allowed email domains', statuses: 'status labels & colors',
   showDefaultPriority: 'default priority display', requests: 'Requests list', approvals: 'Approvals list',
   treasurerToOrder: 'Treasurer "To order" list', treasurerOrdered: 'Treasurer "Awaiting delivery" list',

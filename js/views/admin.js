@@ -367,6 +367,14 @@ export async function renderSettings(el, { rerender, reloadConfig }) {
                   Items from another vendor go in a separate request.</span></span>
             </label>
           </div>
+          <div class="field">
+            <label class="rule-toggle">
+              <input type="checkbox" name="shippingPerRequest" ${form.shippingPerRequest !== false ? 'checked' : ''}>
+              <span>Shipping is one total per request
+                <span class="hint">Requesters enter the order's shipping once (as the vendor charges it), not on every item.
+                  Turn off to enter shipping per item.</span></span>
+            </label>
+          </div>
         </section>
       </div>
       <div class="form-actions">
@@ -445,6 +453,7 @@ export async function renderSettings(el, { rerender, reloadConfig }) {
     const wanted = (data.defaultPriority ?? form.defaultPriority ?? '').trim();
     nextForm.defaultPriority = priorities.includes(wanted) ? wanted : priorities[0] || '';
     nextForm.oneVendorPerRequest = data.oneVendorPerRequest === 'on';
+    nextForm.shippingPerRequest = data.shippingPerRequest === 'on';
     const nextGeneral = {
       ...general,
       teamName: data.teamName.trim() || 'Solar Gators',

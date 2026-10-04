@@ -76,6 +76,13 @@ export const LOCKED = new Set(['title', 'item_name', 'quantity', 'unit_price']);
 /** Built-in number fields shown as dollars. */
 export const MONEY_FIELDS = new Set(['unit_price', 'shipping_cost']);
 
+/**
+ * Shipping as one amount for the whole request (Admin → Settings, on by default)
+ * instead of per item. It's stored on the first item, so every total stays the
+ * same sum of items + shipping; the pages just show it as one line.
+ */
+export const shippingPerRequest = (config) => config.shippingPerRequest !== false;
+
 /** Built-in dropdowns whose options are edited on the Settings tab. */
 export const LIST_FIELDS = { subsystem: 'subsystems', priority: 'priorities' };
 
