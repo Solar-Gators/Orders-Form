@@ -268,7 +268,7 @@ function budgetNote(r, config, budget) {
   const blocks = over && r.status === STATUS.SUBMITTED && workflowSettings(config).budgets.block;
   return `<div class="budget-note ${over ? 'is-over' : ''}">
     <strong>${esc(budget.value)} budget:</strong> ${fmtMoney(budget.used)} of ${fmtMoney(budget.amount)} used · ${budget.remaining >= 0 ? `${fmtMoney(budget.remaining)} left` : `already ${fmtMoney(-budget.remaining)} over`}
-    ${r.status === STATUS.SUBMITTED ? `<br>Approving this makes it ${fmtMoney(after)}${over ? ` — <strong>${fmtMoney(after - budget.amount)} over</strong>${blocks ? '. Approval is blocked by Admin → Workflow.' : '.'}` : '.'}` : ''}
+    ${r.status === STATUS.SUBMITTED ? `<br>Approving this makes it ${fmtMoney(after)}${over ? ` — <strong>${fmtMoney(after - budget.amount)} over</strong>${blocks ? '. To approve it anyway, add a note below saying why.' : '.'}` : '.'}` : ''}
   </div>`;
 }
 
@@ -320,7 +320,7 @@ function actionPanel(r, config, { names = {}, budget = null } = {}) {
       <form id="review-form" novalidate>
         <p class="muted small">Signing as <strong>${esc(auth.displayName)}</strong></p>
         <div class="field">
-          <label for="r-comment">Comment <span class="muted">(required for changes / reject)</span></label>
+          <label for="r-comment">Comment <span class="muted">(required for changes / reject, or to approve over budget)</span></label>
           <textarea id="r-comment" name="comment" rows="3"></textarea>
         </div>
         <div id="action-errors"></div>

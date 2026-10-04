@@ -1,16 +1,17 @@
 /**
  * Treasurer: approved requests to order, and ordered requests awaiting delivery.
  * Both lists are sortable; their columns and default sorts come from Admin → Lists.
- * Budgets (Admin → Workflow) are shown above them.
+ * Budgets are shown (and set, by the Treasurer) above them.
  */
 import { api } from '../api.js';
 import { auth } from '../auth.js';
 import { STATUS, LATE_DELIVERY_DAYS, esc, fmtMoney, todayISO, requestTable, bindRowLinks, bindSorting, errorBox, setFlash, takeFlash, introText } from '../ui.js';
 import { budgetSummary, workflowSettings } from '../workflow.js';
+import { requestFields, fieldOptions } from '../formFields.js';
 import { listColumns, listSort } from '../listColumns.js';
 import { rememberedSort } from './listSortState.js';
 
-export async function renderTreasurer(el, { config, rerender }) {
+export async function renderTreasurer(el, { config, rerender, reloadConfig }) {
   const all = await api.listRequests([STATUS.APPROVED, STATUS.ORDERED]);
   const toOrder = all.filter((r) => r.status === STATUS.APPROVED);
   const inTransit = all.filter((r) => r.status === STATUS.ORDERED);
@@ -31,7 +32,14 @@ export async function renderTreasurer(el, { config, rerender }) {
     </div>
     ${auth.can('request.order') ? '' : '<div class="alert alert-info">View only — only the <strong>Treasurer</strong> can mark requests as Ordered or Received.</div>'}
 
-    ${budgets.length ? budgetCard(budgets, config) : ''}
+    ${budgets.length
+      ? budgetCard(budgets, config, canSetBudgets())
+      : canSetBudgets()
+        ? `<section class="card budget-card"><div class="card-head"><h2>Budgets</h2>
+             <button type="button" class="btn btn-sm" id="edit-budgets">Set budgets</button></div>
+             <p class="muted small">No budgets yet. Set an amount per Cost center (or Subsystem) to track spending this season.</p>
+             <div id="budget-editor"></div></section>`
+        : ''}
 
     <h2 class="section-title">To order</h2>
     ${auth.can('request.order') && toOrder.length > 1 ? batchCard(toOrder, config) : ''}
@@ -53,6 +61,7 @@ export async function renderTreasurer(el, { config, rerender }) {
   }
   bindRowLinks(el);
   bindBatch(el, toOrder, rerender);
+  bindBudgetEditor(el, config, reloadConfig, rerender);
 }
 
 /**
@@ -135,7 +144,7 @@ function bindBatch(el, toOrder, rerender) {
 }
 
 /** Budget used / left per cost center (or whatever field Admin → Workflow picked). */
-function budgetCard(budgets, config) {
+function budgetCard(budgets, config, canEdit) {
   const rows = budgets
     .map((b) => {
       const pct = b.amount > 0 ? Math.min(100, Math.round((b.used / b.amount) * 100)) : 100;
@@ -150,7 +159,9 @@ function budgetCard(budgets, config) {
     })
     .join('');
   return `<section class="card budget-card">
-    <h2>Budgets · ${esc(config.season)}</h2>
+    <div class="card-head"><h2>Budgets · ${esc(config.season)}</h2>
+      ${canEdit ? '<button type="button" class="btn btn-sm" id="edit-budgets">Edit budgets</button>' : ''}</div>
+    <div id="budget-editor"></div>
     <div class="table-wrap flat"><table class="table">
       <thead><tr><th>${esc(budgetLabel(config))}</th><th class="num">Budget</th><th class="num">Used</th><th class="num">Left</th><th class="num">Awaiting approval</th><th></th></tr></thead>
       <tbody>${rows}</tbody>
@@ -162,4 +173,75 @@ function budgetCard(budgets, config) {
 function budgetLabel(config) {
   const key = workflowSettings(config).budgets.field;
   return (config.requestFields || []).find((f) => f.key === key)?.label || (key === 'subsystem' ? 'Subsystem' : key);
+}
+
+/** Budgets are the Treasurer's (Order & receive), or anyone who manages the workflow. */
+const canSetBudgets = () => auth.can('request.order') || auth.can('workflow.edit');
+
+/** Dropdowns a budget can follow: Cost center, Subsystem… (not Priority or yes/no). */
+function budgetFields(config) {
+  return requestFields(config).filter((f) => f.type === 'select' && f.key !== 'priority' && !f.hidden && fieldOptions(f, config).length);
+}
+
+function bindBudgetEditor(el, config, reloadConfig, rerender) {
+  const open = el.querySelector('#edit-budgets');
+  const box = el.querySelector('#budget-editor');
+  if (!open || !box) return;
+  const fields = budgetFields(config);
+  const state = structuredClone(workflowSettings(config).budgets);
+  if (!state.field && fields.length) state.field = fields.find((f) => /cost\s*cent/i.test(f.label))?.key || fields[0].key;
+
+  const draw = () => {
+    const field = fields.find((x) => x.key === state.field);
+    box.innerHTML = `<form id="budget-form" class="budget-editor" novalidate>
+      <div class="field"><label for="budget-field">Budget by</label>
+        <select id="budget-field">${fields.map((x) => `<option value="${esc(x.key)}" ${x.key === state.field ? 'selected' : ''}>${esc(x.label)}</option>`).join('')}</select>
+        <div class="hint">Amounts are for the current season (${esc(config.season)}). Leave an option blank for no budget.</div></div>
+      ${field ? `<table class="table budget-table"><thead><tr><th>${esc(field.label)}</th><th>Budget ($)</th></tr></thead><tbody>${fieldOptions(field, config)
+        .map((o) => `<tr><td>${esc(o)}</td><td><input type="number" min="0" step="0.01" inputmode="decimal" data-budget="${esc(o)}" value="${esc(state.amounts?.[o] ?? '')}" placeholder="No budget" aria-label="Budget for ${esc(o)}"></td></tr>`)
+        .join('')}</tbody></table>` : '<p class="muted small">Add a dropdown like Cost center to the form first.</p>'}
+      <label class="rule-toggle"><input type="checkbox" id="budget-block" ${state.block ? 'checked' : ''}>
+        <span>Approving over budget needs a written reason <span class="hint">The approver has to say why; it's kept in the request's History. Off: approvers just see a warning.</span></span></label>
+      <div id="budget-errors"></div>
+      <div class="form-actions">
+        <button type="button" class="btn btn-ghost" id="budget-cancel">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save budgets</button>
+      </div>
+    </form>`;
+  };
+
+  open.addEventListener('click', () => {
+    open.hidden = true;
+    draw();
+  });
+  box.addEventListener('change', (e) => {
+    if (e.target.id === 'budget-field') {
+      state.field = e.target.value;
+      state.amounts = {};
+      draw();
+    } else if (e.target.id === 'budget-block') state.block = e.target.checked;
+  });
+  box.addEventListener('input', (e) => {
+    const option = e.target.dataset.budget;
+    if (option === undefined) return;
+    state.amounts ||= {};
+    if (e.target.value === '') delete state.amounts[option];
+    else state.amounts[option] = e.target.value;
+  });
+  box.addEventListener('click', (e) => {
+    if (e.target.id !== 'budget-cancel') return;
+    box.innerHTML = '';
+    open.hidden = false;
+  });
+  box.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      await api.setBudgets(state);
+      await reloadConfig();
+      setFlash('Budgets saved.');
+      await rerender();
+    } catch (err) {
+      box.querySelector('#budget-errors').innerHTML = errorBox(err);
+    }
+  });
 }

@@ -1,6 +1,6 @@
 /**
  * Admin pages for "Workflow, budgets & notifications" (permission workflow.edit):
- *   #/admin/workflow       — approval rules (who approves what) and budgets
+ *   #/admin/workflow       — approval rules (who approves what); budgets are on the Treasurer page
  *   #/admin/notifications  — email / Teams messages: on/off, per event, wording, log
  * The database enforces both (migration 010); the send-notifications Edge
  * Function delivers the messages (docs/MAINTAINING.md).
@@ -38,12 +38,11 @@ export async function renderWorkflow(el, { config, rerender, reloadConfig }) {
   const fields = requestFields(config).filter((f) => f.type !== 'section' && !f.hidden);
   const optionsOf = (f) => (f?.type === 'yesno' ? ['Yes', 'No'] : f ? fieldOptions(f, config) : []);
   // Budgets: a dropdown like Cost center or Subsystem (not Priority or yes/no answers).
-  const budgetFields = fields.filter((f) => optionsOf(f).length && f.type === 'select' && f.key !== 'priority');
   // Rule conditions: dropdowns and yes/no answers (plus any field a saved rule already uses).
   const ruleFields = (current) => fields.filter((f) => ['select', 'yesno'].includes(f.type) || f.key === current);
 
   const saved = workflowSettings(config);
-  const state = structuredClone({ rules: saved.rules, budgets: saved.budgets });
+  const state = structuredClone({ rules: saved.rules });
   let dirty = false;
   let open = null; // index of the rule being edited
 
@@ -127,27 +126,9 @@ export async function renderWorkflow(el, { config, rerender, reloadConfig }) {
           .join('')}</ol>`
       : '<p class="empty small">No rules: any Chief Engineer can approve any request.</p>';
 
-  const budgetBox = () => {
-    const b = state.budgets;
-    const f = budgetFields.find((x) => x.key === b.field);
-    return `
-      <div class="field"><label for="budget-field">Budget by</label>
-        <select id="budget-field"><option value="">No budgets</option>${budgetFields.map((x) => `<option value="${esc(x.key)}" ${x.key === b.field ? 'selected' : ''}>${esc(x.label)}</option>`).join('')}</select>
-        <div class="hint">Any dropdown on the request form, e.g. Cost center or Subsystem. Budgets are for the current season (${esc(config.season)}).</div></div>
-      ${
-        f
-          ? `<table class="table budget-table"><thead><tr><th>${esc(f.label)}</th><th>Budget ($)</th></tr></thead><tbody>${optionsOf(f)
-              .map((o) => `<tr><td>${esc(o)}</td><td><input type="number" min="0" step="0.01" data-budget="${esc(o)}" value="${esc(b.amounts?.[o] ?? '')}" placeholder="No budget"></td></tr>`)
-              .join('')}</tbody></table>
-            <label class="rule-toggle"><input type="checkbox" id="budget-block" ${b.block ? 'checked' : ''}>
-              <span>Block approvals that would go over budget <span class="hint">Otherwise approvers just see a warning. Rejecting is always allowed.</span></span></label>`
-          : ''
-      }`;
-  };
-
   const draw = () => {
     el.querySelector('#rules').innerHTML = rulesList();
-    el.querySelector('#budgets').innerHTML = budgetBox();
+    // (Budgets are edited on the Treasurer page.)
   };
 
   el.innerHTML = `
@@ -162,7 +143,8 @@ export async function renderWorkflow(el, { config, rerender, reloadConfig }) {
         If none match, any Chief Engineer can approve. Examples: small orders approved automatically, Battery orders go to the Battery lead, anything over $1,000 needs two CEs.</p>
       <div id="rules"></div>
     </section>
-    <section class="card"><h2>Budgets</h2><div id="budgets"></div></section>
+    <section class="card"><h2>Budgets</h2>
+      <p class="muted small">Budgets (per Cost center, Subsystem, …) are set by the Treasurer on the <a href="#/treasurer">Treasurer page</a>.</p></section>
     <div class="form-actions sticky-actions">
       <span class="muted small" id="wf-dirty" hidden>Unsaved changes</span>
       <button type="button" class="btn btn-primary" id="wf-save" disabled>Save workflow</button>
@@ -192,11 +174,6 @@ export async function renderWorkflow(el, { config, rerender, reloadConfig }) {
       const text = li.querySelector('.rule-text');
       text.querySelector('strong').textContent = r.name || `Rule ${Number(li.dataset.i) + 1}`;
       text.querySelector('.muted').textContent = `${conditionText(r)} → ${actionText(r)}`;
-    } else if (t.dataset.budget !== undefined) {
-      state.budgets.amounts ||= {};
-      if (t.value === '') delete state.budgets.amounts[t.dataset.budget];
-      else state.budgets.amounts[t.dataset.budget] = t.value;
-      markDirty();
     }
   });
 
@@ -224,14 +201,6 @@ export async function renderWorkflow(el, { config, rerender, reloadConfig }) {
       else return;
       markDirty();
       return draw();
-    }
-    if (t.id === 'budget-field') {
-      state.budgets = { ...state.budgets, field: t.value, amounts: t.value === state.budgets.field ? state.budgets.amounts : {} };
-      markDirty();
-      draw();
-    } else if (t.id === 'budget-block') {
-      state.budgets.block = t.checked;
-      markDirty();
     }
   });
 
@@ -263,7 +232,9 @@ export async function renderWorkflow(el, { config, rerender, reloadConfig }) {
     } else if (btn.id === 'wf-save') {
       btn.disabled = true;
       try {
-        await api.updateSettings('workflow', { ...(config.workflow || {}), rules: state.rules, budgets: state.budgets });
+        // Keep the budgets as the Treasurer last saved them (they may have changed since this page opened).
+        const latest = (await api.getSettings()).workflow || {};
+        await api.updateSettings('workflow', { ...latest, rules: state.rules });
         await reloadConfig();
         dirty = false;
         setFlash('Workflow saved. New rules apply to requests submitted from now on.');
@@ -300,13 +271,14 @@ const SAMPLE = {
   status: 'Approved', rule: 'Battery orders', link: '…/#/requests/SG26-014',
 };
 
-const STATUS_TONE = { sent: 'tone-green', pending: 'tone-amber', sending: 'tone-blue', failed: 'tone-red' };
+const STATUS_TONE = { sent: 'tone-green', pending: 'tone-amber', sending: 'tone-blue', failed: 'tone-red', cancelled: 'tone-gray' };
 
 export async function renderNotifications(el, { config, rerender, reloadConfig }) {
   const saved = config.notifications || {};
   const state = {
     enabled: !!saved.enabled,
     siteUrl: saved.siteUrl || location.origin + location.pathname,
+    approvalDelayMinutes: saved.approvalDelayMinutes ?? 30,
     events: structuredClone(saved.events || {}),
     templates: structuredClone(saved.templates || {}),
   };
@@ -388,6 +360,10 @@ export async function renderNotifications(el, { config, rerender, reloadConfig }
           <span>Send notifications <span class="hint">Messages go to each person's UF email / Teams account. People can turn them off on their Account page.</span></span></label>
         <div class="field"><label for="n-site">Website address (for links)</label>
           <input type="url" id="n-site" value="${esc(state.siteUrl)}" placeholder="https://solar-gators.github.io/Orders-Form/"></div>
+        <div class="field"><label for="n-delay">Wait before sending "needs your approval"</label>
+          <div class="inline-input"><input type="number" id="n-delay" min="0" max="1440" step="1" value="${esc(state.approvalDelayMinutes)}"> <span class="muted">minutes</span></div>
+          <div class="hint">If the request is approved, sent back, rejected or withdrawn before then (e.g. a CE approving their own order), the message isn't sent. 0 = send right away.
+            Delayed messages go out the next time the sender runs, so schedule it every 5–10 minutes (docs/MAINTAINING.md → "Turn it on").</div></div>
         <p class="muted small">Sending needs a one-time setup in Supabase (email account and/or a Power Automate flow for Teams).
           ${auth.can('users.manage') ? 'The steps are in <code>docs/MAINTAINING.md</code> → "Email &amp; Teams notifications".' : 'Ask whoever maintains the site.'}</p>
       </section>
@@ -454,6 +430,9 @@ export async function renderNotifications(el, { config, rerender, reloadConfig }
     const t = e.target;
     if (t.id === 'n-site') {
       state.siteUrl = t.value.trim();
+      markDirty();
+    } else if (t.id === 'n-delay') {
+      state.approvalDelayMinutes = Math.max(0, Math.min(1440, Math.round(Number(t.value) || 0)));
       markDirty();
     } else if (t.dataset.t && editing) {
       state.templates[editing] = { ...(state.templates[editing] || {}), [t.dataset.t]: t.value };

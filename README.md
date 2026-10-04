@@ -79,7 +79,7 @@ Changed your mind? Open a submitted request and click **Withdraw request** to tu
 - **Order several at once:** bought a few approved requests in one checkout? Open **Order several at once** on the Treasurer tab, tick them (grouped by vendor), and enter the date and ticket number once.
 - **Late deliveries:** Awaiting delivery shows how long each order has been out, and highlights anything over 14 days.
 - **Mark as Received:** record when it arrived, e.g. "in office".
-- **Budgets:** if your leads set budgets (per Cost center, Subsystem, …), the top of the Treasurer tab shows each budget, how much is used this season, what's left, and what's waiting for approval.
+- **Budgets:** the Treasurer sets them on the Treasurer tab (**Set budgets** / **Edit budgets**): pick a dropdown such as Cost center and enter an amount for each option. The tab shows each budget, how much is used this season, what's left, and what's waiting for approval. Optionally, approving over budget needs a written reason, which is kept in the request's History.
 - **Copy buttons:** every value on a request has a small copy icon (item name, vendor, link, part #, quantity, prices, request ID, total), for pasting into purchasing forms. **Copy all items** copies the whole item list as a table that pastes straight into Excel or Google Sheets.
 - **Edit costs:** if a price or shipping cost turns out different from what was requested, open the request and click **Edit costs**. This works on Approved, Ordered, and Received requests. Change any item's unit price or the order's shipping, and add a reason. The new total is previewed before saving. Every change is logged in the request's History (who, when, old → new, and why), and the item list is tagged **Costs adjusted**.
 
@@ -115,7 +115,7 @@ Each Admin tab appears only for people whose roles allow it.
   - **Rules** are checked from the top when a request is submitted; the first that matches decides who approves. A rule can look at any answer on the form (e.g. Cost center is Battery) and/or the total (e.g. $1,000 or more).
   - Each rule lets **any Chief Engineer** approve, sends it to **specific people** (any one of them, or **all** of them, e.g. two CEs for big orders), or **approves automatically** (e.g. under $25).
   - No matching rule → any Chief Engineer, as before. Admins can always step in.
-  - **Budgets:** pick a dropdown (e.g. Cost center), enter an amount for each option, and optionally **block approvals that would go over**.
+  - **Budgets** are set by the Treasurer on the Treasurer tab.
 - **Notifications:** email and Microsoft Teams messages (see below).
 - **Text & banner:** an announcement banner at the top of every page (with an optional end date), a message on the sign-in page, your own intro line for each page, and a **Help** page for the team (a Help tab appears once it has text).
 - **Import:** bring in an old Excel order sheet.
@@ -140,7 +140,7 @@ Once your leads turn them on (**Admin → Notifications**), the site messages pe
 | Changes requested / Rejected | The requester, with the comment |
 | Ordered / Received | The requester |
 
-Messages go to your UF email and/or a Teams chat from the Power Automate bot, with a button that opens the request. Leads choose which events use email, Teams, or both, and can reword every message. On **My account** you choose for yourself: turn email or Teams off completely, or mute single messages (e.g. keep "needs your approval" but skip "your order arrived").
+Messages go to your UF email and/or a Teams chat from the Power Automate bot, with a button that opens the request. Leads choose which events use email, Teams, or both, and can reword every message. On **My account** you choose for yourself: turn email or Teams off completely, or mute single messages (e.g. keep "needs your approval" but skip "your order arrived"). "Needs your approval" messages wait a little (30 minutes by default) and are skipped if the request was already decided, so a CE approving their own order doesn't ping the other CEs. You never get messages about things you did yourself.
 
 ## Starting a new season
 

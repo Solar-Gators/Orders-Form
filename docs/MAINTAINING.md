@@ -192,7 +192,7 @@ If UF's tenant doesn't offer the trigger, or says it needs a premium license, po
 1. **Admin → Notifications**: tick **Send notifications**, check the website address, choose email / Teams per event, and **Save**.
 2. Click **Send me a test email** and **Send me a test Teams message**. Setup problems (missing secret, wrong password, flow error) show right there and in **Recent messages**.
 
-Optional: to retry failed messages without waiting for the next action, schedule the function in Supabase → **Integrations → Cron → Create job**, type "Supabase Edge Function", `send-notifications`, every 10 minutes.
+3. **Schedule the sender (recommended):** Supabase → **Integrations → Cron → Create job** → type "Supabase Edge Function" → `send-notifications`, every 5–10 minutes. "Needs your approval" messages wait (30 minutes by default, Admin → Notifications) so a CE approving their own order doesn't notify the others; the schedule is what sends the ones still waiting. It also retries failed messages.
 
 ## Yearly handover checklist
 

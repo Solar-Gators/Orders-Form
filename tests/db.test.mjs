@@ -1028,8 +1028,9 @@ await test('the sender claims each message once, retries failures, then gives up
       await db.query(`select finish_notification($1, false, 'Mailbox unavailable')`, [id]);
       if (i < 4) await db.query(`select * from claim_notifications(100)`); // back to pending → picked up again
     }
-    const { rows } = await db.query(`select id, status, attempts, error from notification_outbox where id in ($1, $2) order by id`, [id, first[1].id]);
-    assert.deepEqual(rows.map((r) => [r.status, r.attempts, r.error]), [['failed', 5, 'Mailbox unavailable'], ['sent', 1, '']]);
+    const row = async (x) => (await db.query(`select status, attempts, error from notification_outbox where id = $1`, [x])).rows[0];
+    assert.deepEqual(await row(id), { status: 'failed', attempts: 5, error: 'Mailbox unavailable' });
+    assert.deepEqual(await row(first[1].id), { status: 'sent', attempts: 1, error: '' });
   } finally {
     await db.exec('reset role');
   }
@@ -1158,6 +1159,48 @@ await test('marking Ordered needs a ticket number unless Settings says otherwise
   assert.deepEqual(log.map((e) => e.kind), ['submitted', 'ordered', 'received']);
   assert.deepEqual(log.slice(1).map((e) => e.actor_name), ['Tess Treasurer', 'Tess Treasurer']);
   await as(ce, async () => rpc('update_settings', ['form', { ...(await currentForm()), requireOrderNumber: true }]));
+});
+
+await test('the Treasurer sets budgets; approving over budget needs a note', async () => {
+  const budgets = { field: 'subsystem', amounts: { Aero: '50' }, block: true };
+  await as(member, () => rejects(rpc('set_budgets', [budgets]), /Only the Treasurer/));
+  await as(treasurer, () => rejects(rpc('set_budgets', [{ ...budgets, amounts: { Aero: 'lots' } }]), /must be a dollar amount/));
+  await as(treasurer, () => rpc('set_budgets', [budgets]));
+  const wf = (await db.query(`select value from app_settings where key = 'workflow'`)).rows[0].value;
+  assert.deepEqual(wf.budgets, budgets);
+  assert.ok(Array.isArray(wf.rules)); // the rules are left alone
+  const number = numberOf(await submit({ ...vendorRequest, subsystem: 'Aero' }, [{ ...oneItem[0], unit_price: 400 }]));
+  await rejects(review(ce, number, 'approve'), /over its budget.*add a note saying why/);
+  await review(ce, number, 'approve', 'Competition is next week');
+  assert.equal(await statusOf(number), 'Approved');
+  const { rows } = await db.query(`select comment from approvals a join requests r on r.id = a.request_id where r.request_number = $1`, [number]);
+  assert.deepEqual(rows.map((r) => r.comment), ['Approved over budget: Competition is next week']);
+  await as(treasurer, () => rpc('set_budgets', [{ field: '', amounts: {}, block: false }]));
+});
+
+await test('"needs your approval" messages wait, and are cancelled if the request is decided first', async () => {
+  await as(admin, () => rpc('update_settings', ['notifications', { enabled: true, approvalDelayMinutes: 30, events: { submitted: { email: true } } }]));
+  await db.exec(`delete from notification_outbox`);
+  const own = numberOf(await submit(vendorRequest)); // e.g. a CE's own order…
+  const other = numberOf(await submit(vendorRequest));
+  await review(ce, own, 'approve'); // …approved a minute later
+  const due = await db.query(`select bool_and(send_after > now() + interval '29 minutes') ok from notification_outbox where event = 'submitted'`);
+  assert.equal(due.rows[0].ok, true);
+  await db.exec('grant select on requests to service_role'); // Supabase grants this by default
+  await db.exec('set role service_role');
+  try {
+    assert.equal((await db.query(`select * from claim_notifications(100)`)).rows.length, 0); // not due yet
+    await db.exec(`update notification_outbox set send_after = now() - interval '1 minute'`); // 30 minutes later
+    const sent = (await db.query(`select * from claim_notifications(100)`)).rows;
+    const numberOfRow = async (rid) => (await db.query(`select request_number from requests where id = $1`, [rid])).rows[0].request_number;
+    assert.ok(sent.length > 0);
+    for (const m of sent) assert.equal(await numberOfRow(m.request_id), other); // only the one still waiting
+    const cancelled = (await db.query(`select distinct o.status from notification_outbox o join requests r on r.id = o.request_id where r.request_number = $1`, [own])).rows;
+    assert.deepEqual(cancelled.map((r) => r.status), ['cancelled']);
+  } finally {
+    await db.exec('reset role');
+  }
+  await as(admin, () => rpc('update_settings', ['notifications', { enabled: false }]));
 });
 
 await test('nobody can write History directly', async () => {

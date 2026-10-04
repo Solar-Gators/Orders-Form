@@ -162,6 +162,11 @@ export const api = {
     unwrap(await supabase.rpc('delete_request', { p_id: id }));
   },
 
+  /** Treasurer: budgets { field, amounts: { option: dollars }, block }. */
+  async setBudgets(budgets) {
+    unwrap(await supabase.rpc('set_budgets', { p_budgets: budgets }));
+  },
+
   /** The requester: pull a submitted request back to Draft. */
   async withdrawRequest(id) {
     unwrap(await supabase.rpc('withdraw_request', { p_id: id }));

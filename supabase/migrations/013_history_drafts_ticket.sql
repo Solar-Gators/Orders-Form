@@ -9,6 +9,9 @@
 --   * withdraw_request: ...and pull a Submitted request back to Draft.
 --   * mark_ordered requires the ticket / Dept. order number unless Admin →
 --     Settings turns that off (form.requireOrderNumber, on by default).
+--   * Budgets are set by the Treasurer (set_budgets), and an approval that
+--     would go over a budget is allowed with a written reason, which is kept
+--     in the request's History ("Approved over budget: …").
 --
 -- Run once, after 012: Supabase → SQL Editor → New query → paste → Run.
 -- =============================================================================
@@ -145,6 +148,92 @@ begin
   insert into request_events (request_id, kind, actor_id, actor_name) values (p_id, 'withdrawn', auth.uid(), my_display_name());
 end;
 $$;
+
+
+-- Budgets (per Cost center, Subsystem, …) are set by the Treasurer: anyone with
+-- "Order & receive" (or "Workflow, budgets & notifications") can change them.
+-- p_budgets: { field, amounts: { option: dollars }, block }
+create or replace function public.set_budgets(p_budgets jsonb)
+returns void
+language plpgsql security definer set search_path = public, pg_temp
+as $$
+declare
+  v_clean jsonb;
+  v_bad   text;
+begin
+  if not (has_permission('request.order') or has_permission('workflow.edit')) then
+    raise exception 'Only the Treasurer can change budgets.';
+  end if;
+  if jsonb_typeof(coalesce(p_budgets, '{}')) <> 'object' then raise exception 'Budgets must be a JSON object.'; end if;
+  select key into v_bad from jsonb_each_text(coalesce(p_budgets -> 'amounts', '{}'))
+  where value !~ '^\d*\.?\d+$' limit 1;
+  if v_bad is not null then raise exception 'The budget for "%" must be a dollar amount of 0 or more.', v_bad; end if;
+  v_clean := jsonb_build_object(
+    'field', coalesce(p_budgets ->> 'field', ''),
+    'amounts', coalesce(p_budgets -> 'amounts', '{}'),
+    'block', coalesce((p_budgets -> 'block') = 'true'::jsonb, false));
+  insert into app_settings (key, value, updated_at, updated_by)
+  values ('workflow', jsonb_build_object('rules', '[]'::jsonb, 'budgets', v_clean), now(), auth.uid())
+  on conflict (key) do update set value = app_settings.value || jsonb_build_object('budgets', v_clean), updated_at = now(), updated_by = auth.uid();
+end;
+$$;
+
+
+-- ---------------------------------------------------------------------------
+-- "Needs your approval" messages wait a while (Admin → Notifications,
+-- notifications.approvalDelayMinutes, 30 by default; 0 = right away). If the
+-- request is approved, sent back, rejected or withdrawn in the meantime — e.g.
+-- a CE approving their own order — the message is cancelled instead of sent.
+-- ---------------------------------------------------------------------------
+alter table public.notification_outbox add column send_after timestamptz not null default now();
+alter table public.notification_outbox drop constraint notification_outbox_status_check;
+alter table public.notification_outbox add constraint notification_outbox_status_check
+  check (status in ('pending', 'sending', 'sent', 'failed', 'cancelled'));
+
+create or replace function public.delay_approval_messages()
+returns trigger
+language plpgsql security definer set search_path = public, pg_temp
+as $$
+declare
+  v_minutes text := (select value ->> 'approvalDelayMinutes' from app_settings where key = 'notifications');
+begin
+  if new.event = 'submitted' then
+    new.send_after := now() + make_interval(mins => case when v_minutes ~ '^\d+$' then least(v_minutes::int, 1440) else 30 end);
+  end if;
+  return new;
+end;
+$$;
+create trigger notification_outbox_delay
+  before insert on public.notification_outbox
+  for each row execute function public.delay_approval_messages();
+
+-- Same as 010, plus: only messages whose time has come, and "needs your approval"
+-- messages for requests that aren't waiting any more are cancelled first.
+create or replace function public.claim_notifications(p_limit int)
+returns setof public.notification_outbox
+language plpgsql security definer set search_path = public, pg_temp
+as $$
+#variable_conflict use_column
+begin
+  update notification_outbox o set status = 'cancelled', error = 'No longer waiting for approval when it was due.'
+  from requests r
+  where o.status = 'pending' and o.event = 'submitted' and o.request_id = r.id
+    and (r.status <> 'Submitted' or coalesce((r.approval_plan ->> 'submitted_at')::timestamptz, o.created_at) > o.created_at);
+
+  return query
+  update notification_outbox set status = 'sending', attempts = attempts + 1, claimed_at = now()
+  where id in (
+    select id from notification_outbox
+    where (status = 'pending' and send_after <= now())
+       or (status = 'sending' and claimed_at < now() - interval '10 minutes' and attempts < 5)
+    order by id limit p_limit
+    for update skip locked)
+  returning *;
+end;
+$$;
+
+update public.app_settings set value = value || '{"approvalDelayMinutes": 30}'
+where key = 'notifications' and not value ? 'approvalDelayMinutes';
 
 
 -- Treasurer: Approved -> Ordered. Same as 001, plus the required ticket number
@@ -433,12 +522,85 @@ begin
 end;
 $$;
 
+-- review_request: same as 010, except going over a blocking budget needs a note instead of being refused.
+create or replace function public.review_request(p_id uuid, p_decision text, p_comment text)
+returns void
+language plpgsql security definer set search_path = public, pg_temp
+as $$
+declare
+  v_req      requests;
+  v_plan     jsonb;
+  v_comment  text := trim(coalesce(p_comment, ''));
+  v_people   uuid[];
+  v_missing  uuid[];
+  v_problem  text;
+begin
+  if auth.uid() is null then raise exception 'You must be signed in.'; end if;
+  if p_decision not in ('approve', 'request_changes', 'reject') then
+    raise exception 'Decision must be approve, request_changes or reject.';
+  end if;
+  if p_decision <> 'approve' and v_comment = '' then
+    raise exception 'A comment is required when requesting changes or rejecting.';
+  end if;
+
+  select * into v_req from requests where id = p_id for update;
+  if not found then raise exception 'Request not found.'; end if;
+  if v_req.status <> 'Submitted' then
+    raise exception '% is "%", not Submitted.', v_req.request_number, v_req.status;
+  end if;
+
+  v_plan := coalesce(v_req.approval_plan, jsonb_build_object('type', 'any', 'submitted_at', v_req.updated_at));
+  if v_plan ->> 'type' = 'people' then
+    v_people := plan_approvers(v_plan);
+    if not (auth.uid() = any(v_people) or has_permission('workflow.edit')) then
+      raise exception 'Only % can review %.',
+        (select string_agg(coalesce(nullif(full_name, ''), email), ', ') from profiles where id = any(v_people)), v_req.request_number;
+    end if;
+  else
+    perform require_permission('request.review');
+  end if;
+
+  insert into approvals (request_id, approver_id, approver, decision, comment)
+  values (p_id, auth.uid(), my_display_name(), p_decision, v_comment);
+
+  if p_decision = 'approve' then
+    if (v_plan -> 'needAll') = 'true'::jsonb then
+      select coalesce(array_agg(p), '{}') into v_missing
+      from unnest(v_people) p
+      where not exists (
+        select 1 from approvals a
+        where a.request_id = p_id and a.approver_id = p and a.decision = 'approve'
+          and a.created_at >= coalesce((v_plan ->> 'submitted_at')::timestamptz, '-infinity'));
+      if cardinality(v_missing) > 0 then
+        update requests set updated_at = now() where id = p_id; -- still waiting on others
+        return;
+      end if;
+    end if;
+    v_problem := budget_problem(p_id);
+    if v_problem is not null then
+      -- Over budget: allowed with a written reason, kept with the approval.
+      if v_comment = '' then
+        raise exception '% To approve it anyway, add a note saying why.', v_problem;
+      end if;
+      update approvals set comment = 'Approved over budget: ' || v_comment
+      where id = (select id from approvals where request_id = p_id and approver_id = auth.uid() order by created_at desc limit 1);
+    end if;
+  end if;
+
+  update requests set
+    status = case p_decision when 'approve' then 'Approved' when 'reject' then 'Rejected' else 'Changes Requested' end,
+    updated_at = now()
+  where id = p_id;
+end;
+$$;
+
 
 revoke execute on function
   public.request_snapshot(uuid),
-  public.describe_request_changes(jsonb, jsonb, jsonb)
+  public.describe_request_changes(jsonb, jsonb, jsonb),
+  public.delay_approval_messages()
 from public, anon, authenticated;
-revoke execute on function public.delete_request(uuid), public.withdraw_request(uuid) from public, anon;
-grant execute on function public.delete_request(uuid), public.withdraw_request(uuid) to authenticated;
+revoke execute on function public.delete_request(uuid), public.withdraw_request(uuid), public.set_budgets(jsonb) from public, anon;
+grant execute on function public.delete_request(uuid), public.withdraw_request(uuid), public.set_budgets(jsonb) to authenticated;
 
 update public.app_settings set value = value || '{"schemaVersion": 13}' where key = 'general';
