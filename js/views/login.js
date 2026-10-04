@@ -46,7 +46,7 @@ export async function renderLogin(el, { config }) {
 
   const links = {
     signin: `<button type="button" class="link-btn" data-mode="forgot">Forgot password?</button>
-             <span>New to the team? <button type="button" class="link-btn" data-mode="signup">Create an account</button></span>`,
+             <span>First time using the Order Form? <button type="button" class="link-btn" data-mode="signup">Create an account</button></span>`,
     signup: `<span>Already have an account? <button type="button" class="link-btn" data-mode="signin">Sign in</button></span>`,
     forgot: `<button type="button" class="link-btn" data-mode="signin">← Back to sign in</button>`,
   };
