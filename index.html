@@ -20,7 +20,7 @@
 
       <nav class="nav signed-in-only" aria-label="Main">
         <a href="#/new" data-nav="new">New Request</a>
-        <a href="#/requests" data-nav="requests">Requests</a>
+        <a href="#/requests" data-nav="requests">Requests <span class="nav-count" id="count-requests" hidden title="Your requests sent back for changes"></span></a>
         <!-- Leads (CE + Treasurer) see both queues; each page limits actions by role. -->
         <a href="#/approvals" data-nav="approvals" data-perm="request.review request.order" hidden>Approvals <span class="nav-count" id="count-approvals" hidden></span></a>
         <a href="#/treasurer" data-nav="treasurer" data-perm="request.review request.order" hidden>Treasurer <span class="nav-count" id="count-treasurer" hidden></span></a>

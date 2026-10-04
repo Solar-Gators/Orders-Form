@@ -293,7 +293,7 @@ await test('the website cannot change the schema version', async () => {
   const general = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
   await as(ce, () => rpc('update_settings', ['general', { ...general, schemaVersion: 99 }]));
   const after = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
-  assert.equal(after.schemaVersion, 12);
+  assert.equal(after.schemaVersion, 13);
 });
 
 console.log('Form fields');
@@ -1103,6 +1103,65 @@ await test('imported requests are linked to accounts by name (012)', async () =>
   assert.equal(await ownerOf('Pat Quinn'), 'Pat Quinn');
   // Requests made on the site keep their real owner.
   assert.equal((await db.query(`select count(*)::int n from requests r join profiles p on p.id = r.created_by where r.requester = 'Austin Stang' and p.email <> 'member@ufl.edu'`)).rows[0].n, 0);
+});
+
+console.log('\nHistory, deleting, withdrawing, ticket number (013)');
+
+const events = async (number) =>
+  (await db.query(`select kind, actor_name, changes, note from request_events e join requests r on r.id = e.request_id where r.request_number = $1 order by e.id`, [number])).rows;
+
+await test('submitting and resubmitting are logged, with what changed since the last submission', async () => {
+  await setWorkflow({ rules: [] });
+  const number = numberOf(await submit(vendorRequest, [{ ...oneItem[0], unit_price: 5 }, { ...oneItem[0], item_name: 'Nuts', unit_price: 2 }]));
+  await review(ce, number, 'request_changes', 'Cheaper bolts please');
+  const id = await idOf(number);
+  // Saving a draft in between doesn't log anything; the comparison is with what the CE last saw.
+  await as(member, () => rpc('save_request', [id, { ...vendorRequest, needed_by: '2026-10-09' }, [{ ...oneItem[0], unit_price: 4 }, { ...oneItem[0], item_name: 'Nuts', unit_price: 2 }], 'draft']));
+  await as(member, () => rpc('save_request', [id, { ...vendorRequest, needed_by: '2026-10-09' }, [{ ...oneItem[0], unit_price: '4.00' }], 'submit']));
+  const log = await events(number);
+  assert.deepEqual(log.map((e) => e.kind), ['submitted', 'resubmitted']);
+  assert.match(log[0].actor_name, /^Mia/);
+  assert.deepEqual(log[0].changes, []);
+  assert.ok(log[1].changes.includes('Needed by: 2026-10-05 → 2026-10-09'), log[1].changes.join(' | '));
+  assert.ok(log[1].changes.includes('Items: 2 → 1'));
+  assert.ok(log[1].changes.includes('Item 1 Unit price: 5 → 4'), log[1].changes.join(' | '));
+  assert.equal(log[1].changes.length, 3); // 4 vs 4.00 isn't a change; nothing else changed
+});
+
+await test('the requester can withdraw a submitted request, and delete drafts / sent-back requests', async () => {
+  const number = numberOf(await submit(vendorRequest));
+  const id = await idOf(number);
+  await as(other, () => rejects(rpc('withdraw_request', [id]), /Only the person who made/));
+  await as(member, () => rpc('withdraw_request', [id]));
+  assert.equal(await statusOf(number), 'Draft');
+  assert.deepEqual((await events(number)).map((e) => e.kind), ['submitted', 'withdrawn']);
+  await as(member, () => rejects(rpc('withdraw_request', [id]), /not Submitted/));
+  await as(other, () => rejects(rpc('delete_request', [id]), /Only the person who made/));
+  await as(member, () => rpc('delete_request', [id]));
+  assert.equal((await db.query(`select count(*)::int n from requests where id = $1`, [id])).rows[0].n, 0);
+  // Approved requests can't be deleted.
+  const kept = numberOf(await submit(vendorRequest));
+  await review(ce, kept, 'approve');
+  const keptId = await idOf(kept);
+  await as(member, () => rejects(rpc('delete_request', [keptId]), /Only drafts and requests sent back/));
+});
+
+await test('marking Ordered needs a ticket number unless Settings says otherwise; Ordered / Received record who', async () => {
+  const number = numberOf(await submit(vendorRequest));
+  await review(ce, number, 'approve');
+  const id = await idOf(number);
+  await as(treasurer, () => rejects(rpc('mark_ordered', [id, '2026-10-01', '  ', '']), /Enter the ticket/));
+  await as(ce, async () => rpc('update_settings', ['form', { ...(await currentForm()), requireOrderNumber: false }]));
+  await as(treasurer, () => rpc('mark_ordered', [id, '2026-10-01', '', '']));
+  await as(treasurer, () => rpc('mark_received', [id, '2026-10-03', '']));
+  const log = await events(number);
+  assert.deepEqual(log.map((e) => e.kind), ['submitted', 'ordered', 'received']);
+  assert.deepEqual(log.slice(1).map((e) => e.actor_name), ['Tess Treasurer', 'Tess Treasurer']);
+  await as(ce, async () => rpc('update_settings', ['form', { ...(await currentForm()), requireOrderNumber: true }]));
+});
+
+await test('nobody can write History directly', async () => {
+  await as(member, () => rejects(db.query(`insert into request_events (request_id, kind) select id, 'ordered' from requests limit 1`), /permission denied/));
 });
 
 console.log(`\n${passed} passed${process.exitCode ? ', some FAILED' : ''}`);

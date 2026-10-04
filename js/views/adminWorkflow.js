@@ -11,6 +11,7 @@ import { esc, errorBox, setFlash, takeFlash, fmtMoney, fmtDateTime } from '../ui
 import { requestFields, fieldOptions, CONDITION_OPS, describeCondition } from '../formFields.js';
 import { RULE_TYPES, EVENTS, PLACEHOLDERS, workflowSettings } from '../workflow.js';
 import { adminTabs } from './admin.js';
+import { guardLeaving } from '../leaveGuard.js';
 
 const move = (list, i, d) => {
   const j = i + d;
@@ -18,12 +19,8 @@ const move = (list, i, d) => {
   [list[i], list[j]] = [list[j], list[i]];
 };
 
-function guardUnsaved(el, isDirty) {
-  window.addEventListener('beforeunload', function guard(e) {
-    if (!document.body.contains(el)) return window.removeEventListener('beforeunload', guard);
-    if (isDirty()) e.preventDefault();
-  });
-}
+/** Warn before leaving a page with unsaved edits (switching pages or closing the tab). */
+const guardUnsaved = (el, isDirty) => guardLeaving(el, isDirty);
 
 // ---- Workflow: approval rules + budgets ----------------------------------------------------
 
@@ -40,7 +37,10 @@ export async function renderWorkflow(el, { config, rerender, reloadConfig }) {
 
   const fields = requestFields(config).filter((f) => f.type !== 'section' && !f.hidden);
   const optionsOf = (f) => (f?.type === 'yesno' ? ['Yes', 'No'] : f ? fieldOptions(f, config) : []);
-  const budgetFields = fields.filter((f) => optionsOf(f).length && f.type !== 'yesno');
+  // Budgets: a dropdown like Cost center or Subsystem (not Priority or yes/no answers).
+  const budgetFields = fields.filter((f) => optionsOf(f).length && f.type === 'select' && f.key !== 'priority');
+  // Rule conditions: dropdowns and yes/no answers (plus any field a saved rule already uses).
+  const ruleFields = (current) => fields.filter((f) => ['select', 'yesno'].includes(f.type) || f.key === current);
 
   const saved = workflowSettings(config);
   const state = structuredClone({ rules: saved.rules, budgets: saved.budgets });
@@ -74,19 +74,19 @@ export async function renderWorkflow(el, { config, rerender, reloadConfig }) {
       : opts.length
         ? op.many
           ? `<span class="cond-multi">${opts.map((o) => `<label class="role-chip ${values.includes(o) ? 'on' : ''}"><input type="checkbox" data-w="multi" value="${esc(o)}" ${values.includes(o) ? 'checked' : ''}>${esc(o)}</label>`).join('')}</span>`
-          : `<select data-w="value"><option value="">Choose…</option>${opts.map((o) => `<option value="${esc(o)}" ${values[0] === o ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`
-        : `<input type="text" data-w="value" value="${esc(values.join(', '))}" placeholder="${op.many ? 'Values, separated by commas' : 'Value'}">`;
+          : `<select data-w="value" aria-label="Value"><option value="">Choose…</option>${opts.map((o) => `<option value="${esc(o)}" ${values[0] === o ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`
+        : `<input type="text" data-w="value" aria-label="Value" value="${esc(values.join(', '))}" placeholder="${op.many ? 'Values, separated by commas' : 'Value'}">`;
     const type = r.then?.type || 'any';
     const picked = r.then?.people || [];
     return `<div class="rules-panel">
-      <div class="rule"><strong>Name</strong><input type="text" data-w="name" value="${esc(r.name || '')}" placeholder="e.g. Battery orders" maxlength="60"></div>
+      <div class="rule"><strong>Name</strong><input type="text" data-w="name" aria-label="Rule name" value="${esc(r.name || '')}" placeholder="e.g. Battery orders" maxlength="60"></div>
       <div class="rule"><strong>Applies when</strong>
-        <select data-w="field"><option value="">Any request</option>${fields.map((x) => `<option value="${esc(x.key)}" ${x.key === w.field ? 'selected' : ''}>${esc(x.label)}</option>`).join('')}</select>
+        <select data-w="field" aria-label="Field to check"><option value="">Any request</option>${ruleFields(w.field).map((x) => `<option value="${esc(x.key)}" ${x.key === w.field ? 'selected' : ''}>${esc(x.label)}</option>`).join('')}</select>
         ${w.field ? `<select data-w="op">${CONDITION_OPS.map((o) => `<option value="${o.key}" ${o.key === op.key ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}</select>${valueInput}` : ''}
       </div>
       <div class="rule"><strong>and the total is</strong>
-        <input type="number" min="0" step="0.01" data-w="minTotal" value="${esc(w.minTotal ?? '')}" placeholder="at least $"> <span class="muted">and under</span>
-        <input type="number" min="0" step="0.01" data-w="maxTotal" value="${esc(w.maxTotal ?? '')}" placeholder="any $">
+        <input type="number" min="0" step="0.01" data-w="minTotal" aria-label="Total at least" value="${esc(w.minTotal ?? '')}" placeholder="at least $"> <span class="muted">and under</span>
+        <input type="number" min="0" step="0.01" data-w="maxTotal" aria-label="Total under" value="${esc(w.maxTotal ?? '')}" placeholder="any $">
         <span class="hint">Totals include shipping. Leave blank for any amount.</span></div>
       <div class="rule"><strong>Then</strong>
         <select data-w="type">${RULE_TYPES.map((t) => `<option value="${t.key}" ${t.key === type ? 'selected' : ''}>${esc(t.label)}</option>`).join('')}</select>

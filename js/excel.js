@@ -8,7 +8,7 @@
  * follows the form automatically: renaming or adding a field changes it too.
  */
 import { STATUS, statusLabel } from './ui.js';
-import { requestFields, itemFields, shown, answerable, getValue, MONEY_FIELDS } from './formFields.js';
+import { requestFields, itemFields, shown, answerable, getValue, MONEY_FIELDS, shippingPerRequest } from './formFields.js';
 
 const EXCELJS_URL = 'https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js';
 const CURRENCY = '"$"#,##0.00';
@@ -87,7 +87,8 @@ export function fullTemplate(config) {
       'id', 'season',
       ...keys(answerable(shown(requestFields(config))), 'request'),
       'status',
-      ...keys(shown(itemFields(config)), 'item'),
+      // Whole-order shipping is the "Request Shipping" column, not a per-item one.
+      ...keys(shown(itemFields(config)).filter((f) => !(shippingPerRequest(config) && f.key === 'shipping_cost')), 'item'),
       'itemTotal', 'shipping', 'total',
       'approver', 'approvalDate', 'approvalComment', 'orderDate', 'ticket', 'treasurerNotes', 'receivedDate', 'receivedNotes',
     ],

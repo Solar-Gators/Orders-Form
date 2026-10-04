@@ -25,6 +25,7 @@ import { renderExport } from './views/exportPage.js';
 import { renderArchive } from './views/archive.js';
 import { renderImport } from './views/importPage.js';
 import { errorBox } from './ui.js';
+import { confirmLeave } from './leaveGuard.js';
 
 // Either workflow permission lets you view both queues (actions are still limited by role).
 const LEADS = ['request.review', 'request.order'];
@@ -99,7 +100,20 @@ export function startRouter(ctx, { onRender } = {}) {
     onRender?.();
   };
 
+  // Leaving a page with unsaved changes asks first; "Stay" puts the address back.
+  let currentHash = location.hash;
+  let reverting = false;
   window.addEventListener('hashchange', () => {
+    if (reverting) {
+      reverting = false;
+      return;
+    }
+    if (!confirmLeave()) {
+      reverting = true;
+      location.hash = currentHash;
+      return;
+    }
+    currentHash = location.hash;
     render();
     window.scrollTo(0, 0);
   });

@@ -2,6 +2,9 @@
 
 // Workflow statuses. The database enforces the transitions (supabase/schema.sql);
 // keep this list in sync with the `status` check constraint there.
+/** Orders still "on their way" after this many days are highlighted for the Treasurer. */
+export const LATE_DELIVERY_DAYS = 14;
+
 export const STATUS = Object.freeze({
   DRAFT: 'Draft',
   SUBMITTED: 'Submitted',
@@ -301,7 +304,16 @@ export const COLUMNS = {
   },
   orderedOn: {
     label: 'Ordered',
-    cell: (r) => fmtDate(r.order?.order_date),
+    // While it's still on its way: how long it's been, highlighted after two weeks.
+    cell: (r) => {
+      const d = r.order?.order_date;
+      if (!d) return '—';
+      const days = Math.floor((Date.now() - new Date(`${String(d).slice(0, 10)}T12:00:00`)) / 86400000);
+      const age = r.status === STATUS.ORDERED && days >= 1
+        ? ` <span class="${days > LATE_DELIVERY_DAYS ? 'late-tag' : 'muted small'}" title="Ordered ${days} days ago">${days} day${days === 1 ? '' : 's'}</span>`
+        : '';
+      return fmtDate(d) + age;
+    },
     sort: (r) => r.order?.order_date,
     dirLabels: { asc: 'oldest first', desc: 'newest first' },
   },

@@ -12,6 +12,7 @@ import {
 import { LISTS, availableColumns, availableFilters, listSettings } from '../listColumns.js';
 import { requestFields, itemFields, fieldOptions } from '../formFields.js';
 import { adminTabs } from './admin.js';
+import { guardLeaving } from '../leaveGuard.js';
 
 const toneOptions = (selected) =>
   COLOR_TONES.map((t) => `<option value="${t.key}" ${t.key === selected ? 'selected' : ''}>${esc(t.label)}</option>`).join('');
@@ -183,10 +184,7 @@ export async function renderLists(el, { config, rerender, reloadConfig }) {
     }
   }
 
-  window.addEventListener('beforeunload', function guard(e) {
-    if (!document.body.contains(el)) return window.removeEventListener('beforeunload', guard);
-    if (dirty) e.preventDefault();
-  });
+  guardLeaving(el, () => dirty); // switching pages or closing the tab asks first
 
   draw();
 }
@@ -427,7 +425,7 @@ const RESTORE_PERM = {
 const PART = {
   requestFields: 'request fields', itemFields: 'item fields', subsystems: 'subsystem list', priorities: 'priority list',
   rules: 'approval rules', budgets: 'budgets', enabled: 'on/off', events: 'who gets what', templates: 'message wording', siteUrl: 'website address',
-  defaultPriority: 'default priority', oneVendorPerRequest: 'one-vendor rule', shippingPerRequest: 'shipping rule', teamName: 'team name',
+  defaultPriority: 'default priority', oneVendorPerRequest: 'one-vendor rule', shippingPerRequest: 'shipping rule', requireOrderNumber: 'ticket number rule', teamName: 'team name',
   requestIdPrefix: 'request ID prefix', allowedEmailDomains: 'allowed email domains', statuses: 'status labels & colors',
   showDefaultPriority: 'default priority display', requests: 'Requests list', approvals: 'Approvals list',
   treasurerToOrder: 'Treasurer "To order" list', treasurerOrdered: 'Treasurer "Awaiting delivery" list',
@@ -452,9 +450,43 @@ function describe(entry, previous, roleLabel) {
   }
   const keys = new Set([...Object.keys(entry.value), ...Object.keys(previous.value)]);
   const changed = [...keys].filter((k) => JSON.stringify(entry.value[k]) !== JSON.stringify(previous.value[k]));
+  if (changed.length === 1 && changed[0] === 'schemaVersion') return `Database update (version ${entry.value.schemaVersion})`;
   // Same key, different meaning: in Appearance, "priorities" are the colors.
   const part = (k) => (entry.key === 'appearance' && k === 'priorities' ? 'priority colors' : PART[k] || k);
-  return changed.length ? `Changed ${changed.map(part).join(', ')}` : 'No visible change';
+  const lines = changed.filter((k) => k !== 'schemaVersion').map((k) => detail(entry.key, k, previous.value[k], entry.value[k]) || `Changed ${part(k)}`);
+  return lines.length ? lines.join('; ') : 'No visible change';
+}
+
+/** Say what changed inside a field list or dropdown list, e.g. "Added request field Scholarship funding?". */
+function detail(doc, key, before, after) {
+  const names = (list) => (Array.isArray(list) ? list : []);
+  if (doc === 'form' && (key === 'requestFields' || key === 'itemFields')) {
+    const what = key === 'requestFields' ? 'request field' : 'item field';
+    const old = new Map(names(before).map((f) => [f.key, f]));
+    const now = new Map(names(after).map((f) => [f.key, f]));
+    const out = [];
+    const list = (verb, fs) => fs.length && out.push(`${verb} ${what}${fs.length > 1 ? 's' : ''} ${fs.map((f) => `"${f.label}"`).join(', ')}`);
+    list('Added', [...now.values()].filter((f) => !old.has(f.key)));
+    list('Removed', [...old.values()].filter((f) => !now.has(f.key)));
+    for (const f of now.values()) {
+      const o = old.get(f.key);
+      if (o && o.label !== f.label) out.push(`Renamed ${what} "${o.label}" to "${f.label}"`);
+    }
+    const edited = [...now.values()].filter((f) => {
+      const o = old.get(f.key);
+      return o && o.label === f.label && JSON.stringify(o) !== JSON.stringify(f);
+    });
+    list('Edited', edited);
+    if (!out.length && JSON.stringify(names(before).map((f) => f.key)) !== JSON.stringify(names(after).map((f) => f.key))) out.push(`Reordered ${what}s`);
+    return out.join('; ');
+  }
+  if (doc === 'form' && (key === 'subsystems' || key === 'priorities')) {
+    const added = names(after).filter((x) => !names(before).includes(x));
+    const removed = names(before).filter((x) => !names(after).includes(x));
+    const label = key === 'subsystems' ? 'subsystem' : 'priority';
+    return [added.length && `Added ${label} ${added.join(', ')}`, removed.length && `Removed ${label} ${removed.join(', ')}`].filter(Boolean).join('; ');
+  }
+  return '';
 }
 
 export async function renderHistory(el, { rerender, reloadConfig }) {
@@ -471,6 +503,14 @@ export async function renderHistory(el, { rerender, reloadConfig }) {
   const seen = new Set();
   for (const r of rows) if (!seen.has(r.key)) (seen.add(r.key), current.add(r.id));
   const previousOf = (r) => rows.find((x) => x.key === r.key && x.id < r.id);
+  // Database updates only bump the version number: leave them out (unless that's the version in use).
+  const versionOnly = (r) => {
+    const p = previousOf(r);
+    if (r.key !== 'general' || !p) return false;
+    const keys = new Set([...Object.keys(r.value), ...Object.keys(p.value)]);
+    return [...keys].every((k) => k === 'schemaVersion' || JSON.stringify(r.value[k]) === JSON.stringify(p.value[k]));
+  };
+  rows = rows.filter((r) => current.has(r.id) || !versionOnly(r));
 
   el.innerHTML = `
     ${takeFlash()}

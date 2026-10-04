@@ -9,6 +9,7 @@ import { api } from '../api.js';
 import { auth } from '../auth.js';
 import { esc, fmtMoney, itemTotal, round2, statusBadge, errorBox, setFlash, introText } from '../ui.js';
 import { requestFields, itemFields, shown, getValue, setValue, renderInput, isVisible, shippingPerRequest } from '../formFields.js';
+import { guardLeaving, releaseGuard } from '../leaveGuard.js';
 
 // Example placeholders for built-in item columns (custom fields use their help text).
 const ITEM_PLACEHOLDERS = {
@@ -164,6 +165,10 @@ export async function renderRequestForm(el, { config, params }) {
               </tr>
             </tfoot>
           </table>
+        </div>
+        <div class="add-row">
+          <button type="button" class="btn btn-sm" data-action="add-item">+ Add another item</button>
+          <span class="hint">Tip: pressing Enter moves to the next box, and adds a new item from the last one.</span>
         </div>
       </section>
 
@@ -325,10 +330,12 @@ export async function renderRequestForm(el, { config, params }) {
     const action = e.target.closest('[data-action]')?.dataset.action;
     if (action === 'add-item') {
       items.push(blankItem());
+      dirty = true;
       renderRows();
       tbody.querySelector('tr:last-child input, tr:last-child select')?.focus();
     } else if (action === 'remove-item' && items.length > 1) {
       items.splice(Number(e.target.closest('tr').dataset.index), 1);
+      dirty = true;
       renderRows();
     }
   });
@@ -358,17 +365,107 @@ export async function renderRequestForm(el, { config, params }) {
     const buttons = form.querySelectorAll('button');
     buttons.forEach((b) => (b.disabled = true));
     errorsEl.innerHTML = '';
+    clearMarks();
     try {
       const number = await api.saveRequest(existing?.id, payload);
       setFlash(action === 'submit' ? `${number} submitted for approval.` : `${number} saved as a draft.`);
+      releaseGuard(); // saved: leaving is fine now
       location.hash = `#/requests/${number}`;
     } catch (err) {
-      errorsEl.innerHTML = errorBox(err);
-      errorsEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
       buttons.forEach((b) => (b.disabled = false));
-      renderRows(); // restore "remove" disabled state
+      renderRows(); // restore "remove" disabled state (before marking item fields)
+      showErrors(err);
     }
   });
+
+  // ---- Errors: in the form's order, said plainly, and marked on the fields ----
+  const fieldStarting = (fields, text) =>
+    [...fields].filter((f) => f.type !== 'section' && text.startsWith(f.label)).sort((a, b) => b.label.length - a.label.length)[0];
+  function explain(lines) {
+    const out = [];
+    let vendorSaid = false;
+    for (const line of lines) {
+      const m = line.match(/^Item (\d+): (.*)$/);
+      if (m) {
+        const n = Number(m[1]);
+        const f = fieldStarting(iFields, m[2]);
+        // The single vendor / shipping box: say it once, about that box.
+        if (oneVendor && f === vendorField) {
+          if (!vendorSaid) out.push({ order: 900, text: m[2], el: form.querySelector('#f-vendor') });
+          vendorSaid = true;
+          continue;
+        }
+        if (oneShipping && f === shipField) {
+          out.push({ order: 90000, text: m[2], el: form.querySelector('#f-shipping') });
+          continue;
+        }
+        const el = f && shared.has(f.key)
+          ? sharedBox?.querySelector(`[data-shared="${f.key}"]`)
+          : tbody.querySelectorAll('tr[data-index]')[n - 1]?.querySelector(`[data-ifield="${f?.key}"]`);
+        out.push({ order: 1000 + n * 100 + (f ? iFields.indexOf(f) : 99), text: line, el });
+        continue;
+      }
+      if (/^Add at least one item/.test(line)) {
+        out.push({ order: 950, text: 'Fill in item 1: its name, quantity and unit price.', el: tbody.querySelector('[data-ifield="item_name"]') });
+        continue;
+      }
+      const f = fieldStarting(rFields, line);
+      out.push({ order: f ? rFields.indexOf(f) : 899, text: line, el: f ? form.querySelector(`[data-rfield="${f.key}"]`) : null });
+    }
+    return out.sort((a, b) => a.order - b.order);
+  }
+  function clearMarks() {
+    form.querySelectorAll('.is-invalid').forEach((x) => {
+      x.classList.remove('is-invalid');
+      x.removeAttribute('aria-invalid');
+    });
+  }
+  function showErrors(err) {
+    const problems = err.details?.length ? explain(err.details) : [];
+    if (problems.length) err.details = [...new Set(problems.map((p) => p.text))];
+    errorsEl.innerHTML = errorBox(err);
+    for (const p of problems) {
+      if (!p.el) continue;
+      p.el.classList.add('is-invalid');
+      p.el.setAttribute('aria-invalid', 'true');
+    }
+    const first = problems.find((p) => p.el)?.el;
+    if (first) {
+      first.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      first.focus({ preventScroll: true });
+    } else {
+      errorsEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }
+  form.addEventListener('input', (e) => {
+    if (e.target.classList.contains('is-invalid')) {
+      e.target.classList.remove('is-invalid');
+      e.target.removeAttribute('aria-invalid');
+    }
+  });
+
+  // ---- Enter moves to the next box (and adds a row from the last one); it never submits ----
+  form.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' || e.isComposing || !e.target.matches('input, select')) return;
+    e.preventDefault();
+    const row = e.target.closest('#items-body tr');
+    const rowFields = row ? [...row.querySelectorAll('input, select, textarea')].filter((x) => !x.disabled) : [];
+    if (row && row === tbody.lastElementChild && rowFields.at(-1) === e.target) {
+      items.push(blankItem());
+      dirty = true;
+      renderRows();
+      tbody.querySelector('tr:last-child input, tr:last-child select')?.focus();
+      return;
+    }
+    const all = [...form.querySelectorAll('input, select, textarea')].filter((x) => !x.disabled && x.type !== 'checkbox' && x.offsetParent !== null);
+    all[all.indexOf(e.target) + 1]?.focus();
+  });
+
+  // ---- Unsaved changes: switching pages or closing the tab asks first ----
+  let dirty = false;
+  form.addEventListener('input', () => (dirty = true));
+  form.addEventListener('change', () => (dirty = true));
+  guardLeaving(el, () => dirty);
 
   drawShared();
   renderRows();

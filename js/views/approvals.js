@@ -24,7 +24,7 @@ export async function renderApprovals(el, { config }) {
       <div>
         <h1>Approvals</h1>
         ${introText('approvals', '') ? `<p class="page-intro">${introText('approvals', '')}</p>` : ''}
-        <p class="subtitle">${rows.length} request${rows.length === 1 ? '' : 's'} awaiting review · ${fmtMoney(total)} total${mine.length ? ` · <strong>${mine.length} waiting on you</strong>` : ''}.</p>
+        <p class="subtitle"><span>${rows.length} request${rows.length === 1 ? '' : 's'} awaiting review · ${fmtMoney(total)} total${mine.length ? ` · <strong>${mine.length} waiting on you</strong>` : ''}.</span></p>
       </div>
     </div>
     ${auth.can('request.review') || mine.length ? '' : '<div class="alert alert-info">View only — only a <strong>Chief Engineer</strong> can approve, reject, or request changes.</div>'}

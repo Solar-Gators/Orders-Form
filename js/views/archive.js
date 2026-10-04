@@ -12,9 +12,9 @@ import { esc, fmtMoney, fmtDate, introText } from '../ui.js';
 const filters = { q: '', season: '', subteam: '', status: '' };
 const PAGE = 200;
 
-/** One archive row per item of a past-season request, shaped like an imported sheet row. */
+/** One archive row per item of a past-season request, shaped like an imported sheet row (drafts left out). */
 function fromRequests(requests) {
-  return requests.flatMap((r) =>
+  return requests.filter((r) => r.status !== 'Draft').flatMap((r) =>
     (r.items.length ? r.items : [{}]).map((i, idx) => ({
       id: `app-${r.id}-${idx}`,
       app: true,
@@ -24,6 +24,7 @@ function fromRequests(requests) {
       requester: r.requester,
       subteam: r.subsystem,
       item: i.item_name || r.title,
+      title: r.title,
       cost: i.item_total ?? null,
       status: r.status,
       ticket: r.order?.department_order_number || '',
@@ -115,7 +116,7 @@ export async function renderArchive(el, { config }) {
                 <td class="nowrap" data-label="Date">${r.order_date ? fmtDate(r.order_date) : esc(r.fields?.Date || '—')}</td>
                 <td data-label="Requester">${esc(r.requester || '—')}</td>
                 <td data-label="Subteam">${esc(r.subteam || '—')}</td>
-                <td class="cell-title cell-primary" data-label="">${esc(r.item || '—')}${r.app ? ` <span class="mono small muted">${esc(r.request_number)}</span>` : ''}</td>
+                <td class="cell-title cell-primary" data-label="">${esc(r.item || '—')}${r.app ? ` <span class="mono small muted">${esc(r.request_number)}</span>` : ''}${r.app && r.title && r.title !== r.item ? `<div class="muted small">Request: ${esc(r.title)}</div>` : ''}</td>
                 <td class="num" data-label="Cost">${r.cost === null ? '—' : fmtMoney(r.cost)}</td>
                 <td data-label="Status">${esc(r.status || '—')}</td>
                 <td data-label="Ticket">${esc(r.ticket || '—')}</td>

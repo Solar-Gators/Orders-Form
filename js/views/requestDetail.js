@@ -42,15 +42,18 @@ function itemsAsTable(r, config) {
 }
 
 /** Item columns on this page; whole-order shipping is a line under the items, not a column. */
-function itemFieldsShown(config) {
+function itemFieldsShown(config, r = null) {
   const fields = itemColumnList(config, layout);
-  return shippingPerRequest(config) ? fields.filter((f) => f.key !== 'shipping_cost') : fields;
+  // One vendor per request: the vendor is already in Details, so the items table
+  // doesn't repeat it (the "Copy all items" table keeps it for purchasing forms).
+  const oneVendor = r && config.oneVendorPerRequest !== false && r.vendors.length <= 1;
+  return fields.filter((f) => !(shippingPerRequest(config) && f.key === 'shipping_cost') && !(oneVendor && f.key === 'vendor'));
 }
 
 function itemsTable(r, config) {
   if (!r.items.length) return '<div class="empty">No items yet.</div>';
   // Item name gets its own column with notes underneath; the other chosen fields follow.
-  const fields = itemFieldsShown(config);
+  const fields = itemFieldsShown(config, r);
   const nameField = fields.find((f) => f.key === 'item_name');
   const notesField = fields.find((f) => f.key === 'notes');
   const cols = fields.filter((f) => f !== nameField && f !== notesField);
@@ -172,7 +175,24 @@ function detailsGrid(r, config) {
 }
 
 function historyCard(r) {
+  const logged = r.events || []; // submitted / resubmitted / withdrawn / ordered / received (migration 013)
+  const by = (kind) => [...logged].reverse().find((e) => e.kind === kind)?.actor_name;
   const events = [{ when: r.created_at, text: `Created by ${esc(r.requester || 'unknown')}` }];
+  for (const e of logged) {
+    if (!['submitted', 'resubmitted', 'withdrawn'].includes(e.kind)) continue;
+    const label = { submitted: 'Submitted', resubmitted: 'Resubmitted', withdrawn: 'Withdrawn' }[e.kind];
+    events.push({
+      when: e.created_at,
+      text: `<strong>${label}</strong> by ${esc(e.actor_name || 'unknown')}${
+        e.kind === 'resubmitted'
+          ? e.changes?.length
+            ? `<div class="muted small">Changed since the last review:</div><ul class="change-list">${e.changes.map((c) => `<li>${esc(c)}</li>`).join('')}</ul>`
+            : ' <span class="muted small">(no changes)</span>'
+          : ''
+      }`,
+      kind: e.kind,
+    });
+  }
   for (const a of r.approvals) {
     events.push({
       when: a.created_at,
@@ -182,27 +202,32 @@ function historyCard(r) {
     });
   }
   if (r.order) {
+    const orderedBy = by('ordered');
     events.push({
       when: r.order.order_date,
+      sortAt: logged.find((e) => e.kind === 'ordered')?.created_at,
       dateOnly: true,
-      text: `<strong>Ordered</strong>${r.order.department_order_number ? ` · Ticket # ${esc(r.order.department_order_number)}` : ''}`,
+      text: `<strong>Ordered</strong>${orderedBy ? ` by ${esc(orderedBy)}` : ''}${r.order.department_order_number ? ` · Ticket # ${esc(r.order.department_order_number)}` : ''}`,
       comment: r.order.treasurer_notes,
       kind: 'ordered',
     });
     if (r.order.received_date || r.status === STATUS.RECEIVED) {
+      const receivedBy = by('received');
       events.push({
         when: r.order.received_date,
+        sortAt: logged.find((e) => e.kind === 'received')?.created_at,
         dateOnly: true,
-        text: `<strong>Received</strong>${r.order.received_date ? '' : ' <span class="muted small">(date not recorded)</span>'}`,
+        text: `<strong>Received</strong>${receivedBy ? ` by ${esc(receivedBy)}` : ''}${r.order.received_date ? '' : ' <span class="muted small">(date not recorded)</span>'}`,
         comment: r.order.received_notes,
         kind: 'received',
       });
     }
   }
   events.push(...costEvents(r));
-  // Cost changes happen at a time; order dates are just dates — sort by day, keeping same-day order stable.
-  const day = (e) => String(e.when || '9999').slice(0, 10);
-  events.sort((a, b) => day(a).localeCompare(day(b)));
+  // Sort by when it happened. Order / delivery dates are just dates, so they use
+  // the moment they were recorded when known, else the end of that day.
+  const key = (e) => String(e.sortAt || (e.dateOnly ? `${String(e.when || '9999').slice(0, 10)}T23:59:59` : e.when || '9999'));
+  events.sort((a, b) => new Date(key(a)) - new Date(key(b)));
   return `<section class="card">
     <h2>History</h2>
     <ol class="timeline">
@@ -242,7 +267,7 @@ function budgetNote(r, config, budget) {
   const over = after > budget.amount;
   const blocks = over && r.status === STATUS.SUBMITTED && workflowSettings(config).budgets.block;
   return `<div class="budget-note ${over ? 'is-over' : ''}">
-    <strong>${esc(budget.value)} budget:</strong> ${fmtMoney(budget.used)} of ${fmtMoney(budget.amount)} used · ${fmtMoney(budget.remaining)} left
+    <strong>${esc(budget.value)} budget:</strong> ${fmtMoney(budget.used)} of ${fmtMoney(budget.amount)} used · ${budget.remaining >= 0 ? `${fmtMoney(budget.remaining)} left` : `already ${fmtMoney(-budget.remaining)} over`}
     ${r.status === STATUS.SUBMITTED ? `<br>Approving this makes it ${fmtMoney(after)}${over ? ` — <strong>${fmtMoney(after - budget.amount)} over</strong>${blocks ? '. Approval is blocked by Admin → Workflow.' : '.'}` : '.'}` : ''}
   </div>`;
 }
@@ -252,11 +277,16 @@ function actionPanel(r, config, { names = {}, budget = null } = {}) {
 
   if (config.editableStatuses.includes(r.status)) {
     const heading = r.status === STATUS.DRAFT ? 'Draft' : 'Changes requested';
-    if (!isOwner) return waitingCard(heading, `Waiting on ${esc(r.requester || 'the requester')} to finish and submit.`);
+    const sentBack = r.status === STATUS.CHANGES_REQUESTED && r.latest_approval?.decision === 'request_changes' ? r.latest_approval : null;
+    const quote = sentBack ? `<blockquote class="ce-comment"><strong>${esc(sentBack.approver)}:</strong> ${esc(sentBack.comment)}</blockquote>` : '';
+    if (!isOwner) return `<section class="card action-card"><h2>${heading}</h2>${quote}<p class="muted">Waiting on ${esc(r.requester || 'the requester')} to finish and submit.</p></section>`;
     return `<section class="card action-card">
       <h2>${heading}</h2>
+      ${quote}
       <p class="muted">${r.status === STATUS.DRAFT ? 'This request has not been submitted yet.' : 'Update the request and resubmit it for approval.'}</p>
       <a class="btn btn-primary" href="#/requests/${esc(r.request_number)}/edit">Edit request</a>
+      <div id="action-errors"></div>
+      <button type="button" class="btn btn-ghost btn-sm danger-link" id="delete-request">Delete this request</button>
     </section>`;
   }
 
@@ -266,9 +296,23 @@ function actionPanel(r, config, { names = {}, budget = null } = {}) {
       ? '<p class="muted small">You aren\'t one of the listed approvers, but "Workflow, budgets &amp; notifications" lets you decide anyway.</p>'
       : '';
     const who = approvalNote(r, names) + budgetNote(r, config, budget) + steppingIn;
+    // The requester can pull it back (no longer needed, or to change it before review).
+    const withdraw = isOwner
+      ? `<div id="action-errors"></div>
+         <button type="button" class="btn btn-ghost btn-sm" id="withdraw-request">Withdraw request</button>
+         <p class="muted small">Moves it back to a draft you can edit or delete.</p>`
+      : '';
+    // "All of" rule: you already approved; it's waiting on the others.
+    const waitingOthers = state.needAll && state.approvedBy.includes(auth.user.id)
+      ? state.waitingOn.map((id) => esc(names[id] || 'someone')).join(', ')
+      : '';
+    if (waitingOthers) {
+      return `<section class="card action-card"><h2>You approved this</h2>${who}
+        <p class="muted small">Still waiting on ${waitingOthers}.</p>${withdraw}</section>`;
+    }
     if (!canReview(r)) {
       return `<section class="card action-card"><h2>Awaiting approval</h2>${who}
-        ${isLead() ? '<p class="muted small">View only — you are not one of the approvers for this request.</p>' : ''}</section>`;
+        ${isLead() ? '<p class="muted small">View only — you are not one of the approvers for this request.</p>' : ''}${withdraw}</section>`;
     }
     return `<section class="card action-card">
       <h2>Review</h2>
@@ -299,8 +343,8 @@ function actionPanel(r, config, { names = {}, budget = null } = {}) {
           <input id="o-date" name="order_date" type="date" value="${todayISO()}">
         </div>
         <div class="field">
-          <label for="o-number">Ticket / Dept. Order # <span class="muted">(optional)</span></label>
-          <input id="o-number" name="department_order_number" type="text" placeholder="e.g. 6046">
+          <label for="o-number">Ticket / Dept. Order #${config.requireOrderNumber === false ? ' <span class="muted">(optional)</span>' : ' <span class="req">*</span>'}</label>
+          <input id="o-number" name="department_order_number" type="text" placeholder="e.g. 6046" ${config.requireOrderNumber === false ? '' : 'required'}>
         </div>
         <div class="field">
           <label for="o-notes">Treasurer notes <span class="muted">(optional)</span></label>
@@ -409,19 +453,46 @@ export async function renderRequestDetail(el, { config, params, rerender }) {
   bindCopyButtons(el);
 
   const errors = el.querySelector('#action-errors');
+  // `message` may be a function, worked out after the action (e.g. "still waiting on Cara").
   const run = async (form, fn, message) => {
     form.querySelectorAll('button').forEach((b) => (b.disabled = true));
     errors.innerHTML = '';
     try {
       await fn();
-      setFlash(message);
+      setFlash(typeof message === 'function' ? await message() : message);
       await rerender();
       window.scrollTo({ top: 0, behavior: 'smooth' }); // bring the confirmation into view
     } catch (err) {
+      // Someone else acted first (this page was out of date): show the latest instead.
+      const stale = String(err.message).match(/is "([^"]+)", not (Submitted|Approved|Ordered)/);
+      if (stale) {
+        setFlash(`Someone else already updated ${r.request_number}: it's now ${stale[1]}. Here's the latest.`);
+        await rerender();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        return;
+      }
       errors.innerHTML = errorBox(err);
       form.querySelectorAll('button').forEach((b) => (b.disabled = false));
     }
   };
+
+  // ---- The requester: withdraw a submitted request, or delete a draft ----
+  el.querySelector('#withdraw-request')?.addEventListener('click', (e) => {
+    if (!confirm(`Withdraw ${r.request_number}? It goes back to a draft that only you can see and edit.`)) return;
+    run(e.target.closest('section'), () => api.withdrawRequest(r.id), `${r.request_number} withdrawn. It's a draft again.`);
+  });
+  el.querySelector('#delete-request')?.addEventListener('click', async (e) => {
+    if (!confirm(`Delete ${r.request_number} for good? This can't be undone.`)) return;
+    e.target.disabled = true;
+    try {
+      await api.deleteRequest(r.id);
+      setFlash(`${r.request_number} deleted.`);
+      location.hash = '#/requests';
+    } catch (err) {
+      errors.innerHTML = errorBox(err);
+      e.target.disabled = false;
+    }
+  });
 
   el.querySelector('#owner-save')?.addEventListener('click', async (e) => {
     e.target.disabled = true;
@@ -443,11 +514,25 @@ export async function renderRequestDetail(el, { config, params, rerender }) {
       errors.innerHTML = errorBox(new Error('Please add a comment explaining what needs to change.'));
       return;
     }
-    run(e.target, () => api.review(r.id, decision, comment), `${r.request_number} ${DECISION_LABELS[decision].toLowerCase()}.`);
+    run(e.target, () => api.review(r.id, decision, comment), async () => {
+      if (decision !== 'approve') return `${r.request_number} ${DECISION_LABELS[decision].toLowerCase()}.`;
+      // "All of" rules: your approval may not be the last one.
+      const now = await api.getRequest(r.request_number).catch(() => null);
+      if (now?.status !== STATUS.SUBMITTED) return `${r.request_number} approved.`;
+      const waiting = approvalState(now).waitingOn || [];
+      return `Your approval is recorded. ${r.request_number} is still waiting on ${waiting.map((id) => names[id] || 'another approver').join(', ')}.`;
+    });
   });
 
   el.querySelector('#order-form')?.addEventListener('submit', (e) => {
     e.preventDefault();
+    const ticket = e.target.department_order_number;
+    if (ticket.required && !ticket.value.trim()) {
+      errors.innerHTML = errorBox(new Error('Enter the ticket / Dept. order number.'));
+      ticket.classList.add('is-invalid');
+      ticket.focus();
+      return;
+    }
     run(e.target, () => api.markOrdered(r.id, Object.fromEntries(new FormData(e.target))), `${r.request_number} marked as ordered.`);
   });
 

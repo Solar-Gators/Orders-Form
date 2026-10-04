@@ -65,7 +65,7 @@ export async function renderAccount(el, { config, rerender }) {
             <div><dt>Email</dt><dd>${esc(user.email)}</dd></div>
             <div><dt>Role</dt><dd>${esc(auth.roleLabel)}</dd></div>
           </dl>
-          <p class="muted small">Roles are assigned by the Chief Engineer or Treasurer.</p>
+          <p class="muted small">Roles are given by your team leads.</p>
           <div id="profile-errors"></div>
           <button type="submit" class="btn btn-primary">Save profile</button>
         </form>

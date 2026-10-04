@@ -8,31 +8,40 @@
 import { api } from '../api.js';
 import { auth } from '../auth.js';
 import { esc, fmtDate, errorBox, setFlash, takeFlash } from '../ui.js';
+import { guardLeaving } from '../leaveGuard.js';
 import {
   FIELD_TYPES, LOCKED, LIST_FIELDS, CONDITION_OPS, requestFields, itemFields, typeLabel, makeKey, fieldOptions, describeCondition,
 } from '../formFields.js';
 
-/** Admin tabs, each shown only with its permission. Also used by the router. */
+/**
+ * Admin tabs, each shown only with its permission, grouped under small headings.
+ * Also used by the router. [key, label, permissions, group]
+ */
 export const ADMIN_TABS = [
-  ['users', 'Users & roles', ['users.manage']],
-  ['fields', 'Form fields', ['settings.edit']],
-  ['settings', 'Settings', ['settings.edit', 'seasons.manage']],
-  ['lists', 'Lists', ['site.customize']],
-  ['page', 'Request page', ['site.customize']],
-  ['exports', 'Exports', ['site.customize']],
-  ['appearance', 'Appearance', ['site.customize']],
-  ['text', 'Text & banner', ['site.customize']],
-  ['workflow', 'Workflow', ['workflow.edit']],
-  ['notifications', 'Notifications', ['workflow.edit']],
-  ['import', 'Import', ['seasons.manage']],
-  ['history', 'History', ['users.manage', 'settings.edit', 'site.customize', 'workflow.edit']],
+  ['users', 'Users & roles', ['users.manage'], 'People'],
+  ['fields', 'Form fields', ['settings.edit'], 'Form'],
+  ['settings', 'Settings', ['settings.edit', 'seasons.manage'], 'Form'],
+  ['import', 'Import', ['seasons.manage'], 'Form'],
+  ['lists', 'Lists', ['site.customize'], 'Pages & look'],
+  ['page', 'Request page', ['site.customize'], 'Pages & look'],
+  ['exports', 'Exports', ['site.customize'], 'Pages & look'],
+  ['appearance', 'Appearance', ['site.customize'], 'Pages & look'],
+  ['text', 'Text & banner', ['site.customize'], 'Pages & look'],
+  ['workflow', 'Workflow', ['workflow.edit'], 'Workflow'],
+  ['notifications', 'Notifications', ['workflow.edit'], 'Workflow'],
+  ['history', 'History', ['users.manage', 'settings.edit', 'site.customize', 'workflow.edit'], 'Records'],
 ];
 
 export function adminTabs(active) {
   const items = ADMIN_TABS.filter(([, , perms]) => perms.some((p) => auth.can(p)));
-  return `<nav class="tabs">${items
-    .map(([key, label]) => `<a href="#/admin/${key}" class="${key === active ? 'active' : ''}">${label}</a>`)
-    .join('')}</nav>`;
+  let group = '';
+  const parts = [];
+  for (const [key, label, , g] of items) {
+    if (g !== group) parts.push(`<span class="tab-group">${g}</span>`);
+    group = g;
+    parts.push(`<a href="#/admin/${key}" class="${key === active ? 'active' : ''}" ${key === active ? 'aria-current="page"' : ''}>${label}</a>`);
+  }
+  return `<nav class="tabs admin-tabs" aria-label="Admin">${parts.join('')}</nav>`;
 }
 
 // ---- Users --------------------------------------------------------------------
@@ -65,6 +74,15 @@ export async function renderUsers(el, { rerender }) {
       manage people & roles, so the site won't let the last one lose that ability.
     </div>
     <div id="user-errors"></div>
+    <div class="toolbar">
+      <input type="search" id="people-q" placeholder="Search name or email" aria-label="Search people">
+      <select id="people-filter" aria-label="Show">
+        <option value="">Everyone</option>
+        <option value="leads">Only people with a role</option>
+        ${assignable.map((r) => `<option value="${esc(r.key)}">${esc(r.label)}</option>`).join('')}
+      </select>
+      <span class="muted" id="people-count">${people.length} people</span>
+    </div>
     <div class="table-wrap">
       <table class="table people-table">
         <thead><tr><th>Name</th><th>Email</th><th>Joined</th><th>Roles</th></tr></thead>
@@ -130,6 +148,24 @@ export async function renderUsers(el, { rerender }) {
   const userErrors = el.querySelector('#user-errors');
   const roleErrors = el.querySelector('#role-errors');
   const label = (key) => roles.find((r) => r.key === key)?.label || key;
+
+  // Find someone: by name / email, and by role.
+  const filterPeople = () => {
+    const words = el.querySelector('#people-q').value.toLowerCase().split(/\s+/).filter(Boolean);
+    const role = el.querySelector('#people-filter').value;
+    let shown = 0;
+    for (const p of people) {
+      const row = el.querySelector(`tr[data-user="${CSS.escape(p.id)}"]`);
+      const text = `${p.full_name} ${p.email}`.toLowerCase();
+      const ok = words.every((w) => text.includes(w)) &&
+        (!role || (role === 'leads' ? p.roles.some((r) => r !== 'member') : holds(p, role)));
+      row.hidden = !ok;
+      if (ok) shown++;
+    }
+    el.querySelector('#people-count').textContent = shown === people.length ? `${people.length} people` : `${shown} of ${people.length} people`;
+  };
+  el.querySelector('#people-q').addEventListener('input', filterPeople);
+  el.querySelector('#people-filter').addEventListener('change', filterPeople);
 
   // Tick / untick a role for someone: saved right away.
   el.querySelectorAll('tr[data-user] input[data-role]').forEach((box) =>
@@ -375,6 +411,13 @@ export async function renderSettings(el, { rerender, reloadConfig }) {
                   Turn off to enter shipping per item.</span></span>
             </label>
           </div>
+          <div class="field">
+            <label class="rule-toggle">
+              <input type="checkbox" name="requireOrderNumber" ${form.requireOrderNumber !== false ? 'checked' : ''}>
+              <span>Ticket / Dept. order number is required
+                <span class="hint">The Treasurer must enter it when marking a request Ordered. Turn off if some orders don't get one.</span></span>
+            </label>
+          </div>
         </section>
       </div>
       <div class="form-actions">
@@ -454,6 +497,7 @@ export async function renderSettings(el, { rerender, reloadConfig }) {
     nextForm.defaultPriority = priorities.includes(wanted) ? wanted : priorities[0] || '';
     nextForm.oneVendorPerRequest = data.oneVendorPerRequest === 'on';
     nextForm.shippingPerRequest = data.shippingPerRequest === 'on';
+    nextForm.requireOrderNumber = data.requireOrderNumber === 'on';
     const nextGeneral = {
       ...general,
       teamName: data.teamName.trim() || 'Solar Gators',
@@ -505,6 +549,7 @@ export async function renderFormFields(el, { rerender, reloadConfig }) {
 
   // ---- Rules: "show only when…", min / max, max length, default ----------------------
   /** Fields a condition can look at: saved fields that take an answer (items can also look at request fields). */
+  const fieldKeys = (except = null) => new Set([...lists.request, ...lists.item].filter((x) => x !== except && x.key).map((x) => x.key));
   const conditionTargets = (kind, f) => {
     const usable = (list) => list.filter((x) => x.key && x !== f && x.type !== 'section' && !x.hidden);
     return kind === 'request'
@@ -555,7 +600,7 @@ export async function renderFormFields(el, { rerender, reloadConfig }) {
             ? '<span class="muted small">This field is locked: it\'s always shown.</span>'
             : `<select data-rule="cond-field" aria-label="Field to check"><option value="">Always show this field</option>${targetOptions}</select>
               ${c.field ? `<select data-rule="cond-op" aria-label="Rule">${CONDITION_OPS.map((o) => `<option value="${o.key}" ${o.key === op.key ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}</select>${valueInput}` : ''}
-              <div class="hint">Hidden fields aren't required and their answers aren't saved. New fields can be used here after the form is saved.</div>`
+              <div class="hint">Hidden fields aren't required and their answers aren't saved.</div>`
         }
       </div>
       ${
@@ -589,7 +634,8 @@ export async function renderFormFields(el, { rerender, reloadConfig }) {
   };
 
   const optionsCell = (f) => {
-    if (f.builtin && LIST_FIELDS[f.key]) return `<a href="#/admin/settings" class="small">Edit list in Settings</a>`;
+    // Saved dropdowns: options are edited in one place, Settings → Dropdown lists.
+    if ((f.builtin && LIST_FIELDS[f.key]) || (f.type === 'select' && !f._new)) return `<a href="#/admin/settings" class="small">Edit list in Settings</a>`;
     if (!f.builtin && f.type === 'select') {
       return `<textarea data-prop="options" rows="2" placeholder="One option per line" aria-label="Options for ${esc(f.label)}">${esc(
         (f.options || []).join('\n')
@@ -731,6 +777,12 @@ export async function renderFormFields(el, { rerender, reloadConfig }) {
     const f = t.list[t.idx];
     if (prop === 'options') f.options = e.target.value.split('\n').map((o) => o.trim()).filter(Boolean);
     else f[prop] = e.target.value;
+    if (prop === 'label' && f._new) {
+      // Until it's saved, a new field's key follows its label; rules pointing at it follow too.
+      const old = f.key;
+      f.key = makeKey(f.label.trim() || 'field', fieldKeys(f));
+      if (old !== f.key) for (const x of [...lists.request, ...lists.item]) if (x.showIf?.field === old) x.showIf.field = f.key;
+    }
     markDirty();
   });
 
@@ -775,7 +827,9 @@ export async function renderFormFields(el, { rerender, reloadConfig }) {
       markDirty();
       draw();
     } else if (btn.dataset.add) {
-      lists[btn.dataset.add].push({ label: 'New field', type: 'text', required: false, _uid: ++uid });
+      // New fields get their key right away (from the label), so other fields'
+      // "Show only when" rules can use them before saving.
+      lists[btn.dataset.add].push({ label: 'New field', type: 'text', required: false, _uid: ++uid, _new: true, key: makeKey('New field', fieldKeys()) });
       markDirty();
       draw();
       const inputs = el.querySelectorAll(`[data-list="${btn.dataset.add}"] input[data-prop="label"]`);
@@ -845,12 +899,8 @@ export async function renderFormFields(el, { rerender, reloadConfig }) {
     }
   }
 
-  // Warn before closing the tab with unsaved edits.
-  const beforeUnload = (e) => {
-    if (!document.body.contains(el)) return window.removeEventListener('beforeunload', beforeUnload);
-    if (dirty) e.preventDefault();
-  };
-  window.addEventListener('beforeunload', beforeUnload);
+  // Warn before switching pages or closing the tab with unsaved edits.
+  guardLeaving(el, () => dirty);
 
   draw();
 }

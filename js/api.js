@@ -136,7 +136,35 @@ export const api = {
   async getRequest(requestNumber) {
     const row = unwrap(await selectRequests((select) => supabase.from('requests').select(select).eq('request_number', requestNumber).maybeSingle()));
     if (!row) throw new Error(`Request ${requestNumber} was not found.`);
-    return hydrate(row);
+    const r = hydrate(row);
+    // History entries (submitted, resubmitted, withdrawn, ordered, received), from migration 013.
+    const ev = await supabase.from('request_events').select('*').eq('request_id', r.id).order('id');
+    r.events = ev.error ? [] : ev.data;
+    return r;
+  },
+
+  /** Your own requests that need you (drafts, sent back for changes), from any season. */
+  async listMyUnfinished(userId) {
+    const res = await selectRequests((select) =>
+      supabase.from('requests').select(select).eq('created_by', userId).in('status', ['Changes Requested', 'Draft']).order('updated_at', { ascending: false })
+    );
+    return res.error ? [] : res.data.map(hydrate);
+  },
+
+  /** How many of your requests were sent back for changes (for the Requests tab badge). */
+  async countMyChangesRequested(userId) {
+    const { count, error } = await supabase.from('requests').select('id', { count: 'exact', head: true }).eq('created_by', userId).eq('status', 'Changes Requested');
+    return error ? 0 : count || 0;
+  },
+
+  /** The requester: delete a draft or a request sent back for changes. */
+  async deleteRequest(id) {
+    unwrap(await supabase.rpc('delete_request', { p_id: id }));
+  },
+
+  /** The requester: pull a submitted request back to Draft. */
+  async withdrawRequest(id) {
+    unwrap(await supabase.rpc('withdraw_request', { p_id: id }));
   },
 
   /** Create (id null) or update. action: 'draft' | 'submit'. Returns the request number. */

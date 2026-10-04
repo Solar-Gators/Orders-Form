@@ -61,9 +61,11 @@ All of this can be changed in **Admin → Users & roles → Permissions**, and y
 3. Enter the **vendor** once, then add one row per item: name, link, quantity and unit price. Enter **shipping once for the whole order** (under the items), the way the vendor charges it. Totals update as you type. (Leads can switch to per-item shipping in Admin → Settings → Request rules.)
    - **Same for every item:** you still add a row for every item, but you can tick a field (the link, quantity, unit price, or any other required item field) to type it once for all rows, e.g. one shared Digi-Key or McMaster-Carr cart link.
    - **One vendor per request:** each request is a single purchase. Buying from McMaster-Carr and Amazon? Submit two requests. (Leads can turn this rule off in Admin → Settings.)
-4. Click **Submit Request**, or **Save Draft** to finish later.
+4. Click **Submit Request**, or **Save Draft** to finish later. Pressing Enter moves to the next box (and adds an item from the last one); it never submits. If something's missing, the box is outlined in red. Leaving the page with unsaved changes asks first.
 
-If the Chief Engineer requests changes, you'll see their comment on the request. Click **Edit request**, fix it, and resubmit.
+If the Chief Engineer requests changes, the request appears at the top of **Requests** under **Needs your action** (the Requests tab shows a count), with their comment. Click **Edit request**, fix it, and resubmit; the History then lists exactly what you changed.
+
+Changed your mind? Open a submitted request and click **Withdraw request** to turn it back into a draft. Drafts and requests sent back for changes can be deleted.
 
 ### Approving (Chief Engineer)
 - The **Approvals** tab lists everything waiting, sorted by needed-by date. The number on the tab is how many are waiting.
@@ -73,7 +75,9 @@ If the Chief Engineer requests changes, you'll see their comment on the request.
 
 ### Ordering and delivery (Treasurer)
 - The **Treasurer** tab has two lists: **To order** (approved) and **Awaiting delivery** (ordered).
-- **Mark as Ordered:** record the order date, ticket / department order number, and any notes.
+- **Mark as Ordered:** record the order date, ticket / department order number (required unless turned off in Admin → Settings), and any notes.
+- **Order several at once:** bought a few approved requests in one checkout? Open **Order several at once** on the Treasurer tab, tick them (grouped by vendor), and enter the date and ticket number once.
+- **Late deliveries:** Awaiting delivery shows how long each order has been out, and highlights anything over 14 days.
 - **Mark as Received:** record when it arrived, e.g. "in office".
 - **Budgets:** if your leads set budgets (per Cost center, Subsystem, …), the top of the Treasurer tab shows each budget, how much is used this season, what's left, and what's waiting for approval.
 - **Copy buttons:** every value on a request has a small copy icon (item name, vendor, link, part #, quantity, prices, request ID, total), for pasting into purchasing forms. **Copy all items** copies the whole item list as a table that pastes straight into Excel or Google Sheets.
@@ -81,7 +85,7 @@ If the Chief Engineer requests changes, you'll see their comment on the request.
 
 ### Finding things
 - **Requests:** this season's requests. A season picker lets you look back at earlier seasons.
-- **Sorting:** click any column heading on Requests, Approvals, or Treasurer to sort by it, and click again to reverse. On a phone, use the **Sort by** menu above the list. Search by ID, title, requester, or vendor, and filter by status, subsystem, or "My requests".
+- **Sorting:** click any column heading on Requests, Approvals, or Treasurer to sort by it, and click again to reverse. On a phone, use the **Sort by** menu above the list. Search by ID, title, requester, vendor, item name, part number or ticket number, and filter by status, subsystem, or "My requests".
 - **Archive:** orders from past seasons: requests made on this site in earlier seasons, plus the old spreadsheets imported from Excel. Type any words (item, vendor, part number, person, ticket) and filter by season, subteam, or status. Click a row to see every column exactly as it was in the original sheet.
 - **Export:** download a season (or all seasons) as an Excel file. Pick a **template**: the full export (every column, one row per item), or ones your leads made, e.g. the exact columns the department's purchasing form wants. There's one row per item, with request, approval, order, and delivery details on each row, ready to filter or pivot.
 

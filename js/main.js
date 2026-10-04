@@ -8,8 +8,8 @@ import { STATUS, STATUSES, EDITABLE_STATUSES, esc, errorBox, setCurrentSeason, s
 const app = document.getElementById('app');
 
 // Bump when adding a file to supabase/migrations/ (the migration sets general.schemaVersion).
-const REQUIRED_SCHEMA_VERSION = 12;
-const MIGRATIONS = { 2: '002_form_fields.sql', 3: '003_archive_and_import.sql', 4: '004_cost_adjustments.sql', 5: '005_editable_permissions.sql', 6: '006_seasons.sql', 7: '007_one_vendor_per_request.sql', 8: '008_roles_admin_history.sql', 9: '009_form_rules_layout_exports.sql', 10: '010_workflow_budgets_notifications.sql', 11: '011_notification_choices.sql', 12: '012_link_imported_requests.sql' };
+const REQUIRED_SCHEMA_VERSION = 13;
+const MIGRATIONS = { 2: '002_form_fields.sql', 3: '003_archive_and_import.sql', 4: '004_cost_adjustments.sql', 5: '005_editable_permissions.sql', 6: '006_seasons.sql', 7: '007_one_vendor_per_request.sql', 8: '008_roles_admin_history.sql', 9: '009_form_rules_layout_exports.sql', 10: '010_workflow_budgets_notifications.sql', 11: '011_notification_choices.sql', 12: '012_link_imported_requests.sql', 13: '013_history_drafts_ticket.sql' };
 
 /** Shared config object handed to every view. Mutated in place on reload. */
 const config = {};
@@ -76,7 +76,7 @@ function updateChrome() {
     node.hidden = !auth.signedIn || !node.dataset.perm.split(' ').some((p) => auth.can(p));
   });
   // Help tab only when the team has written help text.
-  document.getElementById('nav-help').hidden = !auth.signedIn || !String(config.appearance?.helpText || '').trim();
+  document.getElementById('nav-help').hidden = !auth.signedIn; // built-in guide until the team writes its own
   updateAnnouncement();
   // Tell leads (only) when the live database is missing a migration.
   const banner = document.getElementById('banner');
@@ -106,6 +106,7 @@ async function refreshNavCounts() {
     const lead = auth.can('request.review') || auth.can('request.order');
     if (lead) set('count-approvals', await api.countByStatus(STATUS.SUBMITTED));
     if (lead) set('count-treasurer', await api.countByStatus(STATUS.APPROVED));
+    set('count-requests', await api.countMyChangesRequested(auth.user.id)); // yours to fix
   } catch {
     /* counts are a nice-to-have */
   }

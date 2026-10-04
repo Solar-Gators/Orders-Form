@@ -9,6 +9,7 @@ import { esc, errorBox, setFlash, takeFlash, statusLabel, renderRichText } from 
 import { COPY_MODES, pageLayout, detailCandidates, itemCandidates } from '../pageLayout.js';
 import { exportCatalog, exportTemplates } from '../excel.js';
 import { adminTabs } from './admin.js';
+import { guardLeaving } from '../leaveGuard.js';
 
 const move = (list, i, d) => {
   const j = i + d;
@@ -16,13 +17,8 @@ const move = (list, i, d) => {
   [list[i], list[j]] = [list[j], list[i]];
 };
 
-/** Warn before leaving a page with unsaved edits. */
-function guardUnsaved(el, isDirty) {
-  window.addEventListener('beforeunload', function guard(e) {
-    if (!document.body.contains(el)) return window.removeEventListener('beforeunload', guard);
-    if (isDirty()) e.preventDefault();
-  });
-}
+/** Warn before leaving a page with unsaved edits (switching pages or closing the tab). */
+const guardUnsaved = (el, isDirty) => guardLeaving(el, isDirty);
 
 // ---- Request page layout -------------------------------------------------------------
 
