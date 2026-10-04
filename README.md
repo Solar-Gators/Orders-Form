@@ -59,6 +59,7 @@ All of this can be changed in **Admin → Users & roles → Permissions**, and y
 1. Click **New Request**.
 2. Fill in the request details: title, subsystem, needed-by date, priority, and why you need the items.
 3. Enter the **vendor** once, then add one row per item: name, link, quantity, unit price, and shipping if you know it. Totals update as you type.
+   - **Same for every item:** tick a field (the link, quantity, unit price, or any other required item field) to fill it in once instead of on every row, e.g. one shared Digi-Key or McMaster-Carr cart link for the whole cart.
    - **One vendor per request:** each request is a single purchase. Buying from McMaster-Carr and Amazon? Submit two requests. (Leads can turn this rule off in Admin → Settings.)
 4. Click **Submit Request**, or **Save Draft** to finish later.
 

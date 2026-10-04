@@ -53,26 +53,32 @@ export async function renderRequestForm(el, { config, params }) {
   const req = existing
     ? { ...existing, data: { ...existing.data } }
     : withDefaults({ requester: auth.user.full_name, priority: config.defaultPriority, data: {} }, rFields);
-  const blankItem = () => withDefaults({ data: {} }, iFields);
+  const shared = new Set(); // keys of item fields filled in once for every item (below)
+  // New rows start with the defaults, and with any "same for every item" values.
+  const blankItem = () => {
+    const item = withDefaults({ data: {} }, iFields);
+    for (const f of iFields) if (shared.has(f.key)) setValue(item, f, getValue(items[0], f));
+    return item;
+  };
   const items = existing?.items.length ? existing.items.map((i) => ({ ...i, data: { ...i.data } })) : [blankItem()];
 
   // One vendor per request (Settings, on by default): the vendor is entered once,
   // above the items, instead of in every row. The database enforces the same rule.
   const vendorField = iFields.find((f) => f.key === 'vendor');
   const oneVendor = config.oneVendorPerRequest !== false && !!vendorField;
-  // "All items use the same link" (e.g. one shared Digi-Key / McMaster cart):
-  // one link box above the items instead of a Link column; it's saved on every item.
-  const linkField = iFields.find((f) => f.key === 'product_link');
-  const itemLinks = items.map((i) => (i.product_link || '').trim());
-  let sameLink = !!linkField && items.length > 1 && !!itemLinks[0] && itemLinks.every((l) => l === itemLinks[0]);
-  const tableFields = () => iFields.filter((f) => !(oneVendor && f === vendorField) && !(sameLink && f === linkField));
-  const linkBox = linkField
-    ? `<div class="field same-link-field">
-        <label class="rule-toggle"><input type="checkbox" id="same-link" ${sameLink ? 'checked' : ''}>
-          <span>All items use the same ${esc(linkField.label.toLowerCase())} <span class="hint">e.g. a shared Digi-Key or McMaster-Carr cart</span></span></label>
-        <input id="f-link" type="url" value="${esc(sameLink ? itemLinks[0] : '')}" placeholder="https://…" aria-label="${esc(linkField.label)} for every item" ${sameLink ? '' : 'hidden'}>
-      </div>`
-    : '';
+  // "Same for every item": any required item field (plus the link, e.g. one
+  // shared Digi-Key / McMaster cart) can be filled in once instead of per row.
+  // Every item keeps a copy of the value, so totals, rules and saving work as usual.
+  const sharable = iFields.filter(
+    (f) => f.type !== 'section' && f.key !== 'item_name' && !(oneVendor && f === vendorField) && (f.required || f.key === 'product_link')
+  );
+  const sameEverywhere = (f) => {
+    const values = items.map((i) => String(getValue(i, f) ?? '').trim());
+    return items.length > 1 && values[0] !== '' && values.every((v) => v === values[0]);
+  };
+  for (const f of sharable.filter(sameEverywhere)) shared.add(f.key); // reopening a draft keeps them
+  const tableFields = () => iFields.filter((f) => !(oneVendor && f === vendorField) && !shared.has(f.key));
+  const fillAll = (f, value) => items.forEach((i) => setValue(i, f, value));
   const existingVendors = [...new Set(items.map((i) => (i.vendor || '').trim()).filter(Boolean))];
   const vendorBox = oneVendor
     ? `<div class="field vendor-field">
@@ -128,7 +134,7 @@ export async function renderRequestForm(el, { config, params }) {
           <button type="button" class="btn btn-sm" data-action="add-item">+ Add item</button>
         </div>
         ${vendorBox}
-        ${linkBox}
+        ${sharable.length ? '<div id="shared-box" class="shared-fields"></div>' : ''}
         <div class="table-wrap flat">
           <table class="table items-table stack-form">
             <thead id="items-head"></thead>
@@ -165,11 +171,7 @@ export async function renderRequestForm(el, { config, params }) {
     return r;
   };
   /** Item as the conditions see it: the single vendor box counts as each item's vendor. */
-  const itemForRules = (item) => ({
-    ...item,
-    ...(oneVendor ? { vendor: form.querySelector('#f-vendor').value } : {}),
-    ...(sameLink ? { product_link: form.querySelector('#f-link').value } : {}),
-  });
+  const itemForRules = (item) => (oneVendor ? { ...item, vendor: form.querySelector('#f-vendor').value } : item);
 
   const applyConditions = () => {
     const r = currentRequest();
@@ -245,20 +247,54 @@ export async function renderRequestForm(el, { config, params }) {
   tbody.addEventListener('input', onItemInput);
   tbody.addEventListener('change', onItemInput); // selects
 
-  el.querySelector('#same-link')?.addEventListener('change', (e) => {
-    const box = el.querySelector('#f-link');
-    sameLink = e.target.checked;
-    if (sameLink) {
-      box.value ||= items.map((i) => (i.product_link || '').trim()).find(Boolean) || ''; // start from the first link typed
-      box.hidden = false;
-      box.focus();
+  // ---- "Same for every item" ----
+  const sharedBox = el.querySelector('#shared-box');
+  const drawShared = () => {
+    if (!sharedBox) return;
+    const on = sharable.filter((f) => shared.has(f.key));
+    sharedBox.innerHTML = `
+      <div class="shared-toggles">
+        <span class="small"><strong>Same for every item:</strong></span>
+        ${sharable
+          .map((f) => `<label class="role-chip ${shared.has(f.key) ? 'on' : ''}"><input type="checkbox" data-share="${esc(f.key)}" ${shared.has(f.key) ? 'checked' : ''}>${esc(f.label)}</label>`)
+          .join('')}
+      </div>
+      ${
+        on.length
+          ? `<div class="form-grid shared-inputs">${on
+              .map(
+                (f) => `<div class="field">
+                  <label for="s-${esc(f.key)}">${esc(f.label)}${star(f)} <span class="muted small">(every item)</span></label>
+                  ${renderInput({ ...f, placeholder: f.key === 'product_link' ? 'e.g. a shared Digi-Key or McMaster-Carr cart link' : f.placeholder }, getValue(items[0], f), config, `id="s-${esc(f.key)}" data-shared="${esc(f.key)}"`)}
+                </div>`
+              )
+              .join('')}</div>`
+          : '<p class="hint">Tick a field to fill it in once here instead of on every row, e.g. the cart link or the quantity.</p>'
+      }`;
+  };
+  sharedBox?.addEventListener('change', (e) => {
+    const key = e.target.dataset.share;
+    if (!key) return;
+    const f = iFields.find((x) => x.key === key);
+    if (e.target.checked) {
+      // Start from the first value already typed in a row.
+      shared.add(key);
+      fillAll(f, items.map((i) => getValue(i, f)).find((v) => String(v ?? '').trim() !== '') ?? '');
     } else {
-      // Back to one link per item: every row keeps the shared link, ready to edit.
-      for (const i of items) i.product_link = box.value.trim();
-      box.hidden = true;
+      shared.delete(key); // every row keeps the shared value, ready to edit
     }
+    drawShared();
     renderRows();
+    if (e.target.checked) sharedBox.querySelector(`#s-${CSS.escape(key)}`)?.focus();
   });
+  const onSharedInput = (e) => {
+    const key = e.target.dataset.shared;
+    if (!key) return;
+    fillAll(iFields.find((x) => x.key === key), e.target.value);
+    if (['quantity', 'unit_price', 'shipping_cost'].includes(key)) renderRows(); // row totals (focus stays up here)
+  };
+  sharedBox?.addEventListener('input', onSharedInput);
+  sharedBox?.addEventListener('change', onSharedInput); // selects
 
   el.addEventListener('click', (e) => {
     const action = e.target.closest('[data-action]')?.dataset.action;
@@ -286,9 +322,7 @@ export async function renderRequestForm(el, { config, params }) {
       items: items.map((i) => {
         const out = { data: {} };
         for (const f of iFields) setValue(out, f, getValue(i, f));
-        if (oneVendor) out.vendor = form.querySelector('#f-vendor').value.trim(); // same vendor for every item
-        if (sameLink) out.product_link = form.querySelector('#f-link').value.trim(); // same link for every item
-        for (const f of iFields) if (!isVisible(f, request, out)) setValue(out, f, '');
+        if (oneVendor) out.vendor = form.querySelector('#f-vendor').value.trim(); // same vendor for every item        for (const f of iFields) if (!isVisible(f, request, out)) setValue(out, f, '');
         return out;
       }),
     };
@@ -308,5 +342,6 @@ export async function renderRequestForm(el, { config, params }) {
     }
   });
 
+  drawShared();
   renderRows();
 }
