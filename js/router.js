@@ -11,11 +11,12 @@
 import { auth } from './auth.js';
 import { renderLogin } from './views/login.js';
 import { renderAccount, renderResetPassword } from './views/account.js';
-import { renderUsers, renderSettings, renderFormFields, ADMIN_TABS } from './views/admin.js';
+import { renderUsers, renderRoles, renderDropdowns, renderSeason, renderFormFields, ADMIN_TABS } from './views/admin.js';
 import { renderLists, renderAppearance, renderHistory } from './views/adminSetup.js';
 import { renderPageLayout, renderExportTemplates, renderTextBanner } from './views/adminPages.js';
 import { renderWorkflow, renderNotifications } from './views/adminWorkflow.js';
 import { renderHelp } from './views/help.js';
+import { renderHome, homeSeen } from './views/home.js';
 import { renderRequestForm } from './views/requestForm.js';
 import { renderRequestList } from './views/requestList.js';
 import { renderRequestDetail } from './views/requestDetail.js';
@@ -33,6 +34,7 @@ const LEADS = ['request.review', 'request.order'];
 const tabPerms = (name) => ADMIN_TABS.find(([key]) => key === name)[2];
 
 const ROUTES = [
+  { pattern: /^\/home$/, nav: 'home', view: renderHome },
   { pattern: /^\/new$/, nav: 'new', view: renderRequestForm },
   { pattern: /^\/requests$/, nav: 'requests', view: renderRequestList },
   { pattern: /^\/requests\/([^/]+)\/edit$/, nav: 'requests', view: renderRequestForm },
@@ -43,7 +45,11 @@ const ROUTES = [
   { pattern: /^\/export$/, nav: 'export', view: renderExport },
   { pattern: /^\/admin\/users$/, nav: 'admin', view: renderUsers, perm: tabPerms('users') },
   { pattern: /^\/admin\/fields$/, nav: 'admin', view: renderFormFields, perm: tabPerms('fields') },
-  { pattern: /^\/admin\/settings$/, nav: 'admin', view: renderSettings, perm: tabPerms('settings') },
+  { pattern: /^\/admin\/roles$/, nav: 'admin', view: renderRoles, perm: tabPerms('roles') },
+  { pattern: /^\/admin\/dropdowns$/, nav: 'admin', view: renderDropdowns, perm: tabPerms('dropdowns') },
+  { pattern: /^\/admin\/season$/, nav: 'admin', view: renderSeason, perm: tabPerms('season') },
+  // The old Settings page is now Dropdowns & rules + Team & season.
+  { pattern: /^\/admin\/settings$/, redirect: () => (auth.can('settings.edit') ? '#/admin/dropdowns' : '#/admin/season') },
   { pattern: /^\/admin\/lists$/, nav: 'admin', view: renderLists, perm: tabPerms('lists') },
   { pattern: /^\/admin\/page$/, nav: 'admin', view: renderPageLayout, perm: tabPerms('page') },
   { pattern: /^\/admin\/exports$/, nav: 'admin', view: renderExportTemplates, perm: tabPerms('exports') },
@@ -65,7 +71,8 @@ let renderToken = 0;
 export function startRouter(ctx, { onRender } = {}) {
   const render = async () => {
     const token = ++renderToken;
-    const path = location.hash.replace(/^#/, '') || '/requests';
+    // No address (e.g. the site was just opened): Home the first time on this device, then Requests.
+    const path = location.hash.replace(/^#/, '') || (auth.signedIn && !homeSeen() ? '/home' : '/requests');
     let route = ROUTES.find((r) => r.pattern.test(path));
 
     if (auth.signedIn && auth.recovering) route = { view: renderResetPassword };

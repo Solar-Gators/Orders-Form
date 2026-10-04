@@ -97,19 +97,35 @@ function updateChrome() {
 
 async function refreshNavCounts() {
   if (!auth.signedIn) return;
+  let total = 0;
   const set = (id, n) => {
     const badge = document.getElementById(id);
     badge.textContent = n;
     badge.hidden = !n;
+    if (id !== 'count-menu') total += n;
   };
   try {
     const lead = auth.can('request.review') || auth.can('request.order');
     if (lead) set('count-approvals', await api.countByStatus(STATUS.SUBMITTED));
     if (lead) set('count-treasurer', await api.countByStatus(STATUS.APPROVED));
     set('count-requests', await api.countMyChangesRequested(auth.user.id)); // yours to fix
+    set('count-menu', total); // the folded menu on phones shows the sum
   } catch {
     /* counts are a nice-to-have */
   }
+}
+
+/** Phones and tablets: the Menu button opens the page links; picking one (or tapping elsewhere) closes it. */
+function setMenu(open) {
+  document.body.classList.toggle('nav-open', open);
+  document.getElementById('menu-btn').setAttribute('aria-expanded', String(open));
+}
+function bindMenu() {
+  document.getElementById('menu-btn').addEventListener('click', () => setMenu(!document.body.classList.contains('nav-open')));
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('#menu-btn, #main-nav')) setMenu(false);
+  });
+  document.addEventListener('keydown', (e) => e.key === 'Escape' && setMenu(false));
 }
 
 async function main() {
@@ -140,8 +156,9 @@ async function main() {
   // Remove ?code=… / ?error=… left by email links once Supabase has used them.
   if (location.search) history.replaceState(null, '', location.pathname + location.hash);
 
+  bindMenu();
   updateChrome();
-  const render = startRouter({ config, reloadConfig }, { onRender: () => (updateChrome(), refreshNavCounts()) });
+  const render = startRouter({ config, reloadConfig }, { onRender: () => (setMenu(false), updateChrome(), refreshNavCounts()) });
 }
 
 main();

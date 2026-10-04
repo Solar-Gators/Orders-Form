@@ -60,12 +60,14 @@ function itemsTable(r, config) {
   const isNum = (f) => f.type === 'number';
   // A cell whose "show only when…" rule doesn't apply to this item shows a dash.
   const cell = (f, i) => (isVisible(f, r, i) ? `<span class="copy-wrap">${displayValue(f, getValue(i, f))}${copyFor(f, getValue(i, f))}</span>` : '<span class="muted">—</span>');
+  // Phones skip empty answers instead of showing a row of dashes.
+  const blank = (f, i) => !isVisible(f, r, i) || [null, undefined, ''].includes(getValue(i, f));
   const rows = r.items
     .map(
       (i, idx) => `<tr>
         <td class="muted hide-mobile">${idx + 1}</td>
         <td class="cell-primary" data-label=""><strong>${esc(i.item_name || '—')}</strong>${nameField ? copyFor(nameField, i.item_name) : ''}${notesField && i.notes ? `<div class="muted small">${esc(i.notes)}</div>` : ''}</td>
-        ${cols.map((f) => `<td class="${isNum(f) ? 'num' : ''}" data-label="${esc(f.label)}">${cell(f, i)}</td>`).join('')}
+        ${cols.map((f) => `<td class="${isNum(f) ? 'num' : ''}${blank(f, i) ? ' is-empty' : ''}" data-label="${esc(f.label)}">${cell(f, i)}</td>`).join('')}
         <td class="num" data-label="Total">${fmtMoney(i.item_total)}</td>
       </tr>`
     )
@@ -401,7 +403,17 @@ function ownerCard(r, people, names) {
 }
 
 export async function renderRequestDetail(el, { config, params, rerender }) {
-  const r = await api.getRequest(params.id);
+  let r;
+  try {
+    r = await api.getRequest(params.id);
+  } catch (err) {
+    if (!/was not found/.test(err.message)) throw err;
+    el.innerHTML = `<a class="back-link" href="#/requests">← All requests</a>
+      <div class="empty"><h2>Request not found</h2>
+        <p>${params.id.length > 20 ? 'There is no such request' : `There is no request <strong>${esc(params.id)}</strong>`}. It may have been deleted, or the link is wrong.</p>
+        <a class="btn" href="#/requests">Back to requests</a></div>`;
+    return;
+  }
   layout = pageLayout(config);
   wholeOrderShipping = shippingPerRequest(config);
   // People (approvers' names, whose request it is) and the budget, for the side panel.

@@ -49,7 +49,7 @@ export async function renderExport(el, { config, rerender }) {
         <div class="field">
           <label for="export-template">Template</label>
           <select id="export-template">${templates.map((t) => `<option value="${esc(t.id)}" ${t.id === template.id ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}</select>
-          <div class="hint">${template.rowPer === 'request' ? 'One row per request' : 'One row per item'} · ${cols.length} columns${template.statuses?.length ? ` · only ${template.statuses.map(esc).join(', ')}` : ''}${template.builtIn ? '' : ' · made in Admin → Exports'}</div>
+          <div class="hint">${template.rowPer === 'request' ? 'One row per request' : 'One row per item'} · ${cols.length} columns${template.statuses?.length ? ` · only ${template.statuses.map(esc).join(', ')}` : ''}${template.builtIn ? '' : ' · made in Admin → Excel templates'}</div>
         </div>
         ${
           template.rowPer === 'request'
@@ -65,7 +65,7 @@ export async function renderExport(el, { config, rerender }) {
       <section class="card">
         <h2>Summary</h2>
         <div class="table-wrap flat">
-          <table class="table">
+          <table class="table export-summary">
             <thead><tr><th>Status</th><th class="num">Requests</th><th class="num">Total</th></tr></thead>
             <tbody>${rows}</tbody>
             <tfoot><tr><td><strong>All</strong></td><td class="num"><strong>${all.length}</strong></td>

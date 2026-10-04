@@ -9,7 +9,7 @@ This guide is for whoever maintains the site: setting it up from scratch, runnin
 - **Changing the site:** edit files, commit, and push to `main`. Pages redeploys in about a minute.
 
 **Permissions** live in the database (`permissions` and `role_permissions` tables), not in code:
-- **Changing what a role can do:** use **Admin → Users & roles → Permissions** on the site. The Table Editor works too.
+- **Changing what a role can do:** use **Admin → People → Roles & permissions** on the site. The Table Editor works too.
 - **Lockout protection:** the database refuses any change (to a role or to the grid) that would leave nobody with `users.manage`.
 - **Roles:** a person can hold several roles (`profile_roles` table); their permissions combine. Built-in roles are Member, Chief Engineer, Treasurer and Admin. More can be created on the site.
 - **Current permissions:**
@@ -19,7 +19,7 @@ This guide is for whoever maintains the site: setting it up from scratch, runnin
   - `site.customize`: list columns/filters/sorting, status and priority labels and colors.
   - `seasons.manage`: start a new season, import spreadsheets.
   - `users.manage`: roles, custom roles, and the permission grid.
-- **Settings history:** every version of `app_settings` (general, form, lists, appearance) and of the permission grid is kept in `settings_history`. Leads restore versions from **Admin → History**.
+- **Settings history:** every version of `app_settings` (general, form, lists, appearance) and of the permission grid is kept in `settings_history`. Leads restore versions from **Admin → Season & records → History**.
 
 ## Setup (one time, about 15 minutes)
 
@@ -49,7 +49,7 @@ Open the site (locally or on GitHub Pages), click **Create an account**, and sig
 update public.profiles set role = 'treasurer' where email = 'you@ufl.edu';
 ```
 
-Refresh the page. From now on, roles are assigned from **Admin → Users & roles**.
+Refresh the page. From now on, roles are assigned from **Admin → People → Users**.
 
 ### 5. Publish on GitHub Pages
 Push this folder to a GitHub repository. Then go to **Settings → Pages → Build and deployment**, set **Deploy from a branch**, choose `main` and `/ (root)`, and save. The site appears at `https://<org>.github.io/<repo>/` within a minute or two.
@@ -131,7 +131,7 @@ tools/fake-supabase.js   Fake backend for local development
 
 Request IDs (`SG-001`, …) come from a database sequence, and the prefix is set in Settings. Totals are always calculated, never stored.
 
-**Excel export.** On **Export → Download .xlsx**, the browser builds the file: one row per item, with request, approval, order, and delivery info repeated on each row. The header is bold, filtered, and frozen, and prices and dates are formatted. The columns follow the form fields: every shown request field, then every shown item field, then the approval, order, and delivery columns. Renaming or adding a field in **Admin → Form fields** changes the export too.
+**Excel export.** On **Export → Download .xlsx**, the browser builds the file: one row per item, with request, approval, order, and delivery info repeated on each row. The header is bold, filtered, and frozen, and prices and dates are formatted. The columns follow the form fields: every shown request field, then every shown item field, then the approval, order, and delivery columns. Renaming or adding a field in **Admin → Request form → Fields** changes the export too.
 
 ## Database updates
 
@@ -143,9 +143,9 @@ Each migration only needs to run once.
 
 ## Email & Teams notifications
 
-How it works: every workflow step (submit, approve, order, …) writes messages into the `notification_outbox` table in the same database transaction, so nothing is lost. The **send-notifications** Edge Function delivers them. The website calls it right after each action, and **Admin → Notifications → Send waiting messages now** does too. Failed messages are retried up to 5 times, and the log on that page shows each one.
+How it works: every workflow step (submit, approve, order, …) writes messages into the `notification_outbox` table in the same database transaction, so nothing is lost. The **send-notifications** Edge Function delivers them. The website calls it right after each action, and **Admin → Approvals & alerts → Notifications → Send waiting messages now** does too. Failed messages are retried up to 5 times, and the log on that page shows each one.
 
-Nothing is sent until an Admin turns it on in **Admin → Notifications**. You need the Edge Function plus **at least one** way to send:
+Nothing is sent until an Admin turns it on in **Admin → Approvals & alerts → Notifications**. You need the Edge Function plus **at least one** way to send:
 - **Email via Gmail** (simplest, reliable): a team Gmail account sends the emails.
 - **Power Automate** (for Teams, and it can also send the emails from Outlook): one flow receives every message and either posts it to the person in Teams or emails it.
 
@@ -189,18 +189,18 @@ If both are set, email goes through Gmail and Teams through the flow. If only `F
 If UF's tenant doesn't offer the trigger, or says it needs a premium license, post into a team channel instead: in step 4 choose **Post in: Channel** and pick your team's channel. The card still names the request; it just isn't a private message.
 
 ### 3. Turn it on
-1. **Admin → Notifications**: tick **Send notifications**, check the website address, choose email / Teams per event, and **Save**.
+1. **Admin → Approvals & alerts → Notifications**: tick **Send notifications**, check the website address, choose email / Teams per event, and **Save**.
 2. Click **Send me a test email** and **Send me a test Teams message**. Setup problems (missing secret, wrong password, flow error) show right there and in **Recent messages**.
 
-3. **Schedule the sender (recommended):** Supabase → **Integrations → Cron → Create job** → type "Supabase Edge Function" → `send-notifications`, every 5–10 minutes. "Needs your approval" messages wait (30 minutes by default, Admin → Notifications) so a CE approving their own order doesn't notify the others; the schedule is what sends the ones still waiting. It also retries failed messages.
+3. **Schedule the sender (recommended):** Supabase → **Integrations → Cron → Create job** → type "Supabase Edge Function" → `send-notifications`, every 5–10 minutes. "Needs your approval" messages wait (30 minutes by default, Admin → Approvals & alerts → Notifications) so a CE approving their own order doesn't notify the others; the schedule is what sends the ones still waiting. It also retries failed messages.
 
 ## Yearly handover checklist
 
-When the new leads take over (usually with **Admin → Settings → Start a new season**):
-1. **Start the season:** Admin → Settings → **Start a new season**. Numbering restarts (e.g. SG27-001), last season moves to the Archive, and unfinished orders stay in the queues.
-2. **Roles:** give the new Chief Engineer and Treasurer their roles in **Admin → Users & roles**, and set graduating leads to Member. At least one person must always keep "Manage people".
+When the new leads take over (usually with **Admin → Season & records → Team & season → Start a new season**):
+1. **Start the season:** Admin → Season & records → Team & season → **Start a new season**. Numbering restarts (e.g. SG27-001), last season moves to the Archive, and unfinished orders stay in the queues.
+2. **Roles:** give the new Chief Engineer and Treasurer their roles in **Admin → People → Users**, and set graduating leads to Member. At least one person must always keep "Manage people".
 3. **Supabase:** invite the new leads to the Supabase organization (Organization settings → Team) so someone can run database updates and restore the project if it pauses.
 4. **GitHub:** give the new leads access to the `Solar-Gators/Orders-Form` repository.
 5. **Email (optional):** if you set up custom SMTP for sign-up and password-reset emails, make sure the account behind it isn't tied to someone who's graduating.
 6. **Notifications:** the Power Automate flow belongs to whoever built it. Add the new leads as co-owners (flow → **Share**) before the old owner's UF account goes away, or rebuild it and update `FLOW_URL`. Hand over the team Gmail's password too.
-7. **Workflow rules:** rules that name specific people (Admin → Workflow) need updating when those people leave. A rule whose people are all gone falls back to "any Chief Engineer".
+7. **Workflow rules:** rules that name specific people (Admin → Approvals & alerts → Approval rules) need updating when those people leave. A rule whose people are all gone falls back to "any Chief Engineer".

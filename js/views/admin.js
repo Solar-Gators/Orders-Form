@@ -1,9 +1,11 @@
 /**
  * Admin pages for users with users.manage / settings.edit (CE and Treasurer):
- *   #/admin/users     — see everyone, change roles
- *   #/admin/settings  — team info and form dropdown options
- *   #/admin/fields    — the request form's fields (see js/formFields.js)
- *   #/admin/import    — import old spreadsheets (js/views/importPage.js)
+ *   #/admin/users      — see everyone, change roles
+ *   #/admin/roles      — roles and what each can do
+ *   #/admin/fields     — the request form's fields (see js/formFields.js)
+ *   #/admin/dropdowns  — dropdown options and request rules
+ *   #/admin/season     — team info and starting a new season
+ * Shared: adminHeader() — the Admin title, section tabs and sub-tabs.
  */
 import { api } from '../api.js';
 import { auth } from '../auth.js';
@@ -14,39 +16,72 @@ import {
 } from '../formFields.js';
 
 /**
- * Admin tabs, each shown only with its permission, grouped under small headings.
+ * Admin pages, each shown only with its permission, grouped into a few tabs.
  * Also used by the router. [key, label, permissions, group]
  */
 export const ADMIN_TABS = [
-  ['users', 'Users & roles', ['users.manage'], 'People'],
-  ['fields', 'Form fields', ['settings.edit'], 'Form'],
-  ['settings', 'Settings', ['settings.edit', 'seasons.manage'], 'Form'],
-  ['import', 'Import', ['seasons.manage'], 'Form'],
-  ['lists', 'Lists', ['site.customize'], 'Pages & look'],
-  ['page', 'Request page', ['site.customize'], 'Pages & look'],
-  ['exports', 'Exports', ['site.customize'], 'Pages & look'],
-  ['appearance', 'Appearance', ['site.customize'], 'Pages & look'],
-  ['text', 'Text & banner', ['site.customize'], 'Pages & look'],
-  ['workflow', 'Workflow', ['workflow.edit'], 'Workflow'],
-  ['notifications', 'Notifications', ['workflow.edit'], 'Workflow'],
-  ['history', 'History', ['users.manage', 'settings.edit', 'site.customize', 'workflow.edit'], 'Records'],
+  ['users', 'Users', ['users.manage'], 'People'],
+  ['roles', 'Roles & permissions', ['users.manage'], 'People'],
+  ['fields', 'Fields', ['settings.edit'], 'Request form'],
+  ['dropdowns', 'Dropdowns & rules', ['settings.edit'], 'Request form'],
+  ['page', 'Request page', ['site.customize'], 'Request form'],
+  ['appearance', 'Colors & logo', ['site.customize'], 'Look & text'],
+  ['text', 'Text & banner', ['site.customize'], 'Look & text'],
+  ['lists', 'Request lists', ['site.customize'], 'Lists & exports'],
+  ['exports', 'Excel templates', ['site.customize'], 'Lists & exports'],
+  ['workflow', 'Approval rules', ['workflow.edit'], 'Approvals & alerts'],
+  ['notifications', 'Notifications', ['workflow.edit'], 'Approvals & alerts'],
+  ['season', 'Team & season', ['settings.edit', 'seasons.manage'], 'Season & records'],
+  ['import', 'Import', ['seasons.manage'], 'Season & records'],
+  ['history', 'History', ['users.manage', 'settings.edit', 'site.customize', 'workflow.edit'], 'Season & records'],
 ];
 
-export function adminTabs(active) {
+/**
+ * Top of every Admin page: title, one tab per group, the group's pages as small
+ * sub-tabs, and a one-line intro. Phones get a single "jump to" menu instead.
+ * `actions` is extra HTML for the right of the title (e.g. a Preview button).
+ */
+export function adminHeader(active, intro = '', actions = '') {
   const items = ADMIN_TABS.filter(([, , perms]) => perms.some((p) => auth.can(p)));
-  let group = '';
-  const parts = [];
-  for (const [key, label, , g] of items) {
-    if (g !== group) parts.push(`<span class="tab-group">${g}</span>`);
-    group = g;
-    parts.push(`<a href="#/admin/${key}" class="${key === active ? 'active' : ''}" ${key === active ? 'aria-current="page"' : ''}>${label}</a>`);
-  }
-  return `<nav class="tabs admin-tabs" aria-label="Admin">${parts.join('')}</nav>`;
+  const group = ADMIN_TABS.find(([key]) => key === active)?.[3];
+  const groups = [...new Set(items.map((t) => t[3]))];
+  const here = (on) => (on ? 'class="active" aria-current="page"' : '');
+  const tabs = groups
+    .map((g) => `<a href="#/admin/${items.find((t) => t[3] === g)[0]}" ${here(g === group)}>${esc(g)}</a>`)
+    .join('');
+  const siblings = items.filter((t) => t[3] === group);
+  const subnav = siblings.length > 1
+    ? `<nav class="admin-subnav" aria-label="${esc(group)}">${siblings.map(([key, label]) => `<a href="#/admin/${key}" ${here(key === active)}>${esc(label)}</a>`).join('')}</nav>`
+    : '';
+  const jump = `<label class="admin-jump"><span class="sr-only">Admin page</span><select data-admin-jump>${groups
+    .map((g) => `<optgroup label="${esc(g)}">${items
+      .filter((t) => t[3] === g)
+      .map(([key, label]) => `<option value="${key}" ${key === active ? 'selected' : ''}>${esc(label)}</option>`)
+      .join('')}</optgroup>`)
+    .join('')}</select></label>`;
+  return `<div class="admin-top">
+    <div class="page-header admin-head"><div><h1>Admin</h1></div>${actions}</div>
+    <nav class="tabs admin-tabs" aria-label="Admin">${tabs}</nav>
+    ${jump}${subnav}
+    ${intro ? `<p class="admin-intro">${intro}</p>` : ''}
+  </div>`;
 }
+
+// The phone menu: pick a page to go there.
+document.addEventListener('change', (e) => {
+  if (e.target.matches?.('[data-admin-jump]')) location.hash = `#/admin/${e.target.value}`;
+});
+
+/** A short "how this works" note that opens on click, instead of a big box on every visit. */
+export const about = (html, summary = 'How this works') =>
+  `<details class="about"><summary>${esc(summary)}</summary><div>${html}</div></details>`;
 
 // ---- Users --------------------------------------------------------------------
 
-export async function renderUsers(el, { rerender }) {
+export const renderUsers = (el, ctx) => renderPeople(el, ctx, 'users');
+export const renderRoles = (el, ctx) => renderPeople(el, ctx, 'roles');
+
+async function renderPeople(el, { rerender }, part) {
   const people = await api.listProfiles();
   const roles = auth.roles;
   const me = auth.user.id;
@@ -56,23 +91,12 @@ export async function renderUsers(el, { rerender }) {
   const holds = (p, key) => (p.roles || []).includes(key);
   const count = (key) => people.filter((p) => (key === 'member' ? !p.roles.some((r) => r !== 'member') : holds(p, key))).length;
 
-  el.innerHTML = `
-    ${takeFlash()}
-    <div class="page-header">
-      <div>
-        <h1>Admin</h1>
-        <p class="subtitle">${people.length} account${people.length === 1 ? '' : 's'} · ${roles
-          .map((r) => `${count(r.key)} ${esc(r.label)}`)
-          .join(' · ')}</p>
-      </div>
-    </div>
-    ${adminTabs('users')}
-    <div class="alert alert-info small">
-      New people create their own account from the sign-in page and start as <strong>Member</strong>.
+  const summary = `${people.length} account${people.length === 1 ? '' : 's'} · ${roles.map((r) => `${count(r.key)} ${esc(r.label)}`).join(' · ')}`;
+  const usersPart = `
+    ${about(`New people create their own account from the sign-in page and start as <strong>Member</strong>.
       Tick the roles each person should have. Someone can have several (e.g. Treasurer + Admin) and gets everything those roles allow.
-      What each role can do is set under <a href="#permissions">Permissions</a>. At least one person must always be able to
-      manage people & roles, so the site won't let the last one lose that ability.
-    </div>
+      What each role can do is set under <a href="#/admin/roles">Roles &amp; permissions</a>. At least one person must always be able to
+      manage people &amp; roles, so the site won't let the last one lose that ability.`)}
     <div id="user-errors"></div>
     <div class="toolbar">
       <input type="search" id="people-q" placeholder="Search name or email" aria-label="Search people">
@@ -84,16 +108,16 @@ export async function renderUsers(el, { rerender }) {
       <span class="muted" id="people-count">${people.length} people</span>
     </div>
     <div class="table-wrap">
-      <table class="table people-table">
+      <table class="table people-table stack-mobile">
         <thead><tr><th>Name</th><th>Email</th><th>Joined</th><th>Roles</th></tr></thead>
         <tbody>
           ${people
             .map(
               (p) => `<tr data-user="${esc(p.id)}">
-                <td><strong>${esc(p.full_name || '—')}</strong>${p.id === me ? ' <span class="muted small">(you)</span>' : ''}</td>
-                <td>${esc(p.email)}</td>
-                <td class="nowrap">${fmtDate(p.created_at)}</td>
-                <td><div class="role-chips">
+                <td class="cell-primary" data-label=""><strong>${esc(p.full_name || '—')}</strong>${p.id === me ? ' <span class="muted small">(you)</span>' : ''}</td>
+                <td data-label="Email">${esc(p.email)}</td>
+                <td class="nowrap" data-label="Joined">${fmtDate(p.created_at)}</td>
+                <td data-label="Roles"><div class="role-chips">
                   ${assignable
                     .map(
                       (r) => `<label class="role-chip ${holds(p, r.key) ? 'on' : ''}">
@@ -101,32 +125,31 @@ export async function renderUsers(el, { rerender }) {
                           aria-label="${esc(r.label)} for ${esc(p.full_name || p.email)}">${esc(r.label)}</label>`
                     )
                     .join('')}
-                  ${p.roles.some((r) => r !== 'member') ? '' : '<span class="muted small">Member</span>'}
                 </div></td>
               </tr>`
             )
             .join('')}
         </tbody>
       </table>
-    </div>
-
+    </div>`;
+  const rolesPart = `
     <section class="card" id="roles">
       <h2>Roles</h2>
       <p class="muted small">Add roles like "Subsystem Lead" or "Faculty Advisor", then choose what they can do under Permissions.
         Built-in roles can be renamed but not deleted.</p>
       <div id="role-errors"></div>
       <div class="table-wrap flat">
-        <table class="table roles-table">
+        <table class="table roles-table stack-mobile">
           <thead><tr><th>Role</th><th class="num">People</th><th></th></tr></thead>
           <tbody>${roles
             .map(
               (r) => `<tr data-role-row="${esc(r.key)}">
-                <td><div class="rename-row">
+                <td class="cell-primary" data-label=""><div class="rename-row">
                   <input type="text" value="${esc(r.label)}" data-rename="${esc(r.key)}" aria-label="Name of the ${esc(r.label)} role" maxlength="40">
                   <button type="button" class="btn btn-sm" data-save-name="${esc(r.key)}" hidden>Rename</button>
                 </div></td>
-                <td class="num">${count(r.key)}</td>
-                <td class="center">${
+                <td class="num" data-label="People">${count(r.key)}</td>
+                <td class="center" data-label="">${
                   BUILT_IN.has(r.key)
                     ? '<span class="field-tag">Built-in</span>'
                     : `<button type="button" class="btn btn-sm btn-danger" data-delete-role="${esc(r.key)}">Delete</button>`
@@ -144,6 +167,11 @@ export async function renderUsers(el, { rerender }) {
     </section>
 
     <div id="permissions-section"></div>`;
+
+  el.innerHTML = `
+    ${takeFlash()}
+    ${adminHeader(part, part === 'users' ? summary : 'Rename roles, add new ones, and choose what each can do.')}
+    ${part === 'users' ? usersPart : rolesPart}`;
 
   const userErrors = el.querySelector('#user-errors');
   const roleErrors = el.querySelector('#role-errors');
@@ -164,8 +192,8 @@ export async function renderUsers(el, { rerender }) {
     }
     el.querySelector('#people-count').textContent = shown === people.length ? `${people.length} people` : `${shown} of ${people.length} people`;
   };
-  el.querySelector('#people-q').addEventListener('input', filterPeople);
-  el.querySelector('#people-filter').addEventListener('change', filterPeople);
+  el.querySelector('#people-q')?.addEventListener('input', filterPeople);
+  el.querySelector('#people-filter')?.addEventListener('change', filterPeople);
 
   // Tick / untick a role for someone: saved right away.
   el.querySelectorAll('tr[data-user] input[data-role]').forEach((box) =>
@@ -228,7 +256,7 @@ export async function renderUsers(el, { rerender }) {
     })
   );
 
-  el.querySelector('#add-role').addEventListener('submit', async (e) => {
+  el.querySelector('#add-role')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     const name = el.querySelector('#new-role').value.trim();
     if (!name) return;
@@ -243,7 +271,7 @@ export async function renderUsers(el, { rerender }) {
     }
   });
 
-  await renderPermissions(el.querySelector('#permissions-section'), { rerender });
+  if (part === 'roles') await renderPermissions(el.querySelector('#permissions-section'), { rerender });
 }
 
 // ---- Permissions (what each role can do) -------------------------------------------
@@ -268,12 +296,12 @@ async function renderPermissions(box, { rerender }) {
         search the Archive, and export. Changes apply to everyone with that role as soon as you save.</p>
       <div id="perm-errors"></div>
       <div class="table-wrap flat">
-        <table class="table perm-table">
+        <table class="table perm-table stack-mobile">
           <thead><tr><th>Permission</th>${roles.map((r) => `<th class="center">${esc(r.label)}${myRoles.includes(r.key) ? '<div class="muted small">(yours)</div>' : ''}</th>`).join('')}</tr></thead>
           <tbody>${perms
             .map(
               (p) => `<tr>
-                <td><strong>${esc(p.label)}</strong><div class="muted small">${esc(p.description)}</div></td>
+                <td class="cell-primary" data-label=""><strong>${esc(p.label)}</strong><div class="muted small">${esc(p.description)}</div></td>
                 ${roles
                   .map(
                     (r) => `<td class="center" data-label="${esc(r.label)}"><input type="checkbox" data-role="${esc(r.key)}" data-grant="${esc(p.key)}"
@@ -329,7 +357,11 @@ async function renderPermissions(box, { rerender }) {
 
 const lines = (text) => [...new Set(text.split('\n').map((s) => s.trim()).filter(Boolean))];
 
-export async function renderSettings(el, { rerender, reloadConfig }) {
+/** "Dropdowns & rules" (form options) and "Team & season" share this page code. */
+export const renderDropdowns = (el, ctx) => renderSettings(el, ctx, 'dropdowns');
+export const renderSeason = (el, ctx) => renderSettings(el, ctx, 'season');
+
+async function renderSettings(el, { rerender, reloadConfig }, part) {
   const settings = await api.getSettings();
   const general = settings.general || {};
   const form = settings.form || {};
@@ -361,18 +393,14 @@ export async function renderSettings(el, { rerender, reloadConfig }) {
   const visibleLists = dropdowns.filter((f) => !f.hidden);
   const hiddenLists = dropdowns.filter((f) => f.hidden);
 
-  el.innerHTML = `
-    ${takeFlash()}
-    <div class="page-header"><div><h1>Admin</h1></div></div>
-    ${adminTabs('settings')}
-    <div id="settings-errors"></div>
+  const dropdownsPart = `
     <form id="settings-form" novalidate>
       <div class="two-col">
         <section class="card">
           <h2>Dropdown lists</h2>
           <p class="muted small">Every dropdown on the request form. To add a new dropdown, go to
-            <a href="#/admin/fields">Form fields</a>, add a field, and set its type to <strong>Dropdown</strong>. It then appears here.
-            Renaming an option doesn't change requests that already used the old one.</p>
+            <a href="#/admin/fields">Fields</a>, add a field, and set its type to <strong>Dropdown</strong>. It then appears here.
+            Renaming an option doesn't change requests that already used the old one. Colors are under <a href="#/admin/appearance">Colors &amp; logo</a>.</p>
           ${visibleLists.map(listBox).join('') || '<p class="muted">There are no dropdowns on the form.</p>'}
           ${
             hiddenLists.length
@@ -381,34 +409,19 @@ export async function renderSettings(el, { rerender, reloadConfig }) {
           }
         </section>
         <section class="card">
-          <h2>Team</h2>
-          <div class="field"><label for="s-team">Team name</label>
-            <input id="s-team" name="teamName" type="text" value="${esc(general.teamName || '')}"></div>
-          <div class="field"><label>Current season</label>
-            <div class="readonly-value">${esc(general.season || '—')}
-              <span class="muted small">· new requests are numbered ${esc(currentPrefix)}-001, -002, …</span></div>
-            <div class="hint">Change it with <a href="#season-card">Start a new season</a> below.</div></div>
-          <div class="field"><label for="s-prefix">Request ID prefix</label>
-            <input id="s-prefix" name="requestIdPrefix" type="text" value="${esc(general.requestIdPrefix || '')}" maxlength="10">
-            <div class="hint">Each new season adds its year: ${esc(general.requestIdPrefix || 'SG')} → ${esc(nextPrefix)}-001 for ${esc(nextSeason)}.</div></div>
-          <div class="field"><label for="s-domains">Allowed sign-up email domains <span class="muted">(one per line)</span></label>
-            <textarea id="s-domains" name="allowedEmailDomains" rows="2">${esc((general.allowedEmailDomains || []).join('\n'))}</textarea>
-            <div class="hint">Leave empty to allow any email address.</div></div>
-          <h2 class="section-title">Request rules</h2>
+          <h2>Request rules</h2>
           <div class="field">
             <label class="rule-toggle">
               <input type="checkbox" name="oneVendorPerRequest" ${form.oneVendorPerRequest !== false ? 'checked' : ''}>
               <span>One vendor per request
-                <span class="hint">Each request is a single purchase: the vendor is entered once and applies to every item.
-                  Items from another vendor go in a separate request.</span></span>
+                <span class="hint">Each request is a single purchase: the vendor is entered once and applies to every item. Items from another vendor go in a separate request.</span></span>
             </label>
           </div>
           <div class="field">
             <label class="rule-toggle">
               <input type="checkbox" name="shippingPerRequest" ${form.shippingPerRequest !== false ? 'checked' : ''}>
               <span>Shipping is one total per request
-                <span class="hint">Requesters enter the order's shipping once (as the vendor charges it), not on every item.
-                  Turn off to enter shipping per item.</span></span>
+                <span class="hint">Requesters enter the order's shipping once (as the vendor charges it), not on every item. Turn off to enter shipping per item.</span></span>
             </label>
           </div>
           <div class="field">
@@ -420,11 +433,29 @@ export async function renderSettings(el, { rerender, reloadConfig }) {
           </div>
         </section>
       </div>
-      <div class="form-actions">
-        <button type="submit" class="btn btn-primary">Save settings</button>
+      <div class="form-actions sticky-actions">
+        <button type="submit" class="btn btn-primary">Save dropdowns &amp; rules</button>
       </div>
-    </form>
+    </form>`;
 
+  const teamCard = `
+    <form id="settings-form" class="card" novalidate>
+      <h2>Team</h2>
+      <div class="field"><label for="s-team">Team name</label>
+        <input id="s-team" name="teamName" type="text" value="${esc(general.teamName || '')}"></div>
+      <div class="field"><label>Current season</label>
+        <div class="readonly-value">${esc(general.season || '—')}
+          <span class="muted small">· new requests are numbered ${esc(currentPrefix)}-001, -002, …</span></div></div>
+      <div class="field"><label for="s-prefix">Request ID prefix</label>
+        <input id="s-prefix" name="requestIdPrefix" type="text" value="${esc(general.requestIdPrefix || '')}" maxlength="10">
+        <div class="hint">Each new season adds its year: ${esc(general.requestIdPrefix || 'SG')} → ${esc(nextPrefix)}-001 for ${esc(nextSeason)}.</div></div>
+      <div class="field"><label for="s-domains">Allowed sign-up email domains <span class="muted">(one per line)</span></label>
+        <textarea id="s-domains" name="allowedEmailDomains" rows="2">${esc((general.allowedEmailDomains || []).join('\n'))}</textarea>
+        <div class="hint">Leave empty to allow any email address.</div></div>
+      <div class="form-actions"><button type="submit" class="btn btn-primary">Save team settings</button></div>
+    </form>`;
+
+  const seasonCard = `
     <section class="card season-card" id="season-card">
       <h2>Start a new season</h2>
       ${
@@ -437,7 +468,7 @@ export async function renderSettings(el, { rerender, reloadConfig }) {
         <li>Move ${esc(general.season)}'s requests into the <strong>Archive</strong>, where they're searchable with their full history.</li>
         <li>Keep anything still waiting on approval, ordering, or delivery in the <strong>Approvals</strong> and <strong>Treasurer</strong> queues, labeled ${esc(general.season)}, until it's finished.</li>
       </ul>
-      <p class="muted small">Also remember: give next year's Chief Engineer and Treasurer their roles in Users &amp; roles, and add them to the Supabase project and GitHub repo.</p>
+      <p class="muted small">Also remember: give next year's Chief Engineer and Treasurer their roles in <a href="#/admin/users">Users</a>, and add them to the Supabase project and GitHub repo.</p>
       <div id="season-errors"></div>
       <div class="season-row">
         <label for="new-season" class="sr-only">New season</label>
@@ -446,6 +477,16 @@ export async function renderSettings(el, { rerender, reloadConfig }) {
       </div>`
       }
     </section>`;
+
+  el.innerHTML = `
+    ${takeFlash()}
+    ${adminHeader(part, part === 'dropdowns'
+      ? 'The options in each dropdown, and rules that apply to every request.'
+      : 'Team name, request numbers, who can sign up, and the yearly season change.')}
+    <div id="settings-errors"></div>
+    ${part === 'dropdowns'
+      ? dropdownsPart
+      : `<div class="two-col">${auth.can('settings.edit') ? teamCard : ''}${auth.can('seasons.manage') ? seasonCard : ''}</div>`}`;
 
   el.querySelector('#new-season')?.addEventListener('input', (e) => {
     el.querySelector('#start-season').textContent = `Start ${e.target.value.trim() || 'season'}`;
@@ -467,10 +508,31 @@ export async function renderSettings(el, { rerender, reloadConfig }) {
     }
   });
 
-  el.querySelector('#settings-form').addEventListener('submit', async (e) => {
+  el.querySelector('#settings-form')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     const data = Object.fromEntries(new FormData(e.target));
     const errors = el.querySelector('#settings-errors');
+
+    const button = e.target.querySelector('button[type="submit"]');
+    if (part === 'season') {
+      const nextGeneral = {
+        ...general,
+        teamName: data.teamName.trim() || 'Solar Gators',
+        requestIdPrefix: data.requestIdPrefix.trim().toUpperCase() || 'SG',
+        allowedEmailDomains: lines(data.allowedEmailDomains.toLowerCase()).map((d) => d.replace(/^@/, '')),
+      };
+      button.disabled = true;
+      try {
+        await api.updateSettings('general', nextGeneral);
+        await reloadConfig();
+        setFlash('Team settings saved.');
+        await rerender();
+      } catch (err) {
+        errors.innerHTML = errorBox(err);
+        button.disabled = false;
+      }
+      return;
+    }
 
     // Collect every dropdown's options from its box.
     const nextForm = {
@@ -498,19 +560,11 @@ export async function renderSettings(el, { rerender, reloadConfig }) {
     nextForm.oneVendorPerRequest = data.oneVendorPerRequest === 'on';
     nextForm.shippingPerRequest = data.shippingPerRequest === 'on';
     nextForm.requireOrderNumber = data.requireOrderNumber === 'on';
-    const nextGeneral = {
-      ...general,
-      teamName: data.teamName.trim() || 'Solar Gators',
-      requestIdPrefix: data.requestIdPrefix.trim().toUpperCase() || 'SG',
-      allowedEmailDomains: lines(data.allowedEmailDomains.toLowerCase()).map((d) => d.replace(/^@/, '')),
-    };
-    const button = e.target.querySelector('button[type="submit"]');
     button.disabled = true;
     try {
       await api.updateSettings('form', nextForm);
-      await api.updateSettings('general', nextGeneral);
       await reloadConfig();
-      setFlash('Settings saved.');
+      setFlash('Dropdowns & rules saved.');
       await rerender();
     } catch (err) {
       el.querySelector('#settings-errors').innerHTML = errorBox(err);
@@ -518,10 +572,6 @@ export async function renderSettings(el, { rerender, reloadConfig }) {
     }
   });
 
-  // Show only the parts this person can use: settings (Edit form & settings) and
-  // the season rollover (Seasons & imports).
-  if (!auth.can('settings.edit')) el.querySelector('#settings-form')?.remove();
-  if (!auth.can('seasons.manage')) el.querySelector('#season-card')?.remove();
 }
 
 // ---- Form fields ----------------------------------------------------------------
@@ -634,8 +684,8 @@ export async function renderFormFields(el, { rerender, reloadConfig }) {
   };
 
   const optionsCell = (f) => {
-    // Saved dropdowns: options are edited in one place, Settings → Dropdown lists.
-    if ((f.builtin && LIST_FIELDS[f.key]) || (f.type === 'select' && !f._new)) return `<a href="#/admin/settings" class="small">Edit list in Settings</a>`;
+    // Saved dropdowns: options are edited in one place, Dropdowns & rules.
+    if ((f.builtin && LIST_FIELDS[f.key]) || (f.type === 'select' && !f._new)) return `<a href="#/admin/dropdowns" class="small">Edit options</a>`;
     if (!f.builtin && f.type === 'select') {
       return `<textarea data-prop="options" rows="2" placeholder="One option per line" aria-label="Options for ${esc(f.label)}">${esc(
         (f.options || []).join('\n')
@@ -648,21 +698,21 @@ export async function renderFormFields(el, { rerender, reloadConfig }) {
     const locked = LOCKED.has(f.key);
     const summary = rulesSummary(kind, f);
     const open = openRules.has(f._uid);
-    const rules = `<tr class="rules-row" data-kind="${kind}" data-index="${idx}"><td></td><td colspan="8">${rulesPanel(kind, f)}</td></tr>`;
+    const rules = `<tr class="rules-row" data-kind="${kind}" data-index="${idx}"><td data-label=""></td><td colspan="8" data-label="">${rulesPanel(kind, f)}</td></tr>`;
     return `<tr data-kind="${kind}" data-index="${idx}" class="${f.hidden ? 'is-hidden' : ''}${f.type === 'section' ? ' is-section' : ''}">
-      <td class="move">
+      <td class="move" data-label="Order">
         <button type="button" class="icon-btn" data-move="-1" title="Move up" aria-label="Move ${esc(f.label)} up" ${idx === 0 ? 'disabled' : ''}>↑</button>
         <button type="button" class="icon-btn" data-move="1" title="Move down" aria-label="Move ${esc(f.label)} down" ${idx === count - 1 ? 'disabled' : ''}>↓</button>
       </td>
-      <td><input type="text" data-prop="label" value="${esc(f.label)}" aria-label="Label"></td>
-      <td>${f.builtin ? `<span class="muted">${esc(typeLabel(f.type))}</span>` : typeSelect(kind, f)}</td>
-      <td class="center"><input type="checkbox" data-prop="required" ${f.required ? 'checked' : ''} ${locked || f.type === 'section' ? 'disabled' : ''} aria-label="Required"></td>
-      <td class="center"><input type="checkbox" data-prop="shown" ${f.hidden ? '' : 'checked'} ${locked ? 'disabled' : ''} aria-label="Shown"></td>
-      <td>${optionsCell(f)}</td>
-      <td><input type="text" data-prop="help" value="${esc(f.help || '')}" placeholder="${f.type === 'section' ? 'Optional description' : 'Optional hint'}" aria-label="Help text"></td>
-      <td class="rules-cell"><button type="button" class="btn btn-sm ${summary ? 'has-rules' : ''}" data-rules aria-expanded="${open}">${open ? 'Hide rules' : 'Rules'}</button>
+      <td class="cell-primary" data-label=""><input type="text" data-prop="label" value="${esc(f.label)}" aria-label="Label"></td>
+      <td data-label="Type">${f.builtin ? `<span class="muted">${esc(typeLabel(f.type))}</span>` : typeSelect(kind, f)}</td>
+      <td class="center" data-label="Required"><input type="checkbox" data-prop="required" ${f.required ? 'checked' : ''} ${locked || f.type === 'section' ? 'disabled' : ''} aria-label="Required"></td>
+      <td class="center" data-label="Shown"><input type="checkbox" data-prop="shown" ${f.hidden ? '' : 'checked'} ${locked ? 'disabled' : ''} aria-label="Shown"></td>
+      <td data-label="Options">${optionsCell(f)}</td>
+      <td data-label="Help text"><input type="text" data-prop="help" value="${esc(f.help || '')}" placeholder="${f.type === 'section' ? 'Optional description' : 'Optional hint'}" aria-label="Help text"></td>
+      <td class="rules-cell" data-label="Rules"><button type="button" class="btn btn-sm ${summary ? 'has-rules' : ''}" data-rules aria-expanded="${open}">${open ? 'Hide rules' : 'Rules'}</button>
         ${summary ? `<div class="muted small rules-summary">${esc(summary)}</div>` : ''}</td>
-      <td class="center">${
+      <td class="center field-end" data-label="">${
         f.builtin
           ? `<span class="field-tag" title="${locked ? 'Always shown and required' : 'Built-in: can be hidden, not deleted'}">${locked ? 'Locked' : 'Built-in'}</span>`
           : `<button type="button" class="icon-btn" data-delete title="Delete field" aria-label="Delete ${esc(f.label)}">&times;</button>`
@@ -677,7 +727,7 @@ export async function renderFormFields(el, { rerender, reloadConfig }) {
         <button type="button" class="btn btn-sm" data-add="${kind}">+ Add field</button>
       </div>
       <div class="table-wrap flat">
-        <table class="table fields-table">
+        <table class="table fields-table stack-mobile">
           <thead><tr>
             <th class="move">Order</th><th>Label</th><th>Type</th><th class="center">Required</th><th class="center">Shown</th>
             <th>Options</th><th>Help text</th><th>Rules</th><th></th>
@@ -689,21 +739,13 @@ export async function renderFormFields(el, { rerender, reloadConfig }) {
 
   el.innerHTML = `
     ${takeFlash()}
-    <div class="page-header">
-      <div>
-        <h1>Admin</h1>
-        <p class="subtitle">Changes apply to new and edited requests. The Excel export follows this form too.</p>
-      </div>
-      <a class="btn" href="#/new" target="_blank" rel="noopener">Preview form ↗</a>
-    </div>
-    ${adminTabs('fields')}
+    ${adminHeader('fields', 'The questions on the request form. Changes apply to new and edited requests; the Excel export follows them too.',
+      '<a class="btn btn-sm" href="#/new" target="_blank" rel="noopener">Preview form ↗</a>')}
+    ${about(`<strong>Locked</strong> fields are always shown and required because approvals and totals depend on them.
+      Hiding a field removes it from the form and export; answers already saved stay in the database and come back if you show it again.`, 'About locked and hidden fields')}
     <div id="fields-errors"></div>
     ${section('request', 'Request fields', 'Asked once per request.')}
     ${section('item', 'Item fields', 'Asked for every item (one row each). The item total is always Quantity × Unit price.')}
-    <div class="alert alert-info small">
-      <strong>Locked</strong> fields are always shown and required because approvals and totals depend on them.
-      Hiding a field removes it from the form and export; answers already saved stay in the database and come back if you show it again.
-    </div>
     <div class="form-actions sticky-actions">
       <span class="muted small" id="dirty-note" hidden>Unsaved changes</span>
       <button type="button" class="btn btn-ghost" id="discard" disabled>Discard changes</button>

@@ -8,7 +8,7 @@ import { api } from '../api.js';
 import { esc, errorBox, setFlash, takeFlash, statusLabel, renderRichText } from '../ui.js';
 import { COPY_MODES, pageLayout, detailCandidates, itemCandidates } from '../pageLayout.js';
 import { exportCatalog, exportTemplates } from '../excel.js';
-import { adminTabs } from './admin.js';
+import { adminHeader } from './admin.js';
 import { guardLeaving } from '../leaveGuard.js';
 
 const move = (list, i, d) => {
@@ -87,14 +87,12 @@ export async function renderPageLayout(el, { config, rerender, reloadConfig }) {
 
   el.innerHTML = `
     ${takeFlash()}
-    <div class="page-header"><div><h1>Admin</h1>
-      <p class="subtitle">Choose what a request's page shows. Open any request to see the result.</p></div></div>
-    ${adminTabs('page')}
+    ${adminHeader('page', "What a request's page shows, and in what order. Open any request to see the result.")}
     <div id="layout-errors"></div>
     <div id="layout-body"></div>
     <div class="form-actions sticky-actions">
       <span class="muted small" id="layout-dirty" hidden>Unsaved changes</span>
-      <button type="button" class="btn btn-ghost" id="layout-reset">Reset to default</button>
+      <button type="button" class="btn btn-ghost reset-btn" id="layout-reset">Reset to defaults</button>
       <button type="button" class="btn btn-primary" id="layout-save" disabled>Save request page</button>
     </div>`;
 
@@ -229,16 +227,16 @@ export async function renderExportTemplates(el, { config, rerender, reloadConfig
     el.querySelector('#exports-body').innerHTML = `
       <section class="card">
         <h2>Templates</h2>
-        <div class="table-wrap flat"><table class="table">
+        <div class="table-wrap flat"><table class="table stack-mobile templates-table">
           <thead><tr><th>Name</th><th>Rows</th><th class="num">Columns</th><th></th></tr></thead>
           <tbody>
-            <tr><td><strong>${esc(builtIn.name)}</strong> <span class="field-tag">Built-in</span></td><td>Per item</td><td class="num">${builtIn.columns.length}</td>
-              <td><button type="button" class="btn btn-sm" data-duplicate="full">Duplicate</button></td></tr>
+            <tr><td class="cell-primary" data-label=""><strong>${esc(builtIn.name)}</strong> <span class="field-tag">Built-in</span></td><td data-label="Rows">Per item</td><td class="num" data-label="Columns">${builtIn.columns.length}</td>
+              <td data-label=""><button type="button" class="btn btn-sm" data-duplicate="full">Duplicate</button></td></tr>
             ${saved
               .map(
-                (s) => `<tr class="${s.id === selected ? 'is-selected' : ''}"><td><strong>${esc(s.name)}</strong></td><td>${s.rowPer === 'request' ? 'Per request' : 'Per item'}</td>
-                  <td class="num">${s.columns.length}</td>
-                  <td><button type="button" class="btn btn-sm" data-select="${esc(s.id)}">${s.id === selected ? 'Editing' : 'Edit'}</button>
+                (s) => `<tr class="${s.id === selected ? 'is-selected' : ''}"><td class="cell-primary" data-label=""><strong>${esc(s.name)}</strong></td><td data-label="Rows">${s.rowPer === 'request' ? 'Per request' : 'Per item'}</td>
+                  <td class="num" data-label="Columns">${s.columns.length}</td>
+                  <td data-label=""><button type="button" class="btn btn-sm" data-select="${esc(s.id)}">${s.id === selected ? 'Editing' : 'Edit'}</button>
                     <button type="button" class="btn btn-sm btn-ghost" data-duplicate="${esc(s.id)}">Duplicate</button></td></tr>`
               )
               .join('')}
@@ -251,9 +249,7 @@ export async function renderExportTemplates(el, { config, rerender, reloadConfig
 
   el.innerHTML = `
     ${takeFlash()}
-    <div class="page-header"><div><h1>Admin</h1>
-      <p class="subtitle">Excel export templates, e.g. the exact columns the department's purchasing form wants.</p></div></div>
-    ${adminTabs('exports')}
+    ${adminHeader('exports', "Excel export templates, e.g. the exact columns the department's purchasing form wants.")}
     <div id="exports-errors"></div>
     <div id="exports-body"></div>
     <div class="form-actions sticky-actions">
@@ -353,6 +349,7 @@ export async function renderExportTemplates(el, { config, rerender, reloadConfig
 
 /** Pages whose intro line can be replaced. */
 export const INTRO_PAGES = [
+  ['home', 'Home (landing page)', 'Request parts for the team and follow them through approval, ordering and delivery.'],
   ['requests', 'Requests', 'Purchase requests for the current season.'],
   ['new', 'New Request', 'Fill in the request, add one row per item, then submit for Chief Engineer approval.'],
   ['approvals', 'Approvals', 'How many requests are waiting, and their total.'],
@@ -367,9 +364,7 @@ export async function renderTextBanner(el, { config, rerender, reloadConfig }) {
 
   el.innerHTML = `
     ${takeFlash()}
-    <div class="page-header"><div><h1>Admin</h1>
-      <p class="subtitle">Messages and wording people see around the site.</p></div></div>
-    ${adminTabs('text')}
+    ${adminHeader('text', "Messages and wording people see around the site.")}
     <div id="text-errors"></div>
     <form id="text-form" novalidate>
       <section class="card">
@@ -413,7 +408,7 @@ export async function renderTextBanner(el, { config, rerender, reloadConfig }) {
         </div>
       </section>
 
-      <div class="form-actions">
+      <div class="form-actions sticky-actions">
         <button type="submit" class="btn btn-primary">Save text & banner</button>
       </div>
     </form>`;

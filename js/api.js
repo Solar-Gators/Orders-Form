@@ -151,6 +151,14 @@ export const api = {
     return res.error ? [] : res.data.map(hydrate);
   },
 
+  /** Your latest requests, any status or season (the Home page). */
+  async listMyRecent(userId, limit = 5) {
+    const res = await selectRequests((select) =>
+      supabase.from('requests').select(select).eq('created_by', userId).order('created_at', { ascending: false }).limit(limit)
+    );
+    return res.error ? [] : res.data.map(hydrate);
+  },
+
   /** How many of your requests were sent back for changes (for the Requests tab badge). */
   async countMyChangesRequested(userId) {
     const { count, error } = await supabase.from('requests').select('id', { count: 'exact', head: true }).eq('created_by', userId).eq('status', 'Changes Requested');

@@ -12,13 +12,18 @@
 <body class="signed-out">
   <header class="topbar">
     <div class="topbar-inner">
-      <a class="brand" href="#/requests" aria-label="Solar Gators Orders — home">
+      <a class="brand" href="#/home" aria-label="Solar Gators Orders — home page">
         <img class="brand-logo" src="assets/solar-gators-logo.png" alt="Solar Gators" width="800" height="237">
         <span class="brand-divider" aria-hidden="true"></span>
         <span id="brand-name">Orders</span>
       </a>
 
-      <nav class="nav signed-in-only" aria-label="Main">
+      <!-- Phones and tablets: the links fold into this menu. -->
+      <button type="button" class="menu-btn signed-in-only" id="menu-btn" aria-expanded="false" aria-controls="main-nav">
+        <span class="menu-icon" aria-hidden="true"></span><span class="menu-label">Menu</span><span class="nav-count" id="count-menu" hidden></span>
+      </button>
+
+      <nav class="nav signed-in-only" id="main-nav" aria-label="Main">
         <a href="#/new" data-nav="new">New Request</a>
         <a href="#/requests" data-nav="requests">Requests <span class="nav-count" id="count-requests" hidden title="Your requests sent back for changes"></span></a>
         <!-- Leads (CE + Treasurer) see both queues; each page limits actions by role. -->

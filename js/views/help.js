@@ -32,5 +32,5 @@ export async function renderHelp(el, { config }) {
   el.innerHTML = `
     <div class="page-header"><div><h1>Help</h1></div></div>
     <section class="card help-page">${renderRichText(own || DEFAULT_HELP)}</section>
-    ${!own && auth.can('site.customize') ? '<p class="muted small">This is the built-in guide. Write your team\'s own in <a href="#/admin/text">Admin → Text &amp; banner</a>.</p>' : ''}`;
+    ${!own && auth.can('site.customize') ? '<p class="muted small">This is the built-in guide. Write your team\'s own in <a href="#/admin/text">Admin → Look &amp; text</a>.</p>' : ''}`;
 }

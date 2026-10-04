@@ -8,7 +8,7 @@ import { api } from '../api.js';
 import { esc, fmtMoney, fmtDate, fmtDateTime, statusBadge, errorBox, setFlash, takeFlash } from '../ui.js';
 import { itemFields, requestFields, fieldOptions } from '../formFields.js';
 import { readWorkbook, pickSheet, guessSeason, toArchiveRows, toRequests, guessSubsystem, detectColumns } from '../sheetImport.js';
-import { adminTabs } from './admin.js';
+import { adminHeader } from './admin.js';
 
 // Kept between re-renders of this page.
 const state = { file: null, sheets: null, sheetName: '', mode: 'archive', season: '', subsystemMap: {}, target: '', picked: {} };
@@ -45,9 +45,7 @@ export async function renderImport(el, { config, rerender, reloadConfig }) {
 
   el.innerHTML = `
     ${takeFlash()}
-    <div class="page-header"><div><h1>Admin</h1>
-      <p class="subtitle">Bring old Excel order sheets into the app. Nothing is saved until you click Import.</p></div></div>
-    ${adminTabs('import')}
+    ${adminHeader('import', "Bring old Excel order sheets into the app. Nothing is saved until you click Import.")}
     <div id="import-errors"></div>
     <section class="card">
       <h2>1. Choose a spreadsheet</h2>
@@ -262,7 +260,7 @@ export async function renderImport(el, { config, rerender, reloadConfig }) {
         <ul class="small import-notes">
           <li><strong>CE Approval</strong> becomes the approval, <strong>Order Status</strong> and <strong>Ticket Number</strong> become the order history. The Treasurer can keep marking deliveries.</li>
           <li><strong>Gross Cost</strong> is the line total, so unit price = cost ÷ quantity. Quantities like "1 (Pack of 50)" keep their original text in Notes.</li>
-          ${newItemFields.length ? `<li>These columns will be added as item fields (edit them later in Form fields): ${newItemFields.map((f) => `<span class="chip">${esc(f.label)}</span>`).join(' ')}</li>` : ''}
+          ${newItemFields.length ? `<li>These columns will be added as item fields (edit them later in Admin → Request form): ${newItemFields.map((f) => `<span class="chip">${esc(f.label)}</span>`).join(' ')}</li>` : ''}
           <li>Imported requests are linked to people's accounts by the Requester name when it matches someone (leads can fix it on the request's page).</li>
         </ul>
         <div class="field import-target">

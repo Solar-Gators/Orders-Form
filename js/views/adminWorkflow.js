@@ -10,7 +10,7 @@ import { auth } from '../auth.js';
 import { esc, errorBox, setFlash, takeFlash, fmtMoney, fmtDateTime } from '../ui.js';
 import { requestFields, fieldOptions, CONDITION_OPS, describeCondition } from '../formFields.js';
 import { RULE_TYPES, EVENTS, PLACEHOLDERS, workflowSettings } from '../workflow.js';
-import { adminTabs } from './admin.js';
+import { adminHeader, about } from './admin.js';
 import { guardLeaving } from '../leaveGuard.js';
 
 const move = (list, i, d) => {
@@ -133,9 +133,7 @@ export async function renderWorkflow(el, { config, rerender, reloadConfig }) {
 
   el.innerHTML = `
     ${takeFlash()}
-    <div class="page-header"><div><h1>Admin</h1>
-      <p class="subtitle">Who approves what, and how much each group can spend.</p></div></div>
-    ${adminTabs('workflow')}
+    ${adminHeader('workflow', "Who approves which requests. Budgets are set by the Treasurer on the Treasurer page.")}
     <div id="wf-errors"></div>
     <section class="card">
       <div class="card-head"><h2>Approval rules</h2><button type="button" class="btn btn-sm" id="add-rule">+ Add rule</button></div>
@@ -297,14 +295,14 @@ export async function renderNotifications(el, { config, rerender, reloadConfig }
       const on = state.events[ev.key] || {};
       const t = state.templates[ev.key] || {};
       return `<tr data-ev="${ev.key}">
-        <td><strong>${esc(ev.label)}</strong><div class="muted small">${esc(ev.who)}</div></td>
-        <td class="center"><input type="checkbox" data-ch="email" aria-label="Email for ${esc(ev.label)}" ${on.email ? 'checked' : ''}></td>
-        <td class="center"><input type="checkbox" data-ch="teams" aria-label="Teams for ${esc(ev.label)}" ${on.teams ? 'checked' : ''}></td>
-        <td><button type="button" class="btn btn-sm" data-edit>${editing === ev.key ? 'Done' : 'Edit message'}</button></td>
+        <td class="cell-primary" data-label=""><strong>${esc(ev.label)}</strong><div class="muted small">${esc(ev.who)}</div></td>
+        <td class="center" data-label="Email"><input type="checkbox" data-ch="email" aria-label="Email for ${esc(ev.label)}" ${on.email ? 'checked' : ''}></td>
+        <td class="center" data-label="Teams"><input type="checkbox" data-ch="teams" aria-label="Teams for ${esc(ev.label)}" ${on.teams ? 'checked' : ''}></td>
+        <td data-label=""><button type="button" class="btn btn-sm" data-edit>${editing === ev.key ? 'Done' : 'Edit message'}</button></td>
       </tr>
       ${
         editing === ev.key
-          ? `<tr class="rules-row"><td colspan="4"><div class="template-editor">
+          ? `<tr class="rules-row"><td colspan="4" data-label=""><div class="template-editor">
               <div>
                 <div class="field"><label>Subject / Teams title</label><input type="text" data-t="subject" value="${esc(t.subject || '')}" maxlength="200"></div>
                 <div class="field"><label>Message</label><textarea data-t="body" rows="5">${esc(t.body || '')}</textarea>
@@ -349,9 +347,7 @@ export async function renderNotifications(el, { config, rerender, reloadConfig }
 
   el.innerHTML = `
     ${takeFlash()}
-    <div class="page-header"><div><h1>Admin</h1>
-      <p class="subtitle">Email and Microsoft Teams messages when a request needs someone or changes status.</p></div></div>
-    ${adminTabs('notifications')}
+    ${adminHeader('notifications', "Email and Microsoft Teams messages when a request needs someone or changes status.")}
     <div id="n-errors"></div>
     <div class="two-col">
       <section class="card">
@@ -362,10 +358,10 @@ export async function renderNotifications(el, { config, rerender, reloadConfig }
           <input type="url" id="n-site" value="${esc(state.siteUrl)}" placeholder="https://solar-gators.github.io/Orders-Form/"></div>
         <div class="field"><label for="n-delay">Wait before sending "needs your approval"</label>
           <div class="inline-input"><input type="number" id="n-delay" min="0" max="1440" step="1" value="${esc(state.approvalDelayMinutes)}"> <span class="muted">minutes</span></div>
-          <div class="hint">If the request is approved, sent back, rejected or withdrawn before then (e.g. a CE approving their own order), the message isn't sent. 0 = send right away.
-            Delayed messages go out the next time the sender runs, so schedule it every 5–10 minutes (docs/MAINTAINING.md → "Turn it on").</div></div>
-        <p class="muted small">Sending needs a one-time setup in Supabase (email account and/or a Power Automate flow for Teams).
-          ${auth.can('users.manage') ? 'The steps are in <code>docs/MAINTAINING.md</code> → "Email &amp; Teams notifications".' : 'Ask whoever maintains the site.'}</p>
+          <div class="hint">Skipped if the request is handled before then (e.g. a CE approving their own order). 0 = send right away.</div></div>
+        ${about(`<p>Delayed messages go out the next time the sender runs, so it's scheduled every 5–10 minutes in Supabase (Integrations → Cron).</p>
+          <p>Sending needs a one-time setup in Supabase (email account and/or a Power Automate flow for Teams).
+          ${auth.can('users.manage') ? 'The steps are in <code>docs/MAINTAINING.md</code> → "Email &amp; Teams notifications".' : 'Ask whoever maintains the site.'}</p>`, 'Setup notes')}
       </section>
       <section class="card">
         <h2>Try it</h2>
@@ -380,7 +376,7 @@ export async function renderNotifications(el, { config, rerender, reloadConfig }
 
     <section class="card">
       <h2>Who gets what</h2>
-      <div class="table-wrap flat"><table class="table events-table">
+      <div class="table-wrap flat"><table class="table events-table stack-mobile">
         <thead><tr><th>When a request is…</th><th class="center">Email</th><th class="center">Teams</th><th></th></tr></thead>
         <tbody id="events"></tbody>
       </table></div>

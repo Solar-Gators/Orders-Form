@@ -54,8 +54,9 @@ export async function renderAccount(el, { config, rerender }) {
   const notify = config.notifications || {};
   el.innerHTML = `
     ${takeFlash()}
-    <div class="page-header"><div><h1>My account</h1></div></div>
-    <div class="two-col">
+    <div class="page-header"><div><h1>My account</h1></div>
+      <button type="button" class="btn btn-sm" id="sign-out">Sign out</button></div>
+    <div class="account-page">
       <section class="card">
         <h2>Profile</h2>
         <form id="profile-form" novalidate>
@@ -71,21 +72,19 @@ export async function renderAccount(el, { config, rerender }) {
         </form>
       </section>
       <section class="card">
+        <h2>Notifications</h2>
+        <p class="muted small">${notify.enabled
+          ? `Messages go to <strong>${esc(user.email)}</strong> (email and/or Teams). Untick anything you don't want; changes save right away.`
+          : 'Email and Teams messages are turned off for the whole team right now. Your choices here apply once they are turned on.'}</p>
+        <div id="notify-table"></div>
+        <div id="notify-errors"></div>
+        <p class="muted small" id="notify-saved" hidden>Saved.</p>
+      </section>
+      <section class="card">
         <h2>Change password</h2>
         ${passwordForm('Update password')}
-        <hr>
-        <button type="button" class="btn btn-ghost" id="sign-out">Sign out</button>
       </section>
-    </div>
-    <section class="card">
-      <h2>Notifications</h2>
-      <p class="muted small">${notify.enabled
-        ? `Messages go to <strong>${esc(user.email)}</strong> (email and/or Teams). Untick anything you don't want; changes save right away.`
-        : 'Email and Teams messages are turned off for the whole team right now. Your choices here apply once they are turned on.'}</p>
-      <div id="notify-table"></div>
-      <div id="notify-errors"></div>
-      <p class="muted small" id="notify-saved" hidden>Saved.</p>
-    </section>`;
+    </div>`;
 
   el.querySelector('#profile-form').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -130,7 +129,7 @@ export async function renderAccount(el, { config, rerender }) {
             .join('')}
         </tbody>
       </table></div>
-      <p class="muted small">— means your leads don't send that message by that channel (Admin → Notifications).</p>`;
+      <p class="muted small">— means your leads don't send that message by that channel (Admin → Approvals &amp; alerts → Notifications).</p>`;
   };
 
   const saved = async (fn) => {

@@ -73,16 +73,8 @@ export async function renderRequestList(el, { config, rerender }) {
   // First visit: nothing of yours anywhere yet (checked across the season you're looking at).
   const neverRequested = !mine.length && !all.some((r) => r.created_by === auth.user.id) && isCurrent;
   const welcome = neverRequested && !auth.can('request.review') && !auth.can('request.order')
-    ? `<section class="card welcome">
-        <h2>Welcome! Here's how ordering works</h2>
-        <ol>
-          <li><strong>New Request:</strong> what you need, why, and one row per item from a single vendor.</li>
-          <li>A <strong>Chief Engineer</strong> approves it, or asks for changes.</li>
-          <li>The <strong>Treasurer</strong> orders it and marks it received when it arrives.</li>
-        </ol>
-        <a class="btn btn-primary" href="#/new">Start your first request</a>
-        <a class="btn btn-ghost" href="#/help">Read the Help page</a>
-      </section>`
+    ? `<div class="alert alert-info small welcome-hint">First time using the Order Form? <a href="#/home">See how ordering works</a>
+        (you can always get back there by clicking the logo).</div>`
     : '';
 
   el.innerHTML = `

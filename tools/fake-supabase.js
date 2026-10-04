@@ -127,7 +127,11 @@ class Query {
     return this;
   }
   range(from, to) {
-    this.limit = ` limit ${Number(to) - Number(from) + 1} offset ${Number(from)}`;
+    this.limitSql = ` limit ${Number(to) - Number(from) + 1} offset ${Number(from)}`;
+    return this;
+  }
+  limit(n) {
+    this.limitSql = ` limit ${Number(n)}`;
     return this;
   }
   maybeSingle() {
@@ -152,7 +156,7 @@ class Query {
     });
     const where = this.filters.length ? ` where ${this.filters.join(' and ')}` : '';
     const order = this.orders.length ? ` order by ${this.orders.join(', ')}` : '';
-    return `select ${parts.join(', ')} from ${this.table} t${where}${order}${this.limit || ''}`;
+    return `select ${parts.join(', ')} from ${this.table} t${where}${order}${this.limitSql || ''}`;
   }
   async run() {
     try {

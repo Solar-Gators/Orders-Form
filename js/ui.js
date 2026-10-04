@@ -201,7 +201,7 @@ export function requestTable(rows, columns, emptyMessage = 'Nothing here yet.', 
       </tr>`
     )
     .join('');
-  return `${sortBar}<div class="table-wrap"><table class="table stack-mobile"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+  return `${sortBar}<div class="table-wrap"><table class="table stack-mobile request-cards"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
 }
 
 // ---- Sorting ----------------------------------------------------------------

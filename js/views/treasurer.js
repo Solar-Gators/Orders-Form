@@ -149,12 +149,12 @@ function budgetCard(budgets, config, canEdit) {
     .map((b) => {
       const pct = b.amount > 0 ? Math.min(100, Math.round((b.used / b.amount) * 100)) : 100;
       return `<tr class="${b.over ? 'is-over' : ''}">
-        <td>${esc(b.value)}</td>
-        <td class="num">${fmtMoney(b.amount)}</td>
-        <td class="num">${fmtMoney(b.used)}</td>
-        <td class="num">${b.remaining >= 0 ? fmtMoney(b.remaining) : `${fmtMoney(-b.remaining)} over`}</td>
-        <td class="num muted">${b.pending ? fmtMoney(b.pending) : '—'}</td>
-        <td class="budget-bar-cell"><span class="budget-bar"><span style="width:${pct}%"></span></span></td>
+        <td class="cell-primary" data-label=""><strong>${esc(b.value)}</strong></td>
+        <td class="num" data-label="Budget">${fmtMoney(b.amount)}</td>
+        <td class="num" data-label="Used">${fmtMoney(b.used)}</td>
+        <td class="num" data-label="Left">${b.remaining >= 0 ? fmtMoney(b.remaining) : `${fmtMoney(-b.remaining)} over`}</td>
+        <td class="num muted" data-label="Awaiting approval">${b.pending ? fmtMoney(b.pending) : '—'}</td>
+        <td class="budget-bar-cell" data-label=""><span class="budget-bar"><span style="width:${pct}%"></span></span></td>
       </tr>`;
     })
     .join('');
@@ -162,7 +162,7 @@ function budgetCard(budgets, config, canEdit) {
     <div class="card-head"><h2>Budgets · ${esc(config.season)}</h2>
       ${canEdit ? '<button type="button" class="btn btn-sm" id="edit-budgets">Edit budgets</button>' : ''}</div>
     <div id="budget-editor"></div>
-    <div class="table-wrap flat"><table class="table">
+    <div class="table-wrap flat"><table class="table stack-mobile">
       <thead><tr><th>${esc(budgetLabel(config))}</th><th class="num">Budget</th><th class="num">Used</th><th class="num">Left</th><th class="num">Awaiting approval</th><th></th></tr></thead>
       <tbody>${rows}</tbody>
     </table></div>

@@ -137,10 +137,7 @@ export async function renderRequestForm(el, { config, params }) {
       </section>
 
       <section class="card">
-        <div class="card-head">
-          <h2>Items</h2>
-          <button type="button" class="btn btn-sm" data-action="add-item">+ Add item</button>
-        </div>
+        <h2>Items</h2>
         ${vendorBox}
         ${sharable.length ? '<div id="shared-box" class="shared-fields"></div>' : ''}
         <div class="table-wrap flat">
@@ -153,7 +150,7 @@ export async function renderRequestForm(el, { config, params }) {
                   ? `<tr class="shipping-row">
                       <td id="ship-label" class="num"><label for="f-shipping"><strong>${esc(shipField.label)}${star(shipField)}</strong>
                         <span class="muted small">for the whole order, as the vendor charges it</span></label></td>
-                      <td class="num"><input id="f-shipping" type="number" min="0" step="0.01" inputmode="decimal" value="${esc(orderShipping)}" placeholder="0.00"></td>
+                      <td class="num ship-input"><input id="f-shipping" type="number" min="0" step="0.01" inputmode="decimal" value="${esc(orderShipping)}" placeholder="0.00"></td>
                       <td></td>
                     </tr>`
                   : ''
@@ -168,7 +165,7 @@ export async function renderRequestForm(el, { config, params }) {
         </div>
         <div class="add-row">
           <button type="button" class="btn btn-sm" data-action="add-item">+ Add another item</button>
-          <span class="hint">Tip: pressing Enter moves to the next box, and adds a new item from the last one.</span>
+          <span class="hint hide-touch">Tip: pressing Enter moves to the next box, and adds a new item from the last one.</span>
         </div>
       </section>
 
@@ -300,7 +297,7 @@ export async function renderRequestForm(el, { config, params }) {
               .join('')}</div>`
           : ''
       }
-      <p class="hint">Every item still needs its own row below${on.length ? '' : ' (name, price, …)'}. Ticking a field only means you type it once for all rows${on.length ? '' : ', e.g. one cart link or the same quantity'}.</p>`;
+      <p class="hint">${on.length ? '' : 'Tick one to type it once for all items, e.g. a single cart link. '}Every item still needs its own row below.</p>`;
   };
   sharedBox?.addEventListener('change', (e) => {
     const key = e.target.dataset.share;

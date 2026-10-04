@@ -11,7 +11,7 @@ import {
 } from '../ui.js';
 import { LISTS, availableColumns, availableFilters, listSettings } from '../listColumns.js';
 import { requestFields, itemFields, fieldOptions } from '../formFields.js';
-import { adminTabs } from './admin.js';
+import { adminHeader } from './admin.js';
 import { guardLeaving } from '../leaveGuard.js';
 
 const toneOptions = (selected) =>
@@ -32,13 +32,15 @@ export async function renderLists(el, { config, rerender, reloadConfig }) {
     })
   );
   let dirty = false;
+  let shown = Object.keys(LISTS)[0]; // one list at a time; changes to the others are kept until you save
 
   el.innerHTML = `
     ${takeFlash()}
-    <div class="page-header"><div><h1>Admin</h1>
-      <p class="subtitle">Choose what each request list shows. Any request field works as a column, including ones you add in Form fields.</p></div></div>
-    ${adminTabs('lists')}
+    ${adminHeader('lists', "What each request list shows: columns, filters and default sorting. Any request field works as a column.")}
     <div id="lists-errors"></div>
+    <div class="segmented" role="tablist" aria-label="Which list">${Object.entries(LISTS)
+      .map(([name, def]) => `<button type="button" role="tab" data-show-list="${name}">${esc(def.label)}</button>`)
+      .join('')}</div>
     <div id="lists"></div>
     <div class="form-actions sticky-actions">
       <span class="muted small" id="lists-dirty" hidden>Unsaved changes</span>
@@ -61,7 +63,7 @@ export async function renderLists(el, { config, rerender, reloadConfig }) {
     const sortable = chosen.filter((c) => c.sort);
     return `<section class="card list-card" data-list="${name}">
       <div class="card-head"><div><h2>${esc(def.label)}</h2><p class="muted small">${esc(def.help)}</p></div>
-        <button type="button" class="btn btn-sm btn-ghost" data-reset="${name}">Reset to default</button></div>
+        <button type="button" class="btn btn-sm btn-ghost" data-reset="${name}">Reset to defaults</button></div>
 
       <h3 class="sub-heading">Columns</h3>
       <ol class="column-list">
@@ -115,7 +117,8 @@ export async function renderLists(el, { config, rerender, reloadConfig }) {
   };
 
   const draw = () => {
-    el.querySelector('#lists').innerHTML = Object.keys(LISTS).map(card).join('');
+    el.querySelector('#lists').innerHTML = card(shown);
+    el.querySelectorAll('[data-show-list]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.showList === shown)));
   };
 
   const listOf = (node) => node.closest('[data-list]')?.dataset.list;
@@ -129,6 +132,10 @@ export async function renderLists(el, { config, rerender, reloadConfig }) {
     const btn = e.target.closest('button');
     if (!btn) return;
     const name = listOf(btn);
+    if (btn.dataset.showList) {
+      shown = btn.dataset.showList;
+      return draw();
+    }
     if (name && btn.dataset.move) {
       const [i, d] = btn.dataset.move.split(':').map(Number);
       const cols = state[name].columns;
@@ -205,9 +212,7 @@ export async function renderAppearance(el, { config, rerender, reloadConfig }) {
 
   el.innerHTML = `
     ${takeFlash()}
-    <div class="page-header"><div><h1>Admin</h1>
-      <p class="subtitle">Rename statuses and choose colors. Only what people see changes; the workflow stays the same.</p></div></div>
-    ${adminTabs('appearance')}
+    ${adminHeader('appearance', "Logo, accent color, and the names and colors of statuses, priorities and dropdown options.")}
     <div id="appearance-errors"></div>
     <form id="appearance-form" novalidate>
       <section class="card">
@@ -265,7 +270,7 @@ export async function renderAppearance(el, { config, rerender, reloadConfig }) {
               )
               .join('')}</tbody>
           </table></div>
-          <p class="muted small">Priority names are edited in <a href="#/admin/settings">Settings</a> (Dropdown lists).</p>
+          <p class="muted small">Priority names are edited in <a href="#/admin/dropdowns">Dropdowns &amp; rules</a>.</p>
           <label class="rule-toggle"><input type="checkbox" name="showDefaultPriority" ${a.showDefaultPriority ? 'checked' : ''}>
             <span>Show "${esc(config.defaultPriority || 'Normal')}" in lists too
               <span class="hint">Off: lists only tag requests that aren't the default priority, so urgent ones stand out.</span></span></label>
@@ -293,8 +298,8 @@ export async function renderAppearance(el, { config, rerender, reloadConfig }) {
             </section>`
           : ''
       }
-      <div class="form-actions">
-        <button type="button" class="btn btn-ghost" id="appearance-reset">Reset all to defaults</button>
+      <div class="form-actions sticky-actions">
+        <button type="button" class="btn btn-ghost reset-btn" id="appearance-reset">Reset to defaults</button>
         <button type="submit" class="btn btn-primary">Save appearance</button>
       </div>
     </form>`;
@@ -407,12 +412,12 @@ export async function renderAppearance(el, { config, rerender, reloadConfig }) {
 
 const WHAT = {
   general: 'Team settings',
-  form: 'Form fields & dropdowns',
-  lists: 'Lists',
-  appearance: 'Appearance',
+  form: 'Form fields, dropdowns & rules',
+  lists: 'Request lists',
+  appearance: 'Colors, logo & text',
   layout: 'Request page',
-  exports: 'Export templates',
-  workflow: 'Workflow & budgets',
+  exports: 'Excel templates',
+  workflow: 'Approval rules & budgets',
   notifications: 'Notifications',
   permissions: 'Permissions',
 };
@@ -429,7 +434,11 @@ const PART = {
   requestIdPrefix: 'request ID prefix', allowedEmailDomains: 'allowed email domains', statuses: 'status labels & colors',
   showDefaultPriority: 'default priority display', requests: 'Requests list', approvals: 'Approvals list',
   treasurerToOrder: 'Treasurer "To order" list', treasurerOrdered: 'Treasurer "Awaiting delivery" list',
+  approvalDelayMinutes: 'wait before sending "needs your approval"', logo: 'logo', accent: 'accent color', optionColors: 'dropdown colors',
+  announcement: 'announcement banner', intros: 'page intros', helpText: 'help page', signInMessage: 'sign-in message', season: 'season', seasonPrefix: 'request numbers',
 };
+/** Any other setting name, in words: approvalDelayMinutes → approval delay minutes. */
+const words = (k) => k.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase();
 
 /** A one-line description of what changed between two versions. */
 function describe(entry, previous, roleLabel) {
@@ -452,7 +461,7 @@ function describe(entry, previous, roleLabel) {
   const changed = [...keys].filter((k) => JSON.stringify(entry.value[k]) !== JSON.stringify(previous.value[k]));
   if (changed.length === 1 && changed[0] === 'schemaVersion') return `Database update (version ${entry.value.schemaVersion})`;
   // Same key, different meaning: in Appearance, "priorities" are the colors.
-  const part = (k) => (entry.key === 'appearance' && k === 'priorities' ? 'priority colors' : PART[k] || k);
+  const part = (k) => (entry.key === 'appearance' && k === 'priorities' ? 'priority colors' : PART[k] || words(k));
   const lines = changed.filter((k) => k !== 'schemaVersion').map((k) => detail(entry.key, k, previous.value[k], entry.value[k]) || `Changed ${part(k)}`);
   return lines.length ? lines.join('; ') : 'No visible change';
 }
@@ -494,7 +503,7 @@ export async function renderHistory(el, { rerender, reloadConfig }) {
   try {
     rows = await api.listSettingsHistory(200);
   } catch {
-    el.innerHTML = `${adminTabs('history')}<div class="alert alert-info">Settings history needs database update <code>008_roles_admin_history.sql</code>.</div>`;
+    el.innerHTML = `${adminHeader('history')}<div class="alert alert-info">Settings history needs database update <code>008_roles_admin_history.sql</code>.</div>`;
     return;
   }
   const roleLabel = (key) => auth.roles.find((r) => r.key === key)?.label || key;
@@ -514,9 +523,7 @@ export async function renderHistory(el, { rerender, reloadConfig }) {
 
   el.innerHTML = `
     ${takeFlash()}
-    <div class="page-header"><div><h1>Admin</h1>
-      <p class="subtitle">Every change to settings and permissions. Restore any earlier version; restoring is itself recorded, so it can be undone too.</p></div></div>
-    ${adminTabs('history')}
+    ${adminHeader('history', "Every change to settings and permissions. Restore any earlier version; restoring is itself recorded, so it can be undone too.")}
     <div id="history-errors"></div>
     <div class="toolbar">
       <select id="history-kind" aria-label="Show"><option value="">Everything</option>${Object.entries(WHAT)
