@@ -175,6 +175,51 @@ export const api = {
     unwrap(await supabase.rpc('set_budgets', { p_budgets: budgets }));
   },
 
+  // ---- Files & links (migration 017): kind is 'sponsor' | 'request' | 'finance' --------
+
+  /** Files and links of one sponsor card / request / Finances row, oldest first. Files get a 1-hour link (`href`). */
+  async listAttachments(kind, ownerId) {
+    const column = { sponsor: 'sponsor_card_id', request: 'request_id', finance: 'finance_row_id' }[kind];
+    const { data, error } = await supabase.from('attachments').select('*').eq(column, ownerId).order('created_at');
+    if (error) return null; // before migration 017
+    const paths = data.filter((a) => a.path).map((a) => a.path);
+    if (paths.length) {
+      const signed = await supabase.storage.from('attachments').createSignedUrls(paths, 3600);
+      const byPath = new Map((signed.data || []).map((s) => [s.path, s.signedUrl]));
+      for (const a of data) if (a.path) a.href = byPath.get(a.path) || '';
+    }
+    for (const a of data) if (a.url) a.href = a.url;
+    return data;
+  },
+  /** { ownerId: number of files } for every sponsor card / request / Finances row that has some. */
+  async attachmentCounts(kind) {
+    const { data, error } = await supabase.rpc('attachment_counts', { p_kind: kind });
+    return error ? {} : data || {};
+  },
+  async uploadAttachment(kind, ownerId, file, label = '') {
+    const safe = file.name.replace(/[^\w.\-]+/g, '_').slice(-80) || 'file';
+    const path = `${kind}/${ownerId}/${crypto.randomUUID()}-${safe}`;
+    const up = await supabase.storage.from('attachments').upload(path, file, { contentType: file.type || undefined, upsert: false });
+    if (up.error) throw toError({ message: /mime|type/i.test(up.error.message) ? `"${file.name}" isn't a file type that can be attached.` : up.error.message });
+    const res = await supabase.rpc('add_attachment', {
+      p_kind: kind, p_owner: ownerId, p_path: path, p_url: null, p_file_name: file.name, p_size: file.size, p_mime: file.type || '', p_label: label,
+    });
+    if (res.error) {
+      await supabase.storage.from('attachments').remove([path]); // don't leave an unlisted file behind
+      throw toError(res.error);
+    }
+    return res.data;
+  },
+  async addAttachmentLink(kind, ownerId, url, label = '') {
+    return unwrap(await supabase.rpc('add_attachment', {
+      p_kind: kind, p_owner: ownerId, p_path: null, p_url: url, p_file_name: '', p_size: null, p_mime: '', p_label: label,
+    }));
+  },
+  async deleteAttachment(id) {
+    const path = unwrap(await supabase.rpc('delete_attachment', { p_id: id }));
+    if (path) await supabase.storage.from('attachments').remove([path]); // the last link to this file
+  },
+
   // ---- Request watchers (migration 016) ---------------------------------------------
 
   /** Who watches a request (user ids), or null before migration 016. */

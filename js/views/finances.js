@@ -21,6 +21,7 @@ import {
 } from '../financeCalc.js';
 import { openColumnEditor, newSheetDialog, optionsOf, formFieldOf, newKey } from './financeColumns.js';
 import { renderBudgetPanel } from './treasurer.js';
+import { openAttachmentsDialog } from '../attachments.js';
 
 // Kept while moving around the app.
 const view = { sheetId: null, q: '', sort: null };
@@ -73,6 +74,7 @@ export async function renderFinances(el, { config, rerender, reloadConfig }) {
     details: requestDetails(requestFields(config)), columns,
   };
   const hasFill = columns.some((c) => c.fill);
+  const fileCounts = await api.attachmentCounts('finance');
   const perOption = columns.find((c) => c.type === 'select' && formFieldOf(c));
 
   el.innerHTML = `
@@ -213,7 +215,9 @@ export async function renderFinances(el, { config, rerender, reloadConfig }) {
       ? list
           .map(
             (row, i) => `<tr data-row-id="${esc(row.id)}">
-              <td class="sheet-idx muted">${i + 1}</td>
+              <td class="sheet-idx muted">${i + 1}${fileCounts[row.id] || canEdit
+                ? `<button type="button" class="row-files ${fileCounts[row.id] ? 'has-files' : ''}" data-row-files="${esc(row.id)}" title="${fileCounts[row.id] ? `${fileCounts[row.id]} file(s)` : 'Attach a receipt or file'}" aria-label="Files for row ${i + 1}">📎${fileCounts[row.id] ? `<span>${fileCounts[row.id]}</span>` : ''}</button>`
+                : ''}</td>
               ${columns.map((c) => cell(row, c)).join('')}
               ${canEdit ? `<td class="sheet-del"><button type="button" class="icon-btn" data-delete-row="${esc(row.id)}" title="Delete row" aria-label="Delete row ${i + 1}">&times;</button></td>` : ''}
             </tr>`
@@ -427,6 +431,16 @@ export async function renderFinances(el, { config, rerender, reloadConfig }) {
     if (calc && !e.target.closest('a')) return why(calc);
     const btn = e.target.closest('button');
     if (!btn) return;
+    if (btn.dataset.rowFiles) {
+      const n = shownRows().findIndex((r) => r.id === btn.dataset.rowFiles) + 1;
+      return openAttachmentsDialog({
+        title: `Files · ${sheet.name}, row ${n}`, kind: 'finance', ownerId: btn.dataset.rowFiles, canEdit,
+        onChange: (count) => {
+          fileCounts[btn.dataset.rowFiles] = count;
+          draw();
+        },
+      });
+    }
     if (btn.dataset.sheet) {
       view.sheetId = btn.dataset.sheet;
       view.sort = null;

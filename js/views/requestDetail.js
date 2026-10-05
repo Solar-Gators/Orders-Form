@@ -7,6 +7,7 @@
  *   Ordered                   -> Mark as Received (request.order)
  */
 import { api } from '../api.js';
+import { renderAttachments } from '../attachments.js';
 import { auth } from '../auth.js';
 import {
   STATUS, DECISION_LABELS, esc, fmtMoney, fmtDate, fmtDateTime, todayISO,
@@ -484,6 +485,7 @@ export async function renderRequestDetail(el, { config, params, rerender }) {
       </div>
       <aside class="detail-side">
         ${actionPanel(r, config, { names, budget })}
+        <div id="request-files"></div>
         ${showWatchers && watchers ? watchersCard(r, watchers, people, names) : ''}
         ${historyCard(r)}
         ${isLead() ? ownerCard(r, people, names) : ''}
@@ -533,6 +535,13 @@ export async function renderRequestDetail(el, { config, params, rerender }) {
       e.target.disabled = false;
     }
   });
+
+  // ---- Files (quotes, receipts…): the requester and leads can add ----
+  renderAttachments(el.querySelector('#request-files'), {
+    kind: 'request', ownerId: r.id, framed: true,
+    canEdit: r.created_by === auth.user.id || isLead(),
+    hint: 'Attach a quote, receipt or spec sheet',
+  }).catch(() => {});
 
   // ---- Watchers ----
   const watch = async (userId, on) => {

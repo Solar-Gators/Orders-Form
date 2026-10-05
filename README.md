@@ -71,6 +71,8 @@ Changed your mind? Open a submitted request and click **Withdraw request** to tu
 
 **Watchers:** anyone can click **Watch** on a request to get an email / Teams message whenever its status changes (submitted, approved, sent back, rejected, ordered, received). The requester and leads can also add other people, e.g. a subsystem lead or a teammate waiting on the part. On **Requests**, the "Requests I watch" filter lists them.
 
+**Files & links:** a request's page has a small **📎 Attach a quote, receipt or spec sheet** line (the requester and leads can add; everyone can open them). The same panel is on sponsor cards (logos, agreements, the packet you sent) and on Finances rows (the 📎 next to each row number, for receipts and invoices). Files are private to people who can see that page, up to 10 MB each (PDF, images, Office files, text, zip); for anything bigger or shared, paste a link (Google Drive, OneDrive, Canva). Don't upload W-9s, tax IDs or bank details. Renewing a sponsor card keeps its files.
+
 ### Approving (Chief Engineer)
 - **Queue → To approve** lists everything waiting, sorted by needed-by date. The number on **Queue** is how many requests are waiting on you.
 - Open a request and choose **Approve**, **Request Changes**, or **Reject**. Changes and rejections need a comment so the requester knows why.

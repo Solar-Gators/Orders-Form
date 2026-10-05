@@ -22,7 +22,7 @@ export const siteUrl = () => `${location.origin}${location.pathname}`;
 
 const DB_NAME = 'idb://sg-orders-fake';
 // Keep in sync with the files in supabase/migrations/.
-const MIGRATIONS = ['001_initial.sql', '002_form_fields.sql', '003_archive_and_import.sql', '004_cost_adjustments.sql', '005_editable_permissions.sql', '006_seasons.sql', '007_one_vendor_per_request.sql', '008_roles_admin_history.sql', '009_form_rules_layout_exports.sql', '010_workflow_budgets_notifications.sql', '011_notification_choices.sql', '012_link_imported_requests.sql', '013_history_drafts_ticket.sql', '014_finances.sql', '015_sponsors.sql', '016_request_watchers.sql'];
+const MIGRATIONS = ['001_initial.sql', '002_form_fields.sql', '003_archive_and_import.sql', '004_cost_adjustments.sql', '005_editable_permissions.sql', '006_seasons.sql', '007_one_vendor_per_request.sql', '008_roles_admin_history.sql', '009_form_rules_layout_exports.sql', '010_workflow_budgets_notifications.sql', '011_notification_choices.sql', '012_link_imported_requests.sql', '013_history_drafts_ticket.sql', '014_finances.sql', '015_sponsors.sql', '016_request_watchers.sql', '017_attachments.sql'];
 const SESSION_KEY = 'sg-orders-fake-session';
 
 const STUB = `
@@ -238,8 +238,28 @@ const authApi = {
   },
 };
 
+// Files: kept in memory for this tab (gone after a reload), enough to try attachments.
+const fakeFiles = new Map();
+const storageApi = {
+  from: () => ({
+    async upload(path, file) {
+      if (fakeFiles.has(path)) return { data: null, error: { message: 'The resource already exists' } };
+      fakeFiles.set(path, URL.createObjectURL(file));
+      return { data: { path }, error: null };
+    },
+    async createSignedUrls(paths) {
+      return { data: paths.map((path) => ({ path, signedUrl: fakeFiles.get(path) || null, error: fakeFiles.has(path) ? null : 'Not found (fake mode forgets files after a reload)' })), error: null };
+    },
+    async remove(paths) {
+      for (const p of paths) fakeFiles.delete(p);
+      return { data: paths.map((name) => ({ name })), error: null };
+    },
+  }),
+};
+
 export const supabase = {
   auth: authApi,
+  storage: storageApi,
   from: (table) => new Query(table),
   async rpc(fn, args = {}) {
     try {

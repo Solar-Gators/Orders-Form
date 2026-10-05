@@ -13,6 +13,7 @@ import { api } from '../api.js';
 import { auth } from '../auth.js';
 import { esc, fmtMoney, fmtDate, fmtDateTime, errorBox, setFlash, takeFlash, renderRichText } from '../ui.js';
 import { guardLeaving, releaseGuard } from '../leaveGuard.js';
+import { renderAttachments } from '../attachments.js';
 
 const STAGE_KINDS = [
   ['open', 'Working on it'],
@@ -67,7 +68,7 @@ export async function renderSponsors(el, { config, rerender, reloadConfig }) {
     return;
   }
   const { stages, kinds } = sponsorSettings(config);
-  const { all: people } = await boardPeople();
+  const [{ all: people }, fileCounts] = await Promise.all([boardPeople(), api.attachmentCounts('sponsor')]);
   const nameOf = (id) => people.find((p) => p.id === id)?.full_name || '';
   const seasons = [...new Set([config.season, ...cards.map((c) => c.season)].filter(Boolean))].sort().reverse();
   if (!view.season || (view.season !== 'all' && !seasons.includes(view.season))) view.season = config.season || seasons[0] || 'all';
@@ -134,6 +135,7 @@ export async function renderSponsors(el, { config, rerender, reloadConfig }) {
         ${c.owner_id ? `<span class="avatar" title="Lead: ${esc(nameOf(c.owner_id))}">${esc(initials(nameOf(c.owner_id)))}</span>` : ''}
         ${c.follow_up ? `<span class="${due ? 'late-tag' : 'muted small'}" title="Follow up">↻ ${fmtDate(c.follow_up)}</span>` : ''}
         ${c.watchers.length ? `<span class="muted small" title="${c.watchers.length} watching">👁 ${c.watchers.length}</span>` : ''}
+        ${fileCounts[c.id] ? `<span class="muted small" title="${fileCounts[c.id]} file${fileCounts[c.id] === 1 ? '' : 's'} or link${fileCounts[c.id] === 1 ? '' : 's'}">📎 ${fileCounts[c.id]}</span>` : ''}
         ${canEdit() ? `<select class="kcard-move" data-move="${esc(c.id)}" aria-label="Move ${esc(c.name)} to">${stages
           .map((s) => `<option value="${esc(s.key)}" ${s.key === c.stage ? 'selected' : ''}>${esc(s.label)}</option>`)
           .join('')}</select>` : ''}
@@ -563,6 +565,7 @@ export async function renderSponsorCard(el, { config, params, rerender }) {
             .map((p) => `<option value="${esc(p.id)}">${esc(p.full_name || p.email)}</option>`)
             .join('')}</select>` : ''}
         </section>
+        <div id="card-files"></div>
         ${similar.length ? `<section class="card">
           <h2>Similar sponsors</h2>
           <ul class="similar-list">${similar
@@ -572,6 +575,11 @@ export async function renderSponsorCard(el, { config, params, rerender }) {
         <section class="card small muted">Added ${fmtDate(card.created_at)}${card.created_by ? ` by ${esc(nameOf(card.created_by))}` : ''}.</section>
       </aside>
     </div>`;
+
+  renderAttachments(el.querySelector('#card-files'), {
+    kind: 'sponsor', ownerId: card.id, canEdit: editable, framed: true,
+    hint: 'Add a logo, agreement or link',
+  }).catch(() => {});
 
   const errors = el.querySelector('#card-errors');
   const form = el.querySelector('#card-form');

@@ -293,7 +293,7 @@ await test('the website cannot change the schema version', async () => {
   const general = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
   await as(ce, () => rpc('update_settings', ['general', { ...general, schemaVersion: 99 }]));
   const after = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
-  assert.equal(after.schemaVersion, 16);
+  assert.equal(after.schemaVersion, 17);
 });
 
 console.log('Form fields');
@@ -1344,6 +1344,50 @@ await test('Watchers: anyone can watch; only the requester or a lead adds others
   assert.equal((await db.query(`select count(*)::int n from request_watchers where request_id = $1 and user_id = $2`, [id, other])).rows[0].n, 0);
   await as(other, () => rejects(db.query(`insert into request_watchers (request_id, user_id) values ('${id}', '${other}')`), /permission denied/));
   await as(admin, () => rpc('update_settings', ['notifications', { enabled: false }]));
+});
+
+console.log('Files & links (017)');
+
+await test('Files: who can add and see them on sponsor cards, requests and Finances rows', async () => {
+  const card = (await db.query(`select id from sponsor_cards order by created_at limit 1`)).rows[0].id;
+  const req = (await db.query(`select id, created_by from requests where created_by = $1 limit 1`, [member])).rows[0].id;
+  const sheet = (await db.query(`select id from finance_sheets limit 1`)).rows[0].id;
+  const row = (await as(treasurer, () => rpc('add_finance_rows', [sheet, [{ data: {} }]]))).rows[0].result[0].id;
+  const add = (uid, kind, owner, path, url, label = '') =>
+    as(uid, () => rpc('add_attachment', [kind, owner, path, url, path ? 'file.pdf' : '', path ? 1000 : null, path ? 'application/pdf' : '', label]));
+
+  await add(coordinator, 'sponsor', card, `sponsor/${card}/a-logo.png`, null, 'Logo');
+  await add(coordinator, 'sponsor', card, null, 'https://drive.google.com/folder', 'Shared folder');
+  await as(ce, () => rejects(add(ce, 'sponsor', card, null, 'https://x.com'), /can't add files/)); // CEs can only look
+  await add(member, 'request', req, `request/${req}/b-quote.pdf`, null, 'Quote'); // the requester
+  await as(other, () => rejects(add(other, 'request', req, null, 'https://x.com'), /can't add files/)); // someone else's request
+  await add(treasurer, 'finance', row, `finance/${row}/c-receipt.pdf`, null);
+  await as(member, () => rejects(add(member, 'finance', row, null, 'https://x.com'), /can't add files/));
+  await as(coordinator, () => rejects(add(coordinator, 'sponsor', card, `request/${req}/sneaky.pdf`, null), /wrong place/));
+  await as(coordinator, () => rejects(add(coordinator, 'sponsor', card, null, 'javascript:alert(1)'), /https/));
+
+  const sees = async (uid) => (await as(uid, () => db.query(`select label from attachments order by label`))).rows.map((r) => r.label);
+  assert.deepEqual(await sees(member), ['Quote']); // members see request files only
+  assert.deepEqual((await sees(ce)).sort(), ['', 'Logo', 'Quote', 'Shared folder'].sort()); // CE: sponsors + finances (view) + requests
+  const counts = (await as(coordinator, () => rpc('attachment_counts', ['sponsor']))).rows[0].result;
+  assert.equal(counts[card], 2);
+  const log = (await db.query(`select body from sponsor_activity where card_id = $1 and kind = 'file' order by id`, [card])).rows.map((r) => r.body);
+  assert.deepEqual(log, ['Added the file "Logo".', 'Added the link "Shared folder".']);
+});
+
+await test('Files: renewing a card keeps its files; storage is freed only when the last link to a file goes', async () => {
+  const card = (await db.query(`select id from sponsor_cards order by created_at limit 1`)).rows[0].id;
+  const next = (await as(coordinator, () => rpc('renew_sponsor_card', [card, '2099-2100']))).rows[0].result;
+  const logo = (await db.query(`select id, path from attachments where sponsor_card_id = $1 and label = 'Logo'`, [card])).rows[0];
+  assert.equal((await db.query(`select count(*)::int n from attachments where sponsor_card_id = $1`, [next])).rows[0].n, 2);
+  const first = (await as(coordinator, () => rpc('delete_attachment', [logo.id]))).rows[0].result;
+  assert.equal(first, null); // the renewed card still uses it
+  const copy = (await db.query(`select id from attachments where sponsor_card_id = $1 and label = 'Logo'`, [next])).rows[0].id;
+  const last = (await as(coordinator, () => rpc('delete_attachment', [copy]))).rows[0].result;
+  assert.equal(last, logo.path); // now the website deletes the file itself
+  const quote = (await db.query(`select id from attachments where label = 'Quote'`)).rows[0].id;
+  await as(other, () => rejects(rpc('delete_attachment', [quote]), /can't remove/));
+  await as(member, () => rejects(db.query(`delete from attachments`), /permission denied/));
 });
 
 console.log(`\n${passed} passed${process.exitCode ? ', some FAILED' : ''}`);

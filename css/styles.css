@@ -1052,3 +1052,31 @@ button.account-link::after { content: "▾"; font-size: 10px; color: var(--muted
 nav.segmented { gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 14px; }
 nav.segmented a { border: 0; border-radius: 0; background: none; padding: 8px 14px; margin-bottom: -1px; border-bottom: 2px solid transparent; font-size: 14px; }
 nav.segmented a[aria-current="page"] { background: none; color: var(--text); border-bottom-color: var(--orange); }
+
+/* ---- Files & links (sponsor cards, requests, Finances rows) -------------------------- */
+.attachments { display: grid; gap: 8px; }
+.attachments.card { padding: 14px 16px; }
+.attachments.card.is-empty { padding: 10px 16px; background: transparent; border-style: dashed; }
+.attach-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.attach-list li { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.attach-text { display: grid; min-width: 0; flex: 1; }
+.attach-text a { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.attach-icon { width: 36px; text-align: center; font-size: 18px; flex: none; }
+.attach-thumb { flex: none; }
+.attach-thumb img { width: 36px; height: 36px; object-fit: contain; border: 1px solid var(--border); border-radius: 6px; background: #fff; display: block; }
+.attach-open { justify-self: start; font-size: 13px; text-decoration: none; }
+.attach-open:hover { text-decoration: underline; }
+.attach-form { display: grid; gap: 8px; }
+.attach-drop { display: block; padding: 12px; border: 1px dashed #b9c9e4; border-radius: 8px; background: #f7f9fd; cursor: pointer; font-weight: 500; text-align: center; }
+.attach-drop input { display: block; margin: 0 auto 6px; width: auto; border: 0; padding: 0; background: none; }
+.attachments .hint { margin: 0; }
+.attach-link-row { display: flex; gap: 6px; }
+.attach-link-row input { flex: 1; min-width: 0; }
+.attach-close { justify-self: start; font-size: 13px; }
+.is-dropping .attachments { outline: 2px dashed var(--orange); outline-offset: 2px; }
+.sheet-table td.sheet-idx { white-space: nowrap; }
+.row-files { border: 0; background: none; padding: 0 0 0 4px; cursor: pointer; font-size: 11px; opacity: 0; color: var(--muted); }
+.row-files span { margin-left: 1px; font-weight: 700; }
+.row-files.has-files { opacity: 1; color: var(--navy); }
+.sheet-table tr:hover .row-files, .row-files:focus-visible { opacity: 1; }
+@media (hover: none) { .row-files { opacity: .7; } }
