@@ -940,3 +940,41 @@ body.nav-open .menu-icon::after { top: 0; transform: rotate(-45deg); }
   .sheet-toolbar .toolbar-right { margin-left: 0; width: 100%; justify-content: flex-end; }
   .sheet-wrap { max-height: none; }
 }
+
+/* ---- Finances: calculated cells, "click to see why", column editor, new-sheet dialog ---- */
+.sheet-table td.is-calc { background: #f3f6fb; color: var(--navy); cursor: pointer; padding: 7px 9px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.sheet-table td.is-calc:hover, .sheet-table td.is-calc:focus-visible { background: #e8eef8; outline: none; box-shadow: inset 0 0 0 2px #b9c9e4; }
+.sheet-table th.is-calc-head .sort-btn::after { content: "ƒ"; margin-left: 4px; font-style: italic; text-transform: none; color: var(--blue); opacity: .7; }
+.sheet-table td.is-budget { background: #fff8f1; }
+.sheet-table .is-negative, .sheet-table .is-negative input { color: var(--red); }
+.calc-dialog, .sheet-dialog { width: min(560px, calc(100vw - 32px)); max-height: 80vh; overflow: auto; border: 1px solid var(--border); padding: 20px; }
+.calc-dialog::backdrop, .sheet-dialog::backdrop { background: rgba(11, 37, 69, .35); }
+.calc-items { list-style: none; margin: 8px 0; padding: 0; border: 1px solid var(--border-soft); border-radius: 8px; max-height: 50vh; overflow: auto; }
+.calc-items li { display: flex; justify-content: space-between; gap: 12px; padding: 7px 10px; border-bottom: 1px solid var(--border-soft); font-size: 13.5px; }
+.calc-items li:last-child { border-bottom: 0; }
+.calc-total { display: flex; justify-content: space-between; font-size: 15px; border-top: 2px solid var(--border); padding-top: 8px; }
+.template-list { display: grid; gap: 8px; margin-bottom: 14px; }
+.template-choice { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; font-weight: 500; }
+.template-choice:has(input:checked) { border-color: var(--orange); background: #fff7f1; }
+.template-choice input { width: auto; margin-top: 3px; }
+.template-choice > span { display: grid; gap: 2px; }
+.col-list { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 8px; }
+.col-list > li { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; background: #fff; }
+.col-list > li.is-calc-col { background: #f7f9fd; border-color: #c8d3e3; }
+.col-main { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.col-main > input[type="text"] { flex: 1 1 180px; min-width: 0; font-weight: 600; }
+.col-main > select { width: auto; flex: 0 1 220px; }
+.col-move { display: inline-flex; }
+.col-fill { display: flex; align-items: center; gap: 6px; margin: 0; font-weight: 400; }
+.col-fill select { width: auto; max-width: 180px; }
+.col-del { margin-left: auto; }
+.col-settings { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); font-size: 13.5px; }
+.col-settings select, .col-settings input[type="text"] { width: auto; max-width: 240px; padding: 5px 8px; }
+.col-settings textarea { flex: 1 1 260px; }
+.col-settings .hint { flex-basis: 100%; margin: 0; }
+.math-term { display: inline-flex; gap: 4px; align-items: center; }
+.sheet-name-field input { max-width: 360px; }
+@media (max-width: 640px) {
+  .col-main > select, .col-fill, .col-fill select { flex: 1 1 100%; max-width: none; }
+  .col-settings select, .col-settings input[type="text"] { max-width: 100%; }
+}

@@ -88,7 +88,17 @@ Changed your mind? Open a submitted request and click **Withdraw request** to tu
 ### Finances (Treasurer)
 The **Finances** tab is a spreadsheet the Treasurer shapes himself, so his own tracking can live on the site instead of a separate Excel file.
 - **Sheets:** as many as he likes (e.g. Ledger, Reimbursements, Sponsorships). A **Ledger** sheet is there to start; rename, reshape or delete it.
-- **Columns & sheet:** add, rename, reorder or delete columns. Types: text, money, number, date, dropdown (your own options), checkbox, link, request (an SG number, linked to the request), and **running total** (a balance down the rows). Money and number columns can show a total at the bottom.
+- **New sheet:** start blank, or from a template: **Budget by cost center**, **Income (sponsorships & donations)**, or **Funds overview** (the general pool: money in minus what's spent and approved).
+- **Columns & sheet:** add, rename, reorder or delete columns. Typed-in columns: text, money, number, date, dropdown (your own options, or the form's list, e.g. Cost center), checkbox, link, request (an SG number, linked to the request). Money and number columns can show a total at the bottom.
+- **Calculated columns** (shaded; click any cell to see exactly what was added up). They're set up with menus, never typed formulas:
+  - **Budget:** the site's budget for the row's cost center. It's the same number as on the Treasurer page, and typing one here changes it there too.
+  - **From orders:** requests that are spent (ordered + received), approved but not ordered, or waiting for approval, this season or every season, per row's cost center or for the whole team.
+  - **Total from a sheet:** add up a money column of any sheet, for every row or only matching rows, optionally only where a column has a value (e.g. Type is Sponsorship).
+  - **From the request:** a detail of the request in the row (total, vendor, status, Cost center…), kept up to date.
+  - **Math:** + and − of other amount columns in the same row, e.g. Budget − Spent − Approved.
+  - **Running total:** a balance down the rows.
+  - Math only uses typed amounts and the columns above, and totals only add up typed amounts, so nothing can loop back on itself. The editor explains anything that doesn't fit before saving.
+- **Add a row per Cost center** fills a summary sheet in one click when a dropdown uses the form's list.
 - **Cells save as you leave them.** Enter moves down a row (and adds one at the bottom); Tab moves right.
 - **Add ordered requests:** adds a row for every Ordered or Received request not yet in the sheet, filling the columns you linked to a request detail (ID, title, vendor, total, ticket #, order date, Cost center…).
 - **Search, sort** (click a heading; **Keep this order** saves it), **Download .xlsx**, and **Import Excel…**: each worksheet of an existing file becomes a sheet, with column types guessed (dates, money, checkboxes, links). Formulas come in as their values.

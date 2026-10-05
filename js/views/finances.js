@@ -1,66 +1,32 @@
 /**
  * Finances (#/finances): spreadsheet-like sheets the Treasurer shapes himself
- * (migration 014). Each sheet has its own columns (text, number, money, date,
- * dropdown, checkbox, link, request, running total); cells save as you leave them.
+ * (migration 014). Typed-in columns save as you leave a cell; calculated columns
+ * (budgets, order totals, totals from another sheet, request details, + / − math,
+ * running totals) fill themselves in, and clicking one shows what was added up.
+ * See js/financeCalc.js (the math) and js/views/financeColumns.js (the column editor).
  *
- * Also: a totals row, search, sorting (with "Keep this order"), "Add ordered
- * requests" (fills columns from requests), Excel import (each worksheet becomes a
- * sheet) and Excel download. Viewing needs finances.view; changing, finances.edit.
+ * Also: totals row, search, sorting (with "Keep this order"), "Add ordered requests",
+ * "Add a row per Cost center", Excel import and download.
+ * Viewing needs finances.view; changing, finances.edit.
  */
 import { api } from '../api.js';
 import { auth } from '../auth.js';
 import { esc, fmtMoney, fmtDate, errorBox, setFlash, takeFlash } from '../ui.js';
 import { requestFields } from '../formFields.js';
+import { workflowSettings } from '../workflow.js';
 import { loadExcelJS } from '../excel.js';
 import { cellText } from '../sheetImport.js';
-
-export const COLUMN_TYPES = [
-  ['text', 'Text'],
-  ['money', 'Money ($)'],
-  ['number', 'Number'],
-  ['date', 'Date'],
-  ['select', 'Dropdown'],
-  ['checkbox', 'Checkbox'],
-  ['link', 'Link'],
-  ['request', 'Request (SG number)'],
-  ['running', 'Running total'],
-];
-const NUMERIC = new Set(['money', 'number']);
-
-/** What "Add ordered requests" can put in a column. Request fields (e.g. Cost center) are added per form. */
-const FILL_BASE = [
-  ['request', 'Request ID', (r) => r.request_number],
-  ['title', 'Request title', (r) => r.title],
-  ['requester', 'Requester', (r) => r.requester],
-  ['vendor', 'Vendor', (r) => r.vendors.join(', ')],
-  ['total', 'Request total', (r) => Number(r.total || 0).toFixed(2)],
-  ['shipping', 'Shipping', (r) => (r.shipping ? Number(r.shipping).toFixed(2) : '')],
-  ['ticket', 'Ticket #', (r) => r.order?.department_order_number],
-  ['order_date', 'Order date', (r) => String(r.order?.order_date || '').slice(0, 10)],
-  ['received_date', 'Received date', (r) => String(r.order?.received_date || '').slice(0, 10)],
-  ['status', 'Status', (r) => r.status],
-  ['season', 'Season', (r) => r.season],
-];
-const fillSources = (config) => [
-  ...FILL_BASE,
-  ...requestFields(config)
-    .filter((f) => f.type !== 'section' && !['title', 'requester'].includes(f.key))
-    .map((f) => [`field:${f.key}`, f.label, (r) => r[f.key] ?? r.data?.[f.key]]),
-];
+import {
+  PLAIN_NUMERIC, requestDetails, isNumeric, isMoney, isCalc, toNumber, same, computeRows, runningTotals, explain,
+} from '../financeCalc.js';
+import { openColumnEditor, newSheetDialog, optionsOf, formFieldOf, newKey } from './financeColumns.js';
 
 // Kept while moving around the app.
 const view = { sheetId: null, q: '', sort: null };
 
-const newKey = () => `f_${Math.random().toString(36).slice(2, 9)}`;
-/** '$1,234.50' → 1234.5; accounting-style '(12.50)' → -12.5; anything else → 0. */
-const toNumber = (v) => {
-  const s = String(v ?? '').trim();
-  const n = Number(s.replace(/[$,\s()]/g, ''));
-  return Number.isFinite(n) ? (/^\(.*\)$/.test(s) ? -n : n) : 0;
-};
-
-export async function renderFinances(el, { config, rerender }) {
+export async function renderFinances(el, { config, rerender, reloadConfig }) {
   const canEdit = auth.can('finances.edit');
+  const canBudget = canEdit && (auth.can('request.order') || auth.can('workflow.edit'));
   let sheets;
   try {
     sheets = await api.listFinanceSheets();
@@ -70,23 +36,43 @@ export async function renderFinances(el, { config, rerender }) {
     return;
   }
 
+  const startNew = async () => {
+    const id = await newSheetDialog({ config, sheets });
+    if (id) {
+      view.sheetId = id;
+      view.sort = null;
+      setFlash('Sheet created. Use "Columns & sheet" to change it.');
+      rerender();
+    }
+  };
+
   if (!sheets.length) {
     el.innerHTML = `${takeFlash()}<div class="page-header"><div><h1>Finances</h1></div></div>
       <div class="empty"><p>No sheets yet.</p>${canEdit ? '<button type="button" class="btn btn-primary" id="first-sheet">+ New sheet</button>' : ''}</div>`;
-    el.querySelector('#first-sheet')?.addEventListener('click', () => newSheet(sheets, rerender));
+    el.querySelector('#first-sheet')?.addEventListener('click', startNew);
     return;
   }
   if (!sheets.some((s) => s.id === view.sheetId)) view.sheetId = sheets[0].id;
   const sheet = sheets.find((s) => s.id === view.sheetId);
   const columns = sheet.columns || [];
-  let rows = await api.listFinanceRows(sheet.id);
+  const rows = await api.listFinanceRows(sheet.id);
   if (view.sort && !columns.some((c) => c.key === view.sort.key)) view.sort = null;
 
-  // Requests, for the Request column (titles, links, suggestions).
-  const needsRequests = columns.some((c) => c.type === 'request');
+  // What calculated columns need: requests, other sheets' rows, the site's budgets.
+  const needsRequests = columns.some((c) => ['request', 'orders', 'reqinfo'].includes(c.type));
   const requests = needsRequests ? await api.listRequests(null).catch(() => []) : [];
-  const byNumber = new Map(requests.map((r) => [r.request_number, r]));
+  const byNumber = new Map(requests.map((r) => [r.request_number.toLowerCase(), r]));
+  const sheetData = new Map([[sheet.id, { sheet, rows }]]);
+  for (const id of new Set(columns.filter((c) => c.type === 'lookup' && c.sheet && c.sheet !== sheet.id).map((c) => c.sheet))) {
+    const other = sheets.find((s) => s.id === id);
+    if (other) sheetData.set(id, { sheet: other, rows: await api.listFinanceRows(id) });
+  }
+  const ctx = {
+    requests, season: config.season, budgets: workflowSettings(config).budgets, sheets: sheetData,
+    details: requestDetails(requestFields(config)), columns,
+  };
   const hasFill = columns.some((c) => c.fill);
+  const perOption = columns.find((c) => c.type === 'select' && formFieldOf(c));
 
   el.innerHTML = `
     ${takeFlash()}
@@ -94,8 +80,8 @@ export async function renderFinances(el, { config, rerender }) {
       <div>
         <h1>Finances</h1>
         <p class="subtitle">${canEdit
-          ? 'Your own sheets: add columns and rows, and changes save as you go.'
-          : 'View only. The Treasurer keeps these sheets.'}</p>
+          ? 'Your own sheets. Typed cells save as you go; shaded cells are calculated (click one to see how).'
+          : 'View only. Shaded cells are calculated; click one to see how.'}</p>
       </div>
       <div class="card-actions">
         ${canEdit && hasFill ? '<button type="button" class="btn" id="add-ordered">Add ordered requests</button>' : ''}
@@ -118,6 +104,7 @@ export async function renderFinances(el, { config, rerender }) {
       <span class="muted small" id="fin-status" aria-live="polite"></span>
       <span class="toolbar-right">
         <span id="keep-order-box"></span>
+        <span id="per-option-box"></span>
         ${canEdit ? '<button type="button" class="btn btn-sm" id="edit-columns">Columns &amp; sheet</button>' : ''}
       </span>
     </div>
@@ -126,7 +113,7 @@ export async function renderFinances(el, { config, rerender }) {
       <table class="table sheet-table">
         <thead><tr>
           <th class="sheet-idx">#</th>
-          ${columns.map((c) => `<th class="${NUMERIC.has(c.type) || c.type === 'running' ? 'num' : ''} t-${esc(c.type)}">
+          ${columns.map((c) => `<th class="${isNumeric(c) ? 'num' : ''} ${isCalc(c) ? 'is-calc-head' : ''}" ${isCalc(c) ? 'title="Calculated"' : ''}>
             <button type="button" class="sort-btn" data-sort="${esc(c.key)}">${esc(c.label)}<span class="sort-ind" aria-hidden="true">${
               view.sort?.key === c.key ? (view.sort.dir === 'desc' ? '▼' : '▲') : '↕'}</span></button></th>`).join('')}
           ${canEdit ? '<th class="sheet-del"></th>' : ''}
@@ -136,7 +123,7 @@ export async function renderFinances(el, { config, rerender }) {
       </table>
     </div>
     ${canEdit ? '<div class="add-row"><button type="button" class="btn btn-sm" id="add-row">+ Add row</button><span class="hint hide-touch">Enter moves down a row; Tab moves right.</span></div>' : ''}
-    ${needsRequests ? `<datalist id="request-numbers">${requests.map((r) => `<option value="${esc(r.request_number)}">${esc(r.title || '')}</option>`).join('')}</datalist>` : ''}`;
+    ${columns.some((c) => c.type === 'request') ? `<datalist id="request-numbers">${requests.map((r) => `<option value="${esc(r.request_number)}">${esc(r.title || '')}</option>`).join('')}</datalist>` : ''}`;
 
   const errors = el.querySelector('#fin-errors');
   const status = el.querySelector('#fin-status');
@@ -145,56 +132,74 @@ export async function renderFinances(el, { config, rerender }) {
     status.textContent = '';
   };
 
-  // ---- rows: filter, sort, draw -----------------------------------------------------
-  const textOf = (row) => Object.values(row.data || {}).join(' ').toLowerCase();
+  // ---- values: typed + calculated --------------------------------------------------------
+  let values = computeRows(columns, rows, ctx);
+  let running = new Map();
+  const recalc = () => {
+    values = computeRows(columns, rows, ctx);
+  };
+
+  const textOf = (row) => Object.values(values.get(row.id) || row.data || {}).join(' ').toLowerCase();
   const shownRows = () => {
     const words = view.q.toLowerCase().split(/\s+/).filter(Boolean);
     let list = rows.filter((r) => words.every((w) => textOf(r).includes(w)));
     if (view.sort) {
       const col = columns.find((c) => c.key === view.sort.key);
       const dir = view.sort.dir === 'desc' ? -1 : 1;
-      const val = (r) => (NUMERIC.has(col.type) ? toNumber(r.data[col.key]) : String(r.data[col.key] ?? ''));
+      const raw = (r) => values.get(r.id)?.[col.key] ?? '';
       list = [...list].sort((a, b) => {
-        const x = a.data[col.key] ?? '';
-        const y = b.data[col.key] ?? '';
+        const [x, y] = [raw(a), raw(b)];
         if (x === '' || y === '') return x === y ? 0 : x === '' ? 1 : -1; // blanks last
-        const [p, q] = [val(a), val(b)];
-        return (typeof p === 'number' ? p - q : p.localeCompare(q, undefined, { numeric: true, sensitivity: 'base' })) * dir;
+        if (isNumeric(col)) return (toNumber(x) - toNumber(y)) * dir;
+        return String(x).localeCompare(String(y), undefined, { numeric: true, sensitivity: 'base' }) * dir;
       });
     }
     return list;
   };
 
+  const show = (c, v) => {
+    if (v === '' || v === undefined || v === null) return '';
+    if (isMoney(c)) return fmtMoney(toNumber(v));
+    if (isNumeric(c)) return String(Number(toNumber(v).toFixed(6)));
+    return esc(v);
+  };
+  const negative = (c, v) => isNumeric(c) && v !== '' && toNumber(v) < 0;
+
   const cell = (row, c) => {
     const v = row.data?.[c.key] ?? '';
     const attrs = `data-row="${esc(row.id)}" data-key="${esc(c.key)}" aria-label="${esc(c.label)}"`;
-    if (c.type === 'running') return `<td class="num" data-running="${esc(c.key)}" data-row-id="${esc(row.id)}"></td>`;
+    if (c.type === 'budget' && canBudget) {
+      const bv = values.get(row.id)?.[c.key] ?? '';
+      return `<td class="num t-money is-budget" title="The site's budget (same as the Treasurer page)"><input type="text" inputmode="decimal" data-budget-row="${esc(row.id)}" data-key="${esc(c.key)}" aria-label="${esc(c.label)}" value="${bv === '' ? '' : toNumber(bv).toFixed(2)}" placeholder="—"></td>`;
+    }
+    if (isCalc(c)) return `<td class="${isNumeric(c) ? 'num ' : ''}is-calc" data-calc="${esc(c.key)}" data-row-id="${esc(row.id)}" tabindex="0" title="Calculated: click to see how"></td>`;
     if (!canEdit) {
+      const req = c.type === 'request' && v ? byNumber.get(String(v).toLowerCase()) : null;
       const shown =
-        c.type === 'money' ? (v === '' ? '' : fmtMoney(toNumber(v)))
+        c.type === 'money' ? show(c, v)
         : c.type === 'date' ? (v ? fmtDate(v) : '')
         : c.type === 'checkbox' ? (v ? '✓' : '')
         : c.type === 'link' && v ? `<a href="${esc(v)}" target="_blank" rel="noopener">${esc(v)}</a>`
-        : c.type === 'request' && v ? `<a href="#/requests/${esc(v)}" title="${esc(byNumber.get(v)?.title || '')}">${esc(v)}</a>`
+        : req ? `<a href="#/requests/${esc(req.request_number)}" title="${esc(req.title || '')}">${esc(v)}</a>`
         : esc(v);
-      return `<td class="${NUMERIC.has(c.type) ? 'num' : ''}">${shown}</td>`;
+      return `<td class="${PLAIN_NUMERIC.has(c.type) ? 'num' : ''} ${negative(c, v) ? 'is-negative' : ''}">${shown}</td>`;
     }
     let input;
     if (c.type === 'checkbox') input = `<input type="checkbox" ${attrs} ${v ? 'checked' : ''}>`;
     else if (c.type === 'select') {
-      const opts = [...new Set([...(c.options || []), ...(v ? [v] : [])])];
+      const opts = [...new Set([...optionsOf(c, config), ...(v ? [v] : [])])];
       input = `<select ${attrs}><option value=""></option>${opts.map((o) => `<option ${o === v ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`;
     } else if (c.type === 'date') input = `<input type="date" ${attrs} value="${esc(v)}">`;
-    else if (NUMERIC.has(c.type)) input = `<input type="text" inputmode="decimal" ${attrs} value="${esc(c.type === 'money' && v !== '' ? toNumber(v).toFixed(2) : v)}" ${c.type === 'money' ? 'placeholder="$"' : ''}>`;
+    else if (PLAIN_NUMERIC.has(c.type)) input = `<input type="text" inputmode="decimal" ${attrs} value="${esc(c.type === 'money' && v !== '' ? toNumber(v).toFixed(2) : v)}" ${c.type === 'money' ? 'placeholder="$"' : ''}>`;
     else if (c.type === 'request') {
-      const r = byNumber.get(v);
+      const r = byNumber.get(String(v).toLowerCase());
       input = `<span class="cell-with-link"><input type="text" list="request-numbers" ${attrs} value="${esc(v)}" placeholder="SG-…">${
-        r ? `<a href="#/requests/${esc(v)}" title="${esc(r.title || '')}" aria-label="Open ${esc(v)}">↗</a>` : ''}</span>`;
+        r ? `<a href="#/requests/${esc(r.request_number)}" title="${esc(r.title || '')}" aria-label="Open ${esc(v)}">↗</a>` : ''}</span>`;
     } else if (c.type === 'link') {
       input = `<span class="cell-with-link"><input type="url" ${attrs} value="${esc(v)}">${
         /^https?:\/\//i.test(v) ? `<a href="${esc(v)}" target="_blank" rel="noopener" aria-label="Open link">↗</a>` : ''}</span>`;
     } else input = `<input type="text" ${attrs} value="${esc(v)}">`;
-    return `<td class="${NUMERIC.has(c.type) ? 'num' : ''} t-${esc(c.type)}">${input}</td>`;
+    return `<td class="${PLAIN_NUMERIC.has(c.type) ? 'num' : ''} t-${esc(c.type)} ${negative(c, v) ? 'is-negative' : ''}">${input}</td>`;
   };
 
   const draw = () => {
@@ -214,47 +219,94 @@ export async function renderFinances(el, { config, rerender }) {
     el.querySelector('#keep-order-box').innerHTML = canEdit && view.sort && !view.q
       ? '<button type="button" class="btn btn-sm btn-ghost" id="keep-order" title="Save the rows in this order">Keep this order</button>'
       : '';
-    computed(list);
+    const missing = perOption && canEdit ? optionsOf(perOption, config).filter((o) => !rows.some((r) => same(r.data?.[perOption.key], o))) : [];
+    el.querySelector('#per-option-box').innerHTML = missing.length
+      ? `<button type="button" class="btn btn-sm" id="per-option" title="${esc(missing.join(', '))}">Add a row per ${esc(perOption.label)} (${missing.length})</button>`
+      : '';
+    fillCalculated(list);
   };
 
-  /** Running totals and the totals row (over the rows shown, in the order shown). */
-  const computed = (list = shownRows()) => {
-    for (const c of columns.filter((x) => x.type === 'running')) {
-      let sum = 0;
-      for (const row of list) {
-        sum += toNumber(row.data[c.of]);
-        const td = el.querySelector(`[data-running="${CSS.escape(c.key)}"][data-row-id="${CSS.escape(row.id)}"]`);
-        if (td) td.textContent = fmtMoney(sum);
-      }
+  /** Calculated cells, running totals and the totals row (over the rows shown, in the order shown). */
+  const fillCalculated = (list = shownRows()) => {
+    running = runningTotals(columns, list, values);
+    for (const td of el.querySelectorAll('#sheet-body [data-calc]')) {
+      const c = columns.find((x) => x.key === td.dataset.calc);
+      const v = c.type === 'running' ? running.get(td.dataset.rowId)?.[c.key] : values.get(td.dataset.rowId)?.[c.key];
+      td.innerHTML = show(c, v ?? '');
+      td.classList.toggle('is-negative', negative(c, v ?? ''));
     }
-    const any = columns.some((c) => c.sum || c.type === 'running');
+    const any = columns.some((c) => (c.sum && isNumeric(c)) || c.type === 'running');
     el.querySelector('#sheet-foot').innerHTML = any
-      ? `<tr><td class="sheet-idx"><strong>Σ</strong></td>${columns
+      ? `<tr><td class="sheet-idx" title="Totals of the rows shown"><strong>Σ</strong></td>${columns
           .map((c) => {
-            if (c.type === 'running') return `<td class="num"><strong>${fmtMoney(list.reduce((s, r) => s + toNumber(r.data[c.of]), 0))}</strong></td>`;
-            if (!c.sum) return '<td></td>';
-            const total = list.reduce((s, r) => s + toNumber(r.data[c.key]), 0);
-            return `<td class="num"><strong>${c.type === 'money' ? fmtMoney(total) : Number(total.toFixed(6))}</strong></td>`;
+            let total;
+            if (c.type === 'running') total = list.length ? running.get(list[list.length - 1].id)?.[c.key] ?? 0 : 0;
+            else if (c.sum && isNumeric(c)) total = list.reduce((s, r) => s + toNumber(values.get(r.id)?.[c.key]), 0);
+            else return '<td></td>';
+            return `<td class="num ${total < 0 ? 'is-negative' : ''}"><strong>${isMoney(c) ? fmtMoney(total) : Number(total.toFixed(6))}</strong></td>`;
           })
           .join('')}${canEdit ? '<td></td>' : ''}</tr>`
       : '';
   };
 
+  // ---- "Click to see why" ----------------------------------------------------------
+  const why = (td) => {
+    const c = columns.find((x) => x.key === td.dataset.calc);
+    const row = rows.find((r) => r.id === td.dataset.rowId);
+    if (!c || !row) return;
+    let info;
+    if (c.type === 'running') {
+      const of = columns.find((x) => x.key === c.of);
+      const list = shownRows();
+      const upTo = list.slice(0, list.indexOf(row) + 1);
+      info = { text: `${of?.label || '?'} added up row by row, in the order shown (row 1 to this row).`, items: upTo.map((r, i) => ({ label: `Row ${i + 1}`, amount: toNumber(values.get(r.id)?.[c.of]) })) };
+    } else info = explain(c, row, values.get(row.id) || {}, ctx);
+    const total = c.type === 'running' ? running.get(row.id)?.[c.key] : values.get(row.id)?.[c.key];
+    const dialog = document.createElement('dialog');
+    dialog.className = 'card calc-dialog';
+    dialog.innerHTML = `<h2>${esc(c.label)}</h2>
+      <p>${esc(info.text)}</p>
+      ${info.items.length
+        ? `<ul class="calc-items">${info.items
+            .slice(0, 200)
+            .map((i) => `<li>${i.href ? `<a href="${esc(i.href)}">${esc(i.label)}</a>` : `<span>${esc(i.label)}</span>`}${i.amount !== undefined ? `<span class="num">${fmtMoney(i.amount)}</span>` : ''}</li>`)
+            .join('')}</ul>${info.items.length > 200 ? `<p class="muted small">…and ${info.items.length - 200} more.</p>` : ''}`
+        : '<p class="muted small">Nothing to add up yet.</p>'}
+      ${isNumeric(c) ? `<p class="calc-total"><span>Total</span><strong>${show(c, total ?? 0) || fmtMoney(0)}</strong></p>` : ''}
+      <div class="form-actions"><button type="button" class="btn" id="calc-close">Close</button></div>`;
+    document.body.appendChild(dialog);
+    const close = () => {
+      dialog.close();
+      dialog.remove();
+    };
+    dialog.querySelector('#calc-close').addEventListener('click', close);
+    dialog.addEventListener('click', (e) => (e.target === dialog || e.target.closest('a')) && close());
+    dialog.addEventListener('cancel', close);
+    dialog.showModal();
+  };
+
   // ---- saving cells ---------------------------------------------------------------
   let pending = 0;
+  const parseAmount = (input, value) => {
+    // Accepts 1234.5, $1,234.50, -5 and accounting-style (12.50).
+    const n = /^-?\(?-?\$?\s?[\d,]*\.?\d+\)?$/.test(value) ? toNumber(value) : NaN;
+    if (!Number.isFinite(n)) {
+      input.classList.add('is-invalid');
+      status.textContent = `"${value}" isn't a number.`;
+      return null;
+    }
+    input.classList.remove('is-invalid');
+    return n;
+  };
+
   const save = async (input) => {
     const row = rows.find((r) => r.id === input.dataset.row);
     const col = columns.find((c) => c.key === input.dataset.key);
     if (!row || !col) return;
     let value = input.type === 'checkbox' ? (input.checked ? 'Yes' : '') : input.value.trim();
-    if (NUMERIC.has(col.type) && value !== '') {
-      // Accepts 1234.5, $1,234.50, -5 and accounting-style (12.50).
-      const n = /^-?\(?-?\$?\s?[\d,]*\.?\d+\)?$/.test(value) ? toNumber(value) : NaN;
-      if (!Number.isFinite(n)) {
-        input.classList.add('is-invalid');
-        status.textContent = `"${value}" isn't a number.`;
-        return;
-      }
+    if (PLAIN_NUMERIC.has(col.type) && value !== '') {
+      const n = parseAmount(input, value);
+      if (n === null) return;
       value = col.type === 'money' ? n.toFixed(2) : String(n);
       input.value = value;
     }
@@ -263,7 +315,9 @@ export async function renderFinances(el, { config, rerender }) {
     const before = row.data[col.key];
     if (value === '') delete row.data[col.key];
     else row.data[col.key] = value;
-    computed();
+    input.closest('td')?.classList.toggle('is-negative', negative(col, value));
+    recalc();
+    fillCalculated();
     pending++;
     status.textContent = 'Saving…';
     try {
@@ -274,9 +328,11 @@ export async function renderFinances(el, { config, rerender }) {
       pending--;
       if (before === undefined) delete row.data[col.key];
       else row.data[col.key] = before;
+      recalc();
+      fillCalculated();
       showError(err);
     }
-    // A request number that changed gets its ↗ link.
+    // A request number or link that changed gets its ↗.
     if (col.type === 'request' || col.type === 'link') {
       const td = input.closest('td');
       const tr = input.closest('tr');
@@ -286,19 +342,60 @@ export async function renderFinances(el, { config, rerender }) {
     }
   };
 
+  /** Budget cells change the site's budgets (the Treasurer page uses the same numbers). */
+  const saveBudget = async (input) => {
+    const row = rows.find((r) => r.id === input.dataset.budgetRow);
+    const col = columns.find((c) => c.key === input.dataset.key);
+    const name = String(row?.data?.[col.by] ?? '').trim();
+    const value = input.value.trim();
+    if (!name) {
+      input.value = '';
+      showError(new Error(`Pick a ${columns.find((c) => c.key === col.by)?.label || 'value'} in this row first.`));
+      return;
+    }
+    const n = value === '' ? '' : parseAmount(input, value);
+    if (n === null) return;
+    const budgets = structuredClone(workflowSettings(config).budgets);
+    const field = formFieldOf(columns.find((c) => c.key === col.by));
+    if (!budgets.field) budgets.field = field;
+    if (field && budgets.field !== field) {
+      showError(new Error('The site\'s budgets are set per another field. Change "Budget by" on the Treasurer page first.'));
+      return;
+    }
+    const existing = Object.keys(budgets.amounts || {}).find((k) => same(k, name));
+    budgets.amounts = { ...(budgets.amounts || {}) };
+    if (existing !== undefined) delete budgets.amounts[existing];
+    if (n !== '') budgets.amounts[existing ?? name] = String(n);
+    status.textContent = 'Saving budget…';
+    try {
+      await api.setBudgets(budgets);
+      await reloadConfig();
+      ctx.budgets = workflowSettings(config).budgets;
+      input.value = n === '' ? '' : n.toFixed(2);
+      recalc();
+      fillCalculated();
+      status.textContent = 'Budget saved';
+      errors.innerHTML = '';
+    } catch (err) {
+      showError(err);
+    }
+  };
+
   el.addEventListener('change', (e) => {
-    if (e.target.matches('[data-row][data-key]')) save(e.target);
+    if (e.target.matches('[data-budget-row]')) saveBudget(e.target);
+    else if (e.target.matches('[data-row][data-key]')) save(e.target);
   });
 
   // Enter: down to the same column in the next row (adds a row at the bottom).
   el.addEventListener('keydown', async (e) => {
     const input = e.target;
-    if (e.key !== 'Enter' || !input.matches?.('input[data-row][data-key]')) return;
+    if (e.key === 'Enter' && input.matches?.('td[data-calc]')) return why(input);
+    if (e.key !== 'Enter' || !input.matches?.('input[data-row][data-key], input[data-budget-row]')) return;
     e.preventDefault();
     input.blur(); // saves
     const tr = input.closest('tr');
     let next = tr.nextElementSibling;
-    if (!next && canEdit) {
+    if (!next && canEdit && !input.dataset.budgetRow) {
       await addRows([{ data: {} }]);
       next = el.querySelector('#sheet-body tr:last-child');
     }
@@ -310,6 +407,7 @@ export async function renderFinances(el, { config, rerender }) {
       const added = await api.addFinanceRows(sheet.id, list);
       rows.push(...added);
       view.sort = null; // new rows go at the bottom, where you can see them
+      recalc();
       draw();
       return added;
     } catch (err) {
@@ -320,6 +418,8 @@ export async function renderFinances(el, { config, rerender }) {
 
   // ---- clicks ---------------------------------------------------------------------
   el.addEventListener('click', async (e) => {
+    const calc = e.target.closest('td[data-calc]');
+    if (calc && !e.target.closest('a')) return why(calc);
     const btn = e.target.closest('button');
     if (!btn) return;
     if (btn.dataset.sheet) {
@@ -337,15 +437,22 @@ export async function renderFinances(el, { config, rerender }) {
     }
     if (btn.id === 'add-row') {
       const [row] = await addRows([{ data: {} }]);
-      const first = columns.find((c) => c.type !== 'running');
+      const first = columns.find((c) => !isCalc(c));
       if (row && first) el.querySelector(`[data-row="${CSS.escape(row.id)}"][data-key="${CSS.escape(first.key)}"]`)?.focus();
+      return;
+    }
+    if (btn.id === 'per-option') {
+      const missing = optionsOf(perOption, config).filter((o) => !rows.some((r) => same(r.data?.[perOption.key], o)));
+      await addRows(missing.map((o) => ({ data: { [perOption.key]: o } })));
+      status.textContent = `Added ${missing.length} row${missing.length === 1 ? '' : 's'}.`;
       return;
     }
     if (btn.dataset.deleteRow) {
       if (!confirm('Delete this row? This can\'t be undone.')) return;
       try {
         await api.deleteFinanceRows([btn.dataset.deleteRow]);
-        rows = rows.filter((r) => r.id !== btn.dataset.deleteRow);
+        rows.splice(rows.findIndex((r) => r.id === btn.dataset.deleteRow), 1);
+        recalc();
         draw();
       } catch (err) {
         showError(err);
@@ -363,7 +470,6 @@ export async function renderFinances(el, { config, rerender }) {
             row.position = i + 1;
           }
         }
-        rows.sort((a, b) => a.position - b.position);
         view.sort = null;
         setFlash('Row order saved.');
         return rerender();
@@ -373,9 +479,22 @@ export async function renderFinances(el, { config, rerender }) {
       }
       return;
     }
-    if (btn.id === 'new-sheet') return newSheet(sheets, rerender);
-    if (btn.id === 'edit-columns') return openColumns();
-    if (btn.id === 'download') return download(sheet, columns, shownRows(), byNumber).catch(showError);
+    if (btn.id === 'new-sheet') return startNew();
+    if (btn.id === 'edit-columns') {
+      btn.hidden = true;
+      const box = el.querySelector('#columns-editor');
+      openColumnEditor(box, {
+        sheet, sheets, rowsCount: rows.length, config, rerender,
+        setView: (v) => Object.assign(view, v),
+        onDone: () => {
+          box.innerHTML = '';
+          btn.hidden = false;
+        },
+      });
+      box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
+    if (btn.id === 'download') return download(sheet, columns, shownRows(), values, running).catch(showError);
     if (btn.id === 'add-ordered') return addOrdered();
   });
 
@@ -402,7 +521,7 @@ export async function renderFinances(el, { config, rerender }) {
 
   // ---- "Add ordered requests" -------------------------------------------------------
   async function addOrdered() {
-    const sources = new Map(fillSources(config).map(([k, , get]) => [k, get]));
+    const sources = new Map(ctx.details.map(([k, , get]) => [k, get]));
     const linked = new Set(rows.map((r) => r.request_id).filter(Boolean));
     const ordered = (await api.listRequests(['Ordered', 'Received']))
       .filter((r) => !linked.has(r.id))
@@ -422,198 +541,34 @@ export async function renderFinances(el, { config, rerender }) {
     if (added.length) status.textContent = `Added ${added.length} row${added.length === 1 ? '' : 's'}.`;
   }
 
-  // ---- Columns & sheet editor ---------------------------------------------------------
-  function openColumns() {
-    const box = el.querySelector('#columns-editor');
-    const state = { name: sheet.name, columns: structuredClone(columns) };
-    const sources = fillSources(config);
-    const numericCols = () => state.columns.filter((c) => NUMERIC.has(c.type));
-    const drawEditor = () => {
-      box.innerHTML = `<section class="card columns-editor">
-        <div class="card-head"><h2>Columns &amp; sheet</h2></div>
-        <div class="field"><label for="sheet-name">Sheet name</label>
-          <input id="sheet-name" type="text" maxlength="60" value="${esc(state.name)}"></div>
-        <div class="table-wrap flat"><table class="table stack-mobile col-table">
-          <thead><tr><th>Order</th><th>Name</th><th>Type</th><th>Settings</th><th>Fill from request</th><th></th></tr></thead>
-          <tbody>${state.columns
-            .map(
-              (c, i) => `<tr data-i="${i}">
-                <td class="move" data-label="Order">
-                  <button type="button" class="icon-btn" data-col-move="-1" aria-label="Move ${esc(c.label)} left" ${i === 0 ? 'disabled' : ''}>←</button>
-                  <button type="button" class="icon-btn" data-col-move="1" aria-label="Move ${esc(c.label)} right" ${i === state.columns.length - 1 ? 'disabled' : ''}>→</button></td>
-                <td class="cell-primary" data-label=""><input type="text" data-col="label" value="${esc(c.label)}" maxlength="60" aria-label="Column name"></td>
-                <td data-label="Type"><select data-col="type" aria-label="Type of ${esc(c.label)}">${COLUMN_TYPES.map(([k, l]) => `<option value="${k}" ${k === c.type ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></td>
-                <td data-label="Settings">${
-                  c.type === 'select'
-                    ? `<textarea data-col="options" rows="2" placeholder="One option per line" aria-label="Options for ${esc(c.label)}">${esc((c.options || []).join('\n'))}</textarea>`
-                    : NUMERIC.has(c.type)
-                      ? `<label class="inline-check"><input type="checkbox" data-col="sum" ${c.sum ? 'checked' : ''}> Total at the bottom</label>`
-                      : c.type === 'running'
-                        ? `<select data-col="of" aria-label="Running total of">${numericCols().length ? '' : '<option value="">Add a Money column first</option>'}${numericCols()
-                            .map((x) => `<option value="${esc(x.key)}" ${x.key === c.of ? 'selected' : ''}>of ${esc(x.label)}</option>`)
-                            .join('')}</select>`
-                        : '<span class="muted small">—</span>'
-                }</td>
-                <td data-label="Fill from request">${
-                  c.type === 'running'
-                    ? '<span class="muted small">—</span>'
-                    : `<select data-col="fill" aria-label="Fill ${esc(c.label)} from"><option value="">Nothing</option>${sources
-                        .map(([k, l]) => `<option value="${esc(k)}" ${k === c.fill ? 'selected' : ''}>${esc(l)}</option>`)
-                        .join('')}</select>`
-                }</td>
-                <td data-label=""><button type="button" class="icon-btn" data-col-delete aria-label="Delete column ${esc(c.label)}" title="Delete column">&times;</button></td>
-              </tr>`
-            )
-            .join('')}</tbody>
-        </table></div>
-        <button type="button" class="btn btn-sm" id="col-add">+ Add column</button>
-        <p class="hint">"Fill from request" is what <strong>Add ordered requests</strong> puts in that column. Deleting a column hides its data; it isn't shown or exported anymore.</p>
-        <div id="col-errors"></div>
-        <div class="form-actions">
-          <button type="button" class="btn btn-danger reset-btn" id="sheet-delete">Delete this sheet</button>
-          <button type="button" class="btn btn-ghost" id="col-cancel">Cancel</button>
-          <button type="button" class="btn btn-primary" id="col-save">Save columns</button>
-        </div>
-      </section>`;
-    };
-    drawEditor();
-    el.querySelector('#edit-columns').hidden = true;
-    box.scrollIntoView({ behavior: 'smooth', block: 'start' });
-
-    const colOf = (node) => state.columns[Number(node.closest('tr[data-i]')?.dataset.i)];
-    box.addEventListener('input', (e) => {
-      if (e.target.id === 'sheet-name') state.name = e.target.value;
-      const c = colOf(e.target);
-      if (!c) return;
-      if (e.target.dataset.col === 'label') c.label = e.target.value;
-      if (e.target.dataset.col === 'options') c.options = e.target.value.split('\n').map((s) => s.trim()).filter(Boolean);
-    });
-    box.addEventListener('change', (e) => {
-      const c = colOf(e.target);
-      if (!c) return;
-      const prop = e.target.dataset.col;
-      if (prop === 'type') {
-        c.type = e.target.value;
-        if (c.type === 'running') {
-          c.of = numericCols().find((x) => x !== c)?.key;
-          delete c.fill;
-        }
-        drawEditor();
-      } else if (prop === 'sum') c.sum = e.target.checked;
-      else if (prop === 'of') c.of = e.target.value;
-      else if (prop === 'fill') {
-        if (e.target.value) c.fill = e.target.value;
-        else delete c.fill;
-      }
-    });
-    box.addEventListener('click', async (e) => {
-      const btn = e.target.closest('button');
-      if (!btn) return;
-      const tr = btn.closest('tr[data-i]');
-      const i = tr ? Number(tr.dataset.i) : -1;
-      if (btn.dataset.colMove) {
-        const to = i + Number(btn.dataset.colMove);
-        [state.columns[i], state.columns[to]] = [state.columns[to], state.columns[i]];
-        drawEditor();
-      } else if (btn.hasAttribute('data-col-delete')) {
-        if (!confirm(`Delete the column "${state.columns[i].label}"?`)) return;
-        state.columns.splice(i, 1);
-        drawEditor();
-      } else if (btn.id === 'col-add') {
-        state.columns.push({ key: newKey(), label: 'New column', type: 'text' });
-        drawEditor();
-        const inputs = box.querySelectorAll('[data-col="label"]');
-        inputs[inputs.length - 1]?.select();
-      } else if (btn.id === 'col-cancel') {
-        box.innerHTML = '';
-        el.querySelector('#edit-columns').hidden = false;
-      } else if (btn.id === 'sheet-delete') {
-        if (!confirm(`Delete the sheet "${sheet.name}" and all ${rows.length} of its rows? This can't be undone. (Download it first if you might need it.)`)) return;
-        try {
-          await api.deleteFinanceSheet(sheet.id);
-          view.sheetId = null;
-          setFlash(`Deleted "${sheet.name}".`);
-          rerender();
-        } catch (err) {
-          box.querySelector('#col-errors').innerHTML = errorBox(err);
-        }
-      } else if (btn.id === 'col-save') {
-        const problems = [];
-        if (!state.name.trim()) problems.push('Give the sheet a name.');
-        state.columns.forEach((c) => {
-          c.label = (c.label || '').trim();
-          if (!c.label) problems.push('Every column needs a name.');
-          if (c.type === 'running' && !c.of) problems.push(`"${c.label}": choose which Money or Number column it adds up.`);
-          if (c.type !== 'select') delete c.options;
-          if (!NUMERIC.has(c.type)) delete c.sum;
-          if (c.type !== 'running') delete c.of;
-        });
-        if (problems.length) {
-          box.querySelector('#col-errors').innerHTML = errorBox(Object.assign(new Error('Please fix the following:'), { details: [...new Set(problems)] }));
-          return;
-        }
-        btn.disabled = true;
-        try {
-          await api.saveFinanceSheet(sheet.id, state.name.trim(), state.columns);
-          setFlash('Columns saved.');
-          rerender();
-        } catch (err) {
-          box.querySelector('#col-errors').innerHTML = errorBox(err);
-          btn.disabled = false;
-        }
-      }
-    });
-  }
-
   draw();
-}
-
-async function newSheet(sheets, rerender) {
-  const name = prompt('Name of the new sheet (e.g. Reimbursements, Sponsorships):', '')?.trim();
-  if (!name) return;
-  try {
-    view.sheetId = await api.saveFinanceSheet(null, name.slice(0, 60), [
-      { key: newKey(), label: 'Date', type: 'date' },
-      { key: newKey(), label: 'Description', type: 'text' },
-      { key: newKey(), label: 'Amount', type: 'money', sum: true },
-      { key: newKey(), label: 'Notes', type: 'text' },
-    ], sheets.length);
-    setFlash(`Added "${name}". Use "Columns & sheet" to change its columns.`);
-    rerender();
-  } catch (err) {
-    alert(err.message);
-  }
 }
 
 // ---- Excel: download and import --------------------------------------------------------
 
-async function download(sheet, columns, rows, byNumber) {
+async function download(sheet, columns, rows, values, running) {
   const ExcelJS = await loadExcelJS();
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet(sheet.name.slice(0, 31).replace(/[\\/*?:[\]]/g, ' '), { views: [{ state: 'frozen', ySplit: 1 }] });
   ws.columns = columns.map((c) => ({ header: c.label, key: c.key, width: c.type === 'text' ? 28 : c.type === 'request' ? 14 : 16 }));
-  const running = Object.fromEntries(columns.filter((c) => c.type === 'running').map((c) => [c.key, 0]));
   for (const row of rows) {
     ws.addRow(
       Object.fromEntries(
         columns.map((c) => {
-          const v = row.data[c.key] ?? '';
-          if (c.type === 'running') return [c.key, (running[c.key] += toNumber(row.data[c.of]))];
-          if (NUMERIC.has(c.type)) return [c.key, v === '' ? null : toNumber(v)];
+          const v = c.type === 'running' ? running.get(row.id)?.[c.key] : values.get(row.id)?.[c.key] ?? '';
+          if (isNumeric(c)) return [c.key, v === '' || v === undefined ? null : toNumber(v)];
           if (c.type === 'date' && /^\d{4}-\d{2}-\d{2}$/.test(v)) return [c.key, new Date(`${v}T00:00:00Z`)];
-          if (c.type === 'request' && v && byNumber.get(v)) return [c.key, v];
-          return [c.key, v];
+          return [c.key, v ?? ''];
         })
       )
     );
   }
   columns.forEach((c, i) => {
     const col = ws.getColumn(i + 1);
-    if (c.type === 'money' || c.type === 'running') col.numFmt = '"$"#,##0.00';
+    if (isMoney(c)) col.numFmt = '"$"#,##0.00';
     if (c.type === 'date') col.numFmt = 'mm/dd/yyyy';
   });
-  const header = ws.getRow(1);
-  header.eachCell((cell) => {
+  ws.getRow(1).eachCell((cell) => {
     cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0B2545' } };
   });
@@ -671,7 +626,7 @@ async function importWorkbook(file, startPosition) {
         columns
           .map((c) => {
             let v = cells[c._i] || '';
-            if (NUMERIC.has(c.type) && v) v = c.type === 'money' ? toNumber(v).toFixed(2) : String(toNumber(v));
+            if (PLAIN_NUMERIC.has(c.type) && v) v = c.type === 'money' ? toNumber(v).toFixed(2) : String(toNumber(v));
             if (c.type === 'checkbox') v = /^(yes|y|true|x|✓|1)$/i.test(v) ? 'Yes' : '';
             return [c.key, v];
           })
