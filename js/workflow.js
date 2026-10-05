@@ -21,6 +21,7 @@ export const EVENTS = [
   { key: 'rejected', label: 'Rejected', who: 'The requester' },
   { key: 'ordered', label: 'Ordered', who: 'The requester' },
   { key: 'received', label: 'Received', who: 'The requester' },
+  { key: 'request_update', label: 'Watched request changed', who: 'People watching the request (not the requester)' },
   { key: 'sponsor_update', label: 'Sponsor card updated', who: 'People watching the card (Sponsors board)' },
 ];
 export const PLACEHOLDERS = [

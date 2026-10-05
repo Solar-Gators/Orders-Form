@@ -293,7 +293,7 @@ await test('the website cannot change the schema version', async () => {
   const general = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
   await as(ce, () => rpc('update_settings', ['general', { ...general, schemaVersion: 99 }]));
   const after = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
-  assert.equal(after.schemaVersion, 15);
+  assert.equal(after.schemaVersion, 16);
 });
 
 console.log('Form fields');
@@ -1317,6 +1317,33 @@ await test('Sponsors: renewing copies the card into next season; stages can be r
   assert.equal((await db.query(`select stage from sponsor_cards where id = $1`, [next])).rows[0].stage, 'contacted'); // moved to the new first stage
   await as(member, () => rejects(rpc('add_sponsor_comment', [id, 'hi']), /does not allow/));
   await as(treasurer, () => rejects(db.query(`insert into sponsor_activity (card_id, kind) values ('${id}', 'comment')`), /permission denied/));
+});
+
+console.log('Request watchers (016)');
+
+await test('Watchers: anyone can watch; only the requester or a lead adds others; watchers hear about status changes', async () => {
+  const number = numberOf(await submit(vendorRequest)); // submitted by the member
+  const id = (await db.query(`select id from requests where request_number = $1`, [number])).rows[0].id;
+  await as(other, () => rpc('set_request_watch', [id, other, true])); // watch it yourself
+  await as(other, () => rejects(rpc('set_request_watch', [id, treasurer, true]), /requester or a lead/));
+  await as(member, () => rpc('set_request_watch', [id, treasurer, true])); // the requester can add people
+  await as(member, () => rpc('set_request_watch', [id, member, true])); // watching your own request: no extra messages
+  const watchers = (await db.query(`select user_id from request_watchers where request_id = $1`, [id])).rows.map((r) => r.user_id).sort();
+  assert.deepEqual(watchers, [member, other, treasurer].sort());
+
+  await as(admin, () => rpc('update_settings', ['notifications', { enabled: true, events: { request_update: { email: true }, approved: { email: true } } }]));
+  await db.exec(`delete from notification_outbox`);
+  await review(ce, number, 'approve');
+  const sent = (await db.query(`select event, email from notification_outbox order by id`)).rows.map((r) => `${r.event}:${r.email}`);
+  assert.ok(sent.includes('request_update:other@cise.ufl.edu'));
+  assert.ok(sent.includes('request_update:treasurer@ufl.edu'));
+  assert.ok(!sent.includes('request_update:member@ufl.edu')); // the requester gets "approved" instead
+  assert.equal(await statusOf(number), 'Approved', sent.join(' '));
+
+  await as(other, () => rpc('set_request_watch', [id, other, false]));
+  assert.equal((await db.query(`select count(*)::int n from request_watchers where request_id = $1 and user_id = $2`, [id, other])).rows[0].n, 0);
+  await as(other, () => rejects(db.query(`insert into request_watchers (request_id, user_id) values ('${id}', '${other}')`), /permission denied/));
+  await as(admin, () => rpc('update_settings', ['notifications', { enabled: false }]));
 });
 
 console.log(`\n${passed} passed${process.exitCode ? ', some FAILED' : ''}`);

@@ -103,7 +103,10 @@ export function listSort(listName, config) {
  */
 export function availableFilters(config) {
   return [
-    { key: 'owner', label: 'Whose requests', options: [['mine', 'My requests']], all: 'Everyone', match: (r, v, ctx) => r.created_by === ctx.userId },
+    {
+      key: 'owner', label: 'Whose requests', options: [['mine', 'My requests'], ['watching', 'Requests I watch']], all: 'Everyone',
+      match: (r, v, ctx) => (v === 'watching' ? ctx.watching?.has(r.id) : r.created_by === ctx.userId),
+    },
     { key: 'status', label: 'Status', options: config.statuses.map((s) => [s, statusLabel(s)]), all: 'All statuses', match: (r, v) => r.status === v },
     ...requestFields(config)
       .filter((f) => !f.hidden && (f.type === 'select' || f.type === 'yesno'))

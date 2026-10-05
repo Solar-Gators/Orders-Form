@@ -69,6 +69,8 @@ If the Chief Engineer requests changes, the request appears at the top of **Requ
 
 Changed your mind? Open a submitted request and click **Withdraw request** to turn it back into a draft. Drafts and requests sent back for changes can be deleted.
 
+**Watchers:** anyone can click **Watch** on a request to get an email / Teams message whenever its status changes (submitted, approved, sent back, rejected, ordered, received). The requester and leads can also add other people, e.g. a subsystem lead or a teammate waiting on the part. On **Requests**, the "Requests I watch" filter lists them.
+
 ### Approving (Chief Engineer)
 - **Queue → To approve** lists everything waiting, sorted by needed-by date. The number on **Queue** is how many requests are waiting on you.
 - Open a request and choose **Approve**, **Request Changes**, or **Reject**. Changes and rejections need a comment so the requester knows why.
@@ -179,6 +181,7 @@ Once your leads turn them on (**Admin → Approvals & alerts → Notifications**
 | Approved | The requester, and the Treasurer ("ready to order") |
 | Changes requested / Rejected | The requester, with the comment |
 | Ordered / Received | The requester |
+| Any status change | Everyone watching the request |
 
 Messages go to your UF email and/or a Teams chat from the Power Automate bot, with a button that opens the request. Leads choose which events use email, Teams, or both, and can reword every message. On **My account** you choose for yourself: turn email or Teams off completely, or mute single messages (e.g. keep "needs your approval" but skip "your order arrived"). "Needs your approval" messages wait a little (30 minutes by default) and are skipped if the request was already decided, so a CE approving their own order doesn't ping the other CEs. You never get messages about things you did yourself.
 

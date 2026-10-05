@@ -402,6 +402,31 @@ function ownerCard(r, people, names) {
   </section>`;
 }
 
+/**
+ * Watchers: people following this request. They get an email / Teams message when
+ * its status changes. Anyone can watch; the requester and leads can add others.
+ */
+function watchersCard(r, watchers, people, names) {
+  const me = auth.user.id;
+  const canManage = r.created_by === me || isLead();
+  const others = [...people]
+    .filter((p) => !watchers.includes(p.id))
+    .sort((a, b) => (a.full_name || a.email).localeCompare(b.full_name || b.email));
+  return `<section class="card watchers-card">
+    <div class="card-head"><h2>Watchers</h2>
+      <button type="button" class="btn btn-sm" id="watch-toggle">${watchers.includes(me) ? 'Stop watching' : 'Watch'}</button></div>
+    <p class="muted small">Get an email / Teams message when this request changes status.</p>
+    <ul class="watcher-list">${watchers
+      .map((id) => `<li><span class="avatar">${esc((names[id] || '?').split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase())}</span>${esc(names[id] || 'Someone')}${
+        canManage || id === me ? ` <button type="button" class="icon-btn" data-unwatch="${esc(id)}" aria-label="Remove ${esc(names[id] || 'watcher')}">&times;</button>` : ''}</li>`)
+      .join('') || '<li class="muted small">Nobody yet.</li>'}</ul>
+    ${canManage && others.length ? `<select id="add-watcher" aria-label="Add a watcher"><option value="">+ Add a watcher…</option>${others
+      .map((p) => `<option value="${esc(p.id)}">${esc(p.full_name || p.email)}</option>`)
+      .join('')}</select>` : ''}
+    <div id="watch-errors"></div>
+  </section>`;
+}
+
 export async function renderRequestDetail(el, { config, params, rerender }) {
   let r;
   try {
@@ -417,11 +442,13 @@ export async function renderRequestDetail(el, { config, params, rerender }) {
   layout = pageLayout(config);
   wholeOrderShipping = shippingPerRequest(config);
   // People (approvers' names, whose request it is) and the budget, for the side panel.
-  const [people, summary] = await Promise.all([
-    isLead() || (r.status === STATUS.SUBMITTED && approvalState(r).type === 'people') ? api.listProfiles().catch(() => []) : [],
+  const showWatchers = r.status !== STATUS.DRAFT;
+  const [people, summary, watchers] = await Promise.all([
+    isLead() || showWatchers || (r.status === STATUS.SUBMITTED && approvalState(r).type === 'people') ? api.listProfiles().catch(() => []) : [],
     isLead() && workflowSettings(config).budgets.field && [STATUS.SUBMITTED, STATUS.APPROVED].includes(r.status)
       ? api.listRequests(null, { season: config.season }).then((rows) => budgetSummary(config, rows)).catch(() => [])
       : [],
+    showWatchers ? api.listRequestWatchers(r.id) : null, // null: before migration 016
   ]);
   const budget = budgetFor(config, r, summary);
   const names = Object.fromEntries(people.map((p) => [p.id, p.full_name || p.email]));
@@ -457,6 +484,7 @@ export async function renderRequestDetail(el, { config, params, rerender }) {
       </div>
       <aside class="detail-side">
         ${actionPanel(r, config, { names, budget })}
+        ${showWatchers && watchers ? watchersCard(r, watchers, people, names) : ''}
         ${historyCard(r)}
         ${isLead() ? ownerCard(r, people, names) : ''}
       </aside>
@@ -505,6 +533,22 @@ export async function renderRequestDetail(el, { config, params, rerender }) {
       e.target.disabled = false;
     }
   });
+
+  // ---- Watchers ----
+  const watch = async (userId, on) => {
+    try {
+      await api.setRequestWatch(r.id, userId, on);
+      await rerender();
+    } catch (err) {
+      el.querySelector('#watch-errors').innerHTML = errorBox(err);
+    }
+  };
+  el.querySelector('#watch-toggle')?.addEventListener('click', () => watch(auth.user.id, !watchers.includes(auth.user.id)));
+  el.querySelector('.watchers-card')?.addEventListener('click', (e) => {
+    const id = e.target.closest('[data-unwatch]')?.dataset.unwatch;
+    if (id) watch(id, false);
+  });
+  el.querySelector('#add-watcher')?.addEventListener('change', (e) => e.target.value && watch(e.target.value, true));
 
   el.querySelector('#owner-save')?.addEventListener('click', async (e) => {
     e.target.disabled = true;

@@ -175,6 +175,22 @@ export const api = {
     unwrap(await supabase.rpc('set_budgets', { p_budgets: budgets }));
   },
 
+  // ---- Request watchers (migration 016) ---------------------------------------------
+
+  /** Who watches a request (user ids), or null before migration 016. */
+  async listRequestWatchers(requestId) {
+    const { data, error } = await supabase.from('request_watchers').select('user_id').eq('request_id', requestId);
+    return error ? null : data.map((w) => w.user_id);
+  },
+  /** Ids of the requests you watch (for the "Requests I watch" filter). */
+  async listMyWatchedRequestIds(userId) {
+    const { data, error } = await supabase.from('request_watchers').select('request_id').eq('user_id', userId);
+    return error ? [] : data.map((w) => w.request_id);
+  },
+  async setRequestWatch(requestId, userId, on) {
+    unwrap(await supabase.rpc('set_request_watch', { p_request: requestId, p_user: userId, p_on: on }));
+  },
+
   // ---- Sponsors board (migration 015) ---------------------------------------------
 
   async listSponsorCards() {

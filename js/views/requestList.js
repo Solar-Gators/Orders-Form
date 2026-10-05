@@ -27,11 +27,13 @@ function searchText(r) {
 
 export async function renderRequestList(el, { config, rerender }) {
   const season = state.season || config.season;
-  const [all, seasons, mine] = await Promise.all([
+  const [all, seasons, mine, watched] = await Promise.all([
     api.listRequests(null, { season }),
     api.listSeasons(),
     api.listMyUnfinished(auth.user.id),
+    api.listMyWatchedRequestIds(auth.user.id),
   ]);
+  const watching = new Set(watched);
   const seasonList = [...new Set([config.season, ...seasons])].filter(Boolean).sort().reverse();
   const isCurrent = season === config.season;
   for (const r of all) r._search = searchText(r);
@@ -91,7 +93,7 @@ export async function renderRequestList(el, { config, rerender }) {
   let limit = PAGE;
   const apply = () => {
     const words = state.q.toLowerCase().split(/\s+/).filter(Boolean);
-    const ctx = { userId: auth.user.id };
+    const ctx = { userId: auth.user.id, watching };
     const rows = all.filter(
       (r) => filters.every((f) => !state.values[f.key] || f.match(r, state.values[f.key], ctx)) && words.every((w) => r._search.includes(w))
     );

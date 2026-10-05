@@ -38,6 +38,7 @@ const FALLBACK: Record<string, Template> = {
   rejected: { subject: '{request_number} was rejected', body: '{approver} rejected "{title}":\n{comment}' },
   ordered: { subject: '{request_number} has been ordered', body: '"{title}" has been ordered.\nOrder / ticket number: {ticket}' },
   received: { subject: '{request_number} has arrived', body: '"{title}" was marked received.' },
+  request_update: { subject: '{request_number} is now {status}', body: '"{title}" ({requester}) is now {status}. You\'re getting this because you watch it.' },
   sponsor_update: { subject: '{sponsor}: {what}', body: '{actor} updated {sponsor} on the Sponsors board: {what}.' },
   test: {
     subject: 'Test message from the order form',
