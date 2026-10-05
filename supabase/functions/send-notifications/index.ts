@@ -2,7 +2,7 @@
  * send-notifications — delivers queued messages from notification_outbox.
  *
  * The database queues a message whenever a request moves through the workflow
- * (see migration 010). The website calls this function right after each action,
+ * (see migration 010), and when a watched Sponsors card moves or gets a note (015). The website calls this function right after each action,
  * and Admin → Notifications has a "Send now" button; each run sends everything
  * that's waiting and retries earlier failures (up to 5 tries).
  *
@@ -38,6 +38,7 @@ const FALLBACK: Record<string, Template> = {
   rejected: { subject: '{request_number} was rejected', body: '{approver} rejected "{title}":\n{comment}' },
   ordered: { subject: '{request_number} has been ordered', body: '"{title}" has been ordered.\nOrder / ticket number: {ticket}' },
   received: { subject: '{request_number} has arrived', body: '"{title}" was marked received.' },
+  sponsor_update: { subject: '{sponsor}: {what}', body: '{actor} updated {sponsor} on the Sponsors board: {what}.' },
   test: {
     subject: 'Test message from the order form',
     body: 'Hi {first_name}, notifications are working. You will get messages like this when requests need you or change status.',
@@ -65,7 +66,14 @@ export function placeholders(payload: Record<string, unknown>, siteUrl: string):
     rule: s('rule'),
     recipient_name: s('recipient_name'),
     first_name: s('recipient_name').split(/\s+/)[0] || 'there',
-    link: base && s('request_number') ? `${base}#/requests/${encodeURIComponent(s('request_number'))}` : base,
+    // Sponsors board
+    sponsor: s('sponsor'),
+    stage: s('stage'),
+    what: s('what'),
+    actor: s('actor'),
+    kind: s('kind'),
+    amount: payload.amount == null ? '' : money(payload.amount),
+    link: base && s('path') ? `${base}#${s('path')}` : base && s('request_number') ? `${base}#/requests/${encodeURIComponent(s('request_number'))}` : base,
   };
 }
 
@@ -88,21 +96,23 @@ export function fill(template: string, values: Record<string, string>): string {
 export function render(row: Pick<Row, 'event' | 'payload'>, settings: Record<string, any>): Message {
   const values = placeholders(row.payload || {}, settings?.siteUrl || '');
   const t: Template = { ...FALLBACK[row.event], ...(settings?.templates?.[row.event] || {}) };
-  const facts: [string, string][] = (
-    [
-      ['Request', values.request_number],
-      ['Title', values.title],
-      ['Requester', values.requester],
-      ['Total', values.total],
-      ['Vendor', values.vendor],
-      ['Status', values.status],
-    ] as [string, string][]
-  ).filter(([, v]) => v);
+  const sponsor = row.event.startsWith('sponsor_');
+  const all: [string, string][] = sponsor
+    ? [['Sponsor', values.sponsor], ['Stage', values.stage], ['Type', values.kind], ['Amount', values.amount]]
+    : [
+        ['Request', values.request_number],
+        ['Title', values.title],
+        ['Requester', values.requester],
+        ['Total', values.total],
+        ['Vendor', values.vendor],
+        ['Status', values.status],
+      ];
+  const facts = all.filter(([, v]) => v);
   return {
     subject: fill(t.subject || '{request_number}', values).split('\n')[0] || 'Order form',
     lines: fill(t.body || '', values).split('\n').filter(Boolean),
     link: values.link,
-    linkLabel: values.request_number ? `Open ${values.request_number}` : 'Open the order form',
+    linkLabel: sponsor ? 'Open on the Sponsors board' : values.request_number ? `Open ${values.request_number}` : 'Open the order form',
     facts: row.event === 'test' ? [] : facts,
   };
 }

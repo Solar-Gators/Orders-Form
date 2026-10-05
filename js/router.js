@@ -23,6 +23,7 @@ import { renderRequestDetail } from './views/requestDetail.js';
 import { renderApprovals } from './views/approvals.js';
 import { renderTreasurer } from './views/treasurer.js';
 import { renderFinances } from './views/finances.js';
+import { renderSponsors, renderSponsorCard } from './views/sponsors.js';
 import { renderExport } from './views/exportPage.js';
 import { renderArchive } from './views/archive.js';
 import { renderImport } from './views/importPage.js';
@@ -43,6 +44,8 @@ const ROUTES = [
   { pattern: /^\/approvals$/, nav: 'approvals', view: renderApprovals, perm: LEADS },
   { pattern: /^\/treasurer$/, nav: 'treasurer', view: renderTreasurer, perm: LEADS },
   { pattern: /^\/finances$/, nav: 'finances', view: renderFinances, perm: ['finances.view', 'finances.edit'] },
+  { pattern: /^\/sponsors$/, nav: 'sponsors', view: renderSponsors, perm: ['sponsors.view', 'sponsors.edit'] },
+  { pattern: /^\/sponsors\/([^/]+)$/, nav: 'sponsors', view: renderSponsorCard, perm: ['sponsors.view', 'sponsors.edit'] },
   { pattern: /^\/archive$/, nav: 'archive', view: renderArchive },
   { pattern: /^\/export$/, nav: 'export', view: renderExport },
   { pattern: /^\/admin\/users$/, nav: 'admin', view: renderUsers, perm: tabPerms('users') },

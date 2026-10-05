@@ -978,3 +978,50 @@ body.nav-open .menu-icon::after { top: 0; transform: rotate(-45deg); }
   .col-main > select, .col-fill, .col-fill select { flex: 1 1 100%; max-width: none; }
   .col-settings select, .col-settings input[type="text"] { max-width: 100%; }
 }
+
+/* ---- Sponsors board ------------------------------------------------------------------- */
+.kanban { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 10px; align-items: flex-start; }
+.kanban-col { flex: 0 0 272px; background: #eef1f5; border-radius: var(--radius); padding: 10px; display: flex; flex-direction: column; gap: 8px; max-height: 75vh; }
+.kanban-col header { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding: 2px 4px; }
+.kanban-col h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; margin: 0; color: var(--navy); }
+.kanban-col.kind-received header h2 { color: var(--green); }
+.kanban-col.kind-done { background: #eaf5ee; }
+.kanban-col.kind-lost { background: #f3f3f3; }
+.kanban-col.kind-lost .kcard { opacity: .75; }
+.kanban-cards { display: grid; gap: 8px; overflow-y: auto; min-height: 40px; border-radius: 8px; padding: 2px; }
+.kanban-cards.is-over { background: #dfe8f6; outline: 2px dashed #9fb4d6; }
+.kanban-empty { margin: 6px 4px; }
+.kanban-add input { background: transparent; border: 1px dashed #c3ccd8; padding: 7px 9px; font-size: 13.5px; }
+.kanban-add input:focus { background: #fff; border-style: solid; }
+.kcard { background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 9px 10px; display: grid; gap: 6px; box-shadow: 0 1px 2px rgba(11, 37, 69, .06); }
+.kcard[draggable="true"] { cursor: grab; }
+.kcard.is-dragging { opacity: .4; }
+.kcard-name { font-weight: 600; color: var(--text); text-decoration: none; line-height: 1.3; }
+.kcard-name:hover { color: var(--blue); text-decoration: underline; }
+.kcard-meta { display: flex; justify-content: space-between; align-items: center; gap: 6px; font-size: 13px; }
+.kcard-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.kcard-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; }
+.kcard-move { display: none; margin-left: auto; width: auto; padding: 3px 6px; font-size: 12px; }
+.tag { display: inline-block; background: #eef4ff; color: #1e3a78; border-radius: 4px; padding: 0 6px; font-size: 11.5px; font-weight: 600; }
+.avatar { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--navy); color: #fff; font-size: 10.5px; font-weight: 700; flex: none; }
+.watcher-list, .similar-list { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 6px; }
+.watcher-list li { display: flex; align-items: center; gap: 8px; }
+.watcher-list .icon-btn { margin-left: auto; }
+.similar-list li { line-height: 1.35; }
+.comment-form { display: grid; gap: 8px; justify-items: end; margin-bottom: 16px; }
+.sponsor-timeline > .tl-comment::before { border-color: var(--blue); background: #e3edff; }
+.sponsor-timeline > .tl-income::before { border-color: var(--green); background: var(--green); }
+.sponsor-timeline > .tl-moved::before { border-color: var(--orange); background: #fff1e8; }
+.read-value { padding: 6px 0; }
+.playbook { border-left: 4px solid var(--orange); }
+.rich p:last-child { margin-bottom: 0; }
+.stage-list { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 6px; }
+.stage-list li { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.stage-list input { flex: 1 1 180px; max-width: 280px; }
+.stage-list select { width: auto; }
+@media (max-width: 720px), (hover: none) {
+  .kcard-move { display: block; }
+}
+@media (max-width: 640px) {
+  .kanban-col { flex-basis: 82vw; max-height: none; }
+}

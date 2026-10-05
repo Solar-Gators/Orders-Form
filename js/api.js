@@ -175,6 +175,45 @@ export const api = {
     unwrap(await supabase.rpc('set_budgets', { p_budgets: budgets }));
   },
 
+  // ---- Sponsors board (migration 015) ---------------------------------------------
+
+  async listSponsorCards() {
+    const cards = unwrap(await supabase.from('sponsor_cards').select('*').order('position'));
+    const watchers = unwrap(await supabase.from('sponsor_watchers').select('*'));
+    for (const c of cards) c.watchers = watchers.filter((w) => w.card_id === c.id).map((w) => w.user_id);
+    return cards;
+  },
+  /** One card with its watchers and history (newest first). */
+  async getSponsorCard(id) {
+    const card = unwrap(await supabase.from('sponsor_cards').select('*').eq('id', id).maybeSingle());
+    if (!card) throw new Error('That sponsor card was not found. It may have been deleted.');
+    card.watchers = unwrap(await supabase.from('sponsor_watchers').select('*').eq('card_id', id)).map((w) => w.user_id);
+    card.activity = unwrap(await supabase.from('sponsor_activity').select('*').eq('card_id', id).order('id', { ascending: false }));
+    return card;
+  },
+  /** Create (id null) or update a card; `fields` are only the ones to change. Returns its id. */
+  async saveSponsorCard(id, fields) {
+    return unwrap(await supabase.rpc('save_sponsor_card', { p_id: id, p_fields: fields }));
+  },
+  async moveSponsorCard(id, stage, position) {
+    unwrap(await supabase.rpc('move_sponsor_card', { p_id: id, p_stage: stage, p_position: position }));
+  },
+  async addSponsorComment(id, body) {
+    unwrap(await supabase.rpc('add_sponsor_comment', { p_id: id, p_body: body }));
+  },
+  async setSponsorWatch(id, userId, on) {
+    unwrap(await supabase.rpc('set_sponsor_watch', { p_id: id, p_user: userId, p_on: on }));
+  },
+  async renewSponsorCard(id, season) {
+    return unwrap(await supabase.rpc('renew_sponsor_card', { p_id: id, p_season: season }));
+  },
+  async deleteSponsorCard(id) {
+    unwrap(await supabase.rpc('delete_sponsor_card', { p_id: id }));
+  },
+  async saveSponsorSettings(value) {
+    unwrap(await supabase.rpc('save_sponsor_settings', { p_value: value }));
+  },
+
   // ---- Finances (migration 014): the Treasurer's own sheets -----------------------
 
   async listFinanceSheets() {

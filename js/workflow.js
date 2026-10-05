@@ -21,6 +21,7 @@ export const EVENTS = [
   { key: 'rejected', label: 'Rejected', who: 'The requester' },
   { key: 'ordered', label: 'Ordered', who: 'The requester' },
   { key: 'received', label: 'Received', who: 'The requester' },
+  { key: 'sponsor_update', label: 'Sponsor card updated', who: 'People watching the card (Sponsors board)' },
 ];
 export const PLACEHOLDERS = [
   ['request_number', 'e.g. SG26-014'],
@@ -34,7 +35,11 @@ export const PLACEHOLDERS = [
   ['ticket', 'Order / ticket number'],
   ['status', 'New status'],
   ['rule', 'Approval rule used'],
-  ['link', 'Link to the request'],
+  ['link', 'Link to the request (or sponsor card)'],
+  ['sponsor', 'Sponsors board: the sponsor\'s name'],
+  ['stage', 'Sponsors board: the card\'s stage'],
+  ['what', 'Sponsors board: what happened, e.g. "moved from In talks to Committed"'],
+  ['actor', 'Sponsors board: who did it'],
 ];
 
 export const workflowSettings = (config) => ({

@@ -74,4 +74,15 @@ test('Power Automate payload: recipient, channel and an adaptive card', () => {
   assert.deepEqual(JSON.parse(body.card), card);
 });
 
+test('Sponsors board messages link to the card and list sponsor facts', () => {
+  const m = render(
+    { event: 'sponsor_update', payload: { sponsor: 'Acme Aerospace', stage: 'Committed', what: 'moved from In talks to Committed', actor: 'Cora Coordinator', kind: 'Sponsorship', amount: 2500, path: '/sponsors/abc-123' } },
+    settings
+  );
+  assert.equal(m.subject, 'Acme Aerospace: moved from In talks to Committed');
+  assert.equal(m.link, 'https://solar-gators.github.io/Orders-Form/#/sponsors/abc-123');
+  assert.equal(m.linkLabel, 'Open on the Sponsors board');
+  assert.deepEqual(m.facts, [['Sponsor', 'Acme Aerospace'], ['Stage', 'Committed'], ['Type', 'Sponsorship'], ['Amount', '$2,500.00']]);
+});
+
 console.log(`\n${passed} passed${process.exitCode ? ', some FAILED' : ''}`);

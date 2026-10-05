@@ -293,7 +293,7 @@ await test('the website cannot change the schema version', async () => {
   const general = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
   await as(ce, () => rpc('update_settings', ['general', { ...general, schemaVersion: 99 }]));
   const after = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
-  assert.equal(after.schemaVersion, 14);
+  assert.equal(after.schemaVersion, 15);
 });
 
 console.log('Form fields');
@@ -522,7 +522,7 @@ const permsOf = async (role) =>
 
 await test('everyone signed in can read the permission list', async () => {
   const { rows } = await as(member, () => db.query(`select key from permissions order by sort`));
-  assert.deepEqual(rows.map((r) => r.key), ['request.review', 'request.order', 'settings.edit', 'site.customize', 'seasons.manage', 'workflow.edit', 'finances.view', 'finances.edit', 'users.manage']);
+  assert.deepEqual(rows.map((r) => r.key), ['request.review', 'request.order', 'settings.edit', 'site.customize', 'seasons.manage', 'workflow.edit', 'finances.view', 'finances.edit', 'sponsors.view', 'sponsors.edit', 'users.manage']);
 });
 
 await test('members cannot change permissions', async () => {
@@ -693,7 +693,7 @@ await test('no roles means Member; unknown roles are refused', async () => {
 
 await test('Admin has every permission, including the new ones', async () => {
   const perms = (await db.query(`select string_agg(permission, ',' order by permission) as p from role_permissions where role = 'admin'`)).rows[0].p;
-  assert.equal(perms, 'finances.edit,finances.view,request.order,request.review,seasons.manage,settings.edit,site.customize,users.manage,workflow.edit');
+  assert.equal(perms, 'finances.edit,finances.view,request.order,request.review,seasons.manage,settings.edit,site.customize,sponsors.edit,sponsors.view,users.manage,workflow.edit');
 });
 
 await test('custom roles: create, rename, grant, and delete', async () => {
@@ -1246,6 +1246,77 @@ await test('Finances: sheets, rows and cells (two people editing one row keep bo
 await test('Finances: nobody writes the tables directly', async () => {
   await as(treasurer, () => rejects(db.query(`insert into finance_sheets (name) values ('Sneaky')`), /permission denied/));
   await as(treasurer, () => rejects(db.query(`update finance_rows set data = '{}'`), /permission denied/));
+});
+
+console.log('Sponsors board (015)');
+
+const coordinator = await signUp('coord@ufl.edu', 'Cora Coordinator');
+await setRole(coordinator, 'coordinator');
+// Earlier tests reshape the CE's permissions; start from what 015 grants.
+await db.exec(`insert into role_permissions (role, permission) values ('ce', 'sponsors.view'), ('treasurer', 'sponsors.view') on conflict do nothing;
+  delete from role_permissions where role in ('ce', 'treasurer') and permission = 'sponsors.edit';`);
+const thisSeason = (await db.query(`select value ->> 'season' s from app_settings where key = 'general'`)).rows[0].s;
+const cardRpc = (uid, fn, args) => as(uid, () => rpc(fn, args)).then((r) => r.rows[0].result);
+
+await test('Sponsors: the Business Coordinator edits, leads can look and watch, Members see nothing', async () => {
+  const id = await cardRpc(coordinator, 'save_sponsor_card', [null, { name: 'Acme Aerospace', kind: 'Sponsorship', amount: '2500', tags: ['aerospace', ' local ', 'local'] }]);
+  const card = (await db.query(`select * from sponsor_cards where id = $1`, [id])).rows[0];
+  assert.deepEqual([card.stage, card.season, card.amount, card.tags.sort()], ['prospect', thisSeason, '2500.00', ['aerospace', 'local']]);
+  assert.equal((await as(member, () => db.query(`select * from sponsor_cards`))).rows.length, 0);
+  assert.equal((await as(ce, () => db.query(`select * from sponsor_cards`))).rows.length, 1);
+  await as(ce, () => rejects(rpc('save_sponsor_card', [id, { name: 'Hacked' }]), /does not allow/));
+  await as(ce, () => rpc('set_sponsor_watch', [id, ce, true])); // can watch themselves
+  await as(ce, () => rejects(rpc('set_sponsor_watch', [id, treasurer, true]), /does not allow/)); // not others
+  await as(coordinator, () => rejects(rpc('set_sponsor_watch', [id, member, true]), /can't see the Sponsors board/));
+  const watchers = (await db.query(`select user_id from sponsor_watchers where card_id = $1 order by user_id`, [id])).rows.map((r) => r.user_id);
+  assert.deepEqual(watchers.sort(), [ce, coordinator].sort()); // the creator watches by default
+  await as(coordinator, () => rejects(rpc('save_sponsor_card', [id, { amount: 'lots' }]), /must be a number/));
+  await as(coordinator, () => rejects(rpc('save_sponsor_card', [id, { stage: 'nowhere' }]), /doesn't exist/));
+});
+
+await test('Sponsors: moving and commenting are logged and tell watchers; reaching Received adds income once', async () => {
+  const id = (await db.query(`select id from sponsor_cards where name = 'Acme Aerospace'`)).rows[0].id;
+  const income = (await as(treasurer, () => rpc('save_finance_sheet', [null, 'Income', [
+    { key: 'd', label: 'Date', type: 'date' }, { key: 'f', label: 'From', type: 'text' }, { key: 't', label: 'Type', type: 'select' }, { key: 'a', label: 'Amount', type: 'money' },
+  ]]))).rows[0].result;
+  const settings = (await db.query(`select value from app_settings where key = 'sponsors'`)).rows[0].value;
+  await as(coordinator, () => rpc('save_sponsor_settings', [{ ...settings, income: { sheet: income, columns: { date: 'd', from: 'f', type: 't', amount: 'a' } } }]));
+  await as(admin, () => rpc('update_settings', ['notifications', { enabled: true, events: { sponsor_update: { email: true } } }]));
+  await db.exec(`delete from notification_outbox`);
+
+  await as(coordinator, () => rpc('move_sponsor_card', [id, 'committed', 1]));
+  await as(ce, () => rpc('add_sponsor_comment', [id, 'Called Jane, she wants a logo on the nose cone.']));
+  await as(coordinator, () => rpc('save_sponsor_card', [id, { stage: 'received' }]));
+  await as(coordinator, () => rpc('move_sponsor_card', [id, 'thanked', 1]));
+  await as(coordinator, () => rpc('move_sponsor_card', [id, 'received', 1])); // back and forth: still one income row
+
+  const rows = (await db.query(`select data from finance_rows where sheet_id = $1`, [income])).rows;
+  assert.equal(rows.length, 1);
+  assert.deepEqual(rows[0].data.f + '|' + rows[0].data.t + '|' + rows[0].data.a, 'Acme Aerospace|Sponsorship|2500.00');
+  const kinds = (await db.query(`select kind from sponsor_activity where card_id = $1 order by id`, [id])).rows.map((r) => r.kind);
+  assert.deepEqual(kinds, ['created', 'moved', 'comment', 'moved', 'income', 'moved', 'moved']);
+  const sent = (await db.query(`select email, payload from notification_outbox where event = 'sponsor_update' order by id`)).rows;
+  // The CE watches: told about the coordinator's moves, not their own comment. The coordinator hears about the comment.
+  assert.ok(sent.some((m) => m.email === 'ce@ufl.edu' && /moved from Prospect to Committed/.test(m.payload.what)));
+  assert.ok(sent.some((m) => m.email === 'coord@ufl.edu' && /nose cone/.test(m.payload.what)));
+  assert.ok(!sent.some((m) => m.email === 'ce@ufl.edu' && /nose cone/.test(m.payload.what)));
+  assert.equal(sent[0].payload.path, `/sponsors/${id}`);
+  await as(admin, () => rpc('update_settings', ['notifications', { enabled: false }]));
+});
+
+await test('Sponsors: renewing copies the card into next season; stages can be renamed but not emptied', async () => {
+  const id = (await db.query(`select id from sponsor_cards where name = 'Acme Aerospace'`)).rows[0].id;
+  await as(coordinator, () => rpc('save_sponsor_card', [id, { playbook: 'Ask in August, before their budget closes.' }]));
+  const next = await cardRpc(coordinator, 'renew_sponsor_card', [id, '2027-2028']);
+  const copy = (await db.query(`select * from sponsor_cards where id = $1`, [next])).rows[0];
+  assert.deepEqual([copy.season, copy.stage, copy.playbook, copy.renewed_from], ['2027-2028', 'prospect', 'Ask in August, before their budget closes.', id]);
+  await as(coordinator, () => rejects(rpc('renew_sponsor_card', [id, '2027-2028']), /already on the 2027-2028 board/));
+  await as(coordinator, () => rejects(rpc('save_sponsor_settings', [{ stages: [] }]), /at least one stage/));
+  const settings = (await db.query(`select value from app_settings where key = 'sponsors'`)).rows[0].value;
+  await as(coordinator, () => rpc('save_sponsor_settings', [{ ...settings, stages: settings.stages.filter((s) => s.key !== 'prospect') }]));
+  assert.equal((await db.query(`select stage from sponsor_cards where id = $1`, [next])).rows[0].stage, 'contacted'); // moved to the new first stage
+  await as(member, () => rejects(rpc('add_sponsor_comment', [id, 'hi']), /does not allow/));
+  await as(treasurer, () => rejects(db.query(`insert into sponsor_activity (card_id, kind) values ('${id}', 'comment')`), /permission denied/));
 });
 
 console.log(`\n${passed} passed${process.exitCode ? ', some FAILED' : ''}`);

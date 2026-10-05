@@ -46,6 +46,7 @@ function myEvents(config) {
     { key: 'rejected', mine: 'Your request was rejected' },
     { key: 'ordered', mine: 'Your request was ordered' },
     { key: 'received', mine: 'Your request arrived' },
+    (auth.can('sponsors.view') || auth.can('sponsors.edit')) && { key: 'sponsor_update', mine: 'A sponsor card you watch moves or gets a note' },
   ].filter(Boolean);
 }
 

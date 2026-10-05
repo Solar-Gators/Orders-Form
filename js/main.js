@@ -9,8 +9,8 @@ import { STATUS, STATUSES, EDITABLE_STATUSES, esc, errorBox, setCurrentSeason, s
 const app = document.getElementById('app');
 
 // Bump when adding a file to supabase/migrations/ (the migration sets general.schemaVersion).
-const REQUIRED_SCHEMA_VERSION = 14;
-const MIGRATIONS = { 2: '002_form_fields.sql', 3: '003_archive_and_import.sql', 4: '004_cost_adjustments.sql', 5: '005_editable_permissions.sql', 6: '006_seasons.sql', 7: '007_one_vendor_per_request.sql', 8: '008_roles_admin_history.sql', 9: '009_form_rules_layout_exports.sql', 10: '010_workflow_budgets_notifications.sql', 11: '011_notification_choices.sql', 12: '012_link_imported_requests.sql', 13: '013_history_drafts_ticket.sql', 14: '014_finances.sql' };
+const REQUIRED_SCHEMA_VERSION = 15;
+const MIGRATIONS = { 2: '002_form_fields.sql', 3: '003_archive_and_import.sql', 4: '004_cost_adjustments.sql', 5: '005_editable_permissions.sql', 6: '006_seasons.sql', 7: '007_one_vendor_per_request.sql', 8: '008_roles_admin_history.sql', 9: '009_form_rules_layout_exports.sql', 10: '010_workflow_budgets_notifications.sql', 11: '011_notification_choices.sql', 12: '012_link_imported_requests.sql', 13: '013_history_drafts_ticket.sql', 14: '014_finances.sql', 15: '015_sponsors.sql' };
 
 /** Shared config object handed to every view. Mutated in place on reload. */
 const config = {};
@@ -35,6 +35,7 @@ async function reloadConfig() {
     exports: settings.exports || {}, // Admin → Exports
     workflow: settings.workflow || {}, // Admin → Workflow (rules, budgets)
     notifications: settings.notifications || {}, // Admin → Notifications
+    sponsors: settings.sponsors || {}, // Sponsors board: stages, kinds, income sheet
   });
   document.title = `${config.teamName} Orders`;
   setCurrentSeason(config.season);

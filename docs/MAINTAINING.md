@@ -154,6 +154,7 @@ Nothing is sent until an Admin turns it on in **Admin → Approvals & alerts →
 2. Name it exactly `send-notifications`.
 3. Replace the sample code with the contents of `supabase/functions/send-notifications/index.ts` and click **Deploy**. Leave "Verify JWT" on.
 4. To update it later, open the function → **Code**, paste the new file, and deploy again.
+   **After migration 015 (Sponsors board), redeploy it once.** Older versions send "Sponsor card updated" messages with blanks like {sponsor} in them.
 
 (With the Supabase CLI instead: `supabase functions deploy send-notifications`.)
 

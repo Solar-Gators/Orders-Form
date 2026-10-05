@@ -104,6 +104,19 @@ The **Finances** tab is a spreadsheet the Treasurer shapes himself, so his own t
 - **Search, sort** (click a heading; **Keep this order** saves it), **Download .xlsx**, and **Import Excel…**: each worksheet of an existing file becomes a sheet, with column types guessed (dates, money, checkboxes, links). Formulas come in as their values.
 - Who can see and edit it is set in Admin → People → Roles & permissions (**See finances** / **Edit finances**). By default the Treasurer edits, Chief Engineers can look, and Members can't see it.
 
+### Sponsors (Business Coordinator)
+The **Sponsors** tab tracks sponsorships and donations on a board, and keeps every season for future teams.
+- **Board:** one column per stage: Prospect → Contacted → In talks → Committed → Received → Thanked, plus Not this year. Drag cards between columns (on a phone, use the small menu on each card). Each column shows its count and total. **Board settings** renames, adds or reorders stages, and sets the list of types (Sponsorship, Donation, In-kind…).
+- **Cards:** sponsor name, type, amount, season, lead, follow-up date, tags (e.g. aerospace, local, alumni), contact name / email / phone, website, plus two write-ups:
+  - **About this sponsor:** who they are, what they gave, what they asked for in return.
+  - **Tips for next time:** how we found them, who to ask, when to ask, what worked.
+- **Watchers:** anyone who can see the board can watch a card; the coordinator can add others. Watchers get an email / Teams message when the card moves or someone adds a note (Admin → Approvals & alerts → Notifications → "Sponsor card updated").
+- **Notes & history:** add notes after each call or email; moves, edits and money received are logged automatically, with who and when.
+- **Money received:** when a card reaches a "money received" stage, its amount is added once to the Finances sheet chosen in Board settings (e.g. **Income**), so the **Funds overview** updates on its own.
+- **Follow-ups:** a card's follow-up date shows up on Home ("Follow up with…") for its lead and watchers.
+- **For future teams:** **All sponsors** lists every card from every season, searchable by name, contact, tag, notes and tips. Each card suggests **similar sponsors** (shared tags or type), and **Renew for next season** copies a card (contacts, notes, tips, watchers) onto next season's board.
+- Permissions: **See sponsors** / **Edit sponsors**. A **Business Coordinator** role has both (and can see Finances). Chief Engineers and the Treasurer can see the board and watch cards.
+
 ### Finding things
 - **Requests:** this season's requests. A season picker lets you look back at earlier seasons.
 - **Home:** click the logo (or "Orders") at the top left. It shows what needs you right now, your latest requests, and how ordering works. It is the page the site opens on.

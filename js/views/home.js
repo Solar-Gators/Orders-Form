@@ -8,17 +8,19 @@ import { auth } from '../auth.js';
 import { STATUS, esc, fmtDate, fmtMoney, statusBadge, takeFlash, introText } from '../ui.js';
 import { shippingPerRequest } from '../formFields.js';
 import { hasHelp } from './help.js';
+import { sponsorFollowUps } from './sponsors.js';
 
 export async function renderHome(el, { config }) {
   const me = auth.user.id;
   const reviews = auth.can('request.review');
   const orders = auth.can('request.order');
-  const [mine, recent, waiting, toOrder, onTheWay] = await Promise.all([
+  const [mine, recent, waiting, toOrder, onTheWay, followUps] = await Promise.all([
     api.listMyUnfinished(me),
     api.listMyRecent(me, 5),
     reviews || orders ? api.countByStatus(STATUS.SUBMITTED) : 0,
     reviews || orders ? api.countByStatus(STATUS.APPROVED) : 0,
     orders ? api.countByStatus(STATUS.ORDERED) : 0,
+    sponsorFollowUps(config),
   ]);
 
   const first = (auth.displayName || '').trim().split(/\s+/)[0];
@@ -39,6 +41,7 @@ export async function renderHome(el, { config }) {
     ...(reviews && waiting ? [{ href: '#/approvals', title: `${plural(waiting, 'request')} waiting for approval`, note: 'Approvals', count: waiting }] : []),
     ...(orders && toOrder ? [{ href: '#/treasurer', title: `${plural(toOrder, 'approved request')} to order`, note: 'Treasurer', count: toOrder }] : []),
     ...(orders && onTheWay ? [{ href: '#/treasurer', title: `${plural(onTheWay, 'order')} awaiting delivery`, note: 'Treasurer', count: onTheWay }] : []),
+    ...followUps.map((c) => ({ href: `#/sponsors/${c.id}`, title: `Follow up with ${c.name}`, note: `Sponsors · due ${fmtDate(c.follow_up)}` })),
   ];
 
   const steps = [

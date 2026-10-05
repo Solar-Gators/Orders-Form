@@ -419,6 +419,7 @@ const WHAT = {
   exports: 'Excel templates',
   workflow: 'Approval rules & budgets',
   notifications: 'Notifications',
+  sponsors: 'Sponsors board',
   permissions: 'Permissions',
 };
 // Which permission restoring each kind of version needs (the database checks it too).
