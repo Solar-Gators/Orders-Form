@@ -293,7 +293,7 @@ await test('the website cannot change the schema version', async () => {
   const general = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
   await as(ce, () => rpc('update_settings', ['general', { ...general, schemaVersion: 99 }]));
   const after = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
-  assert.equal(after.schemaVersion, 13);
+  assert.equal(after.schemaVersion, 14);
 });
 
 console.log('Form fields');
@@ -522,7 +522,7 @@ const permsOf = async (role) =>
 
 await test('everyone signed in can read the permission list', async () => {
   const { rows } = await as(member, () => db.query(`select key from permissions order by sort`));
-  assert.deepEqual(rows.map((r) => r.key), ['request.review', 'request.order', 'settings.edit', 'site.customize', 'seasons.manage', 'workflow.edit', 'users.manage']);
+  assert.deepEqual(rows.map((r) => r.key), ['request.review', 'request.order', 'settings.edit', 'site.customize', 'seasons.manage', 'workflow.edit', 'finances.view', 'finances.edit', 'users.manage']);
 });
 
 await test('members cannot change permissions', async () => {
@@ -693,7 +693,7 @@ await test('no roles means Member; unknown roles are refused', async () => {
 
 await test('Admin has every permission, including the new ones', async () => {
   const perms = (await db.query(`select string_agg(permission, ',' order by permission) as p from role_permissions where role = 'admin'`)).rows[0].p;
-  assert.equal(perms, 'request.order,request.review,seasons.manage,settings.edit,site.customize,users.manage,workflow.edit');
+  assert.equal(perms, 'finances.edit,finances.view,request.order,request.review,seasons.manage,settings.edit,site.customize,users.manage,workflow.edit');
 });
 
 await test('custom roles: create, rename, grant, and delete', async () => {
@@ -1205,6 +1205,47 @@ await test('"needs your approval" messages wait, and are cancelled if the reques
 
 await test('nobody can write History directly', async () => {
   await as(member, () => rejects(db.query(`insert into request_events (request_id, kind) select id, 'ordered' from requests limit 1`), /permission denied/));
+});
+
+console.log('Finances (014)');
+
+// Earlier tests reshape the Treasurer's and CE's permissions; start from what 014 grants.
+await db.exec(`insert into role_permissions (role, permission) values
+  ('treasurer', 'finances.view'), ('treasurer', 'finances.edit'), ('ce', 'finances.view') on conflict do nothing;
+  delete from role_permissions where role = 'ce' and permission = 'finances.edit';
+  delete from role_permissions where role = 'member' and permission like 'finances.%';`);
+
+await test('Finances: the Treasurer edits, Chief Engineers can look, Members see nothing', async () => {
+  const sheets = (uid) => as(uid, async () => (await db.query(`select name from finance_sheets order by position`)).rows.map((r) => r.name));
+  assert.deepEqual(await sheets(treasurer), ['Ledger']); // the starting sheet
+  assert.deepEqual(await sheets(ce), ['Ledger']);
+  assert.deepEqual(await sheets(member), []);
+  await as(ce, () => rejects(rpc('save_finance_sheet', [null, 'Mine', []]), /does not allow/));
+  const ledger = (await db.query(`select id from finance_sheets limit 1`)).rows[0].id;
+  await as(member, () => rejects(rpc('add_finance_rows', [ledger, [{ data: {} }]]), /does not allow/));
+});
+
+await test('Finances: sheets, rows and cells (two people editing one row keep both edits)', async () => {
+  const id = (await as(treasurer, () => rpc('save_finance_sheet', [null, 'Reimbursements', [{ key: 'who', label: 'Who', type: 'text' }, { key: 'amt', label: 'Amount', type: 'money' }]]))).rows[0].result;
+  await as(treasurer, () => rejects(rpc('save_finance_sheet', [id, 'Reimbursements', [{ key: 'x', label: ' ' }]]), /needs a name/));
+  const added = (await as(treasurer, () => rpc('add_finance_rows', [id, [{ data: { who: 'Mia' } }, { data: { who: 'Otto', amt: '12.50' } }]]))).rows[0].result;
+  assert.deepEqual(added.map((r) => r.data.who), ['Mia', 'Otto']);
+  assert.ok(added[0].position < added[1].position);
+  await as(treasurer, () => rpc('set_finance_cell', [added[0].id, 'amt', '40']));
+  await as(admin, () => rpc('set_finance_cell', [added[0].id, 'who', 'Mia Member']));
+  const row = (await db.query(`select data from finance_rows where id = $1`, [added[0].id])).rows[0].data;
+  assert.deepEqual(row, { who: 'Mia Member', amt: '40' });
+  await as(treasurer, () => rpc('set_finance_cell', [added[0].id, 'amt', '']));
+  assert.deepEqual((await db.query(`select data from finance_rows where id = $1`, [added[0].id])).rows[0].data, { who: 'Mia Member' });
+  await as(treasurer, () => rpc('delete_finance_rows', [[added[1].id]]));
+  await as(treasurer, () => rejects(rpc('set_finance_cell', [added[1].id, 'who', 'x']), /deleted/));
+  await as(treasurer, () => rpc('delete_finance_sheet', [id]));
+  assert.equal((await db.query(`select count(*)::int n from finance_rows where sheet_id = $1`, [id])).rows[0].n, 0);
+});
+
+await test('Finances: nobody writes the tables directly', async () => {
+  await as(treasurer, () => rejects(db.query(`insert into finance_sheets (name) values ('Sneaky')`), /permission denied/));
+  await as(treasurer, () => rejects(db.query(`update finance_rows set data = '{}'`), /permission denied/));
 });
 
 console.log(`\n${passed} passed${process.exitCode ? ', some FAILED' : ''}`);

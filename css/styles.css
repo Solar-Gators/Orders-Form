@@ -892,3 +892,51 @@ body.nav-open .menu-icon::after { top: 0; transform: rotate(-45deg); }
 @media (min-width: 641px) { .roles-table { width: auto; min-width: 460px; } .roles-table td.num { padding-left: 40px; } }
 @media (min-width: 641px) { .table-wrap:has(> .roles-table) { width: fit-content; max-width: 100%; } }
 @media (max-width: 640px) { .export-summary th, .export-summary td { padding: 8px 6px; } .export-summary th { letter-spacing: 0; } }
+
+/* ---- Finances: spreadsheet-like sheets ---------------------------------------------- */
+.sheet-tabs { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; border-bottom: 1px solid var(--border); margin-bottom: 14px; }
+.sheet-tabs [role="tab"], .sheet-add {
+  padding: 8px 14px; border: 1px solid transparent; border-bottom: 0; border-radius: 8px 8px 0 0; margin-bottom: -1px;
+  background: transparent; color: var(--muted); font: inherit; font-weight: 600; cursor: pointer;
+}
+.sheet-tabs [role="tab"][aria-selected="true"] { background: #fff; color: var(--navy); border-color: var(--border); }
+.sheet-tabs [role="tab"]:hover, .sheet-add:hover { color: var(--navy); }
+.sheet-add { color: var(--blue); }
+.sheet-import { margin-left: auto; cursor: pointer; }
+.sheet-toolbar .toolbar-right { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+.sheet-wrap { max-height: 70vh; overflow: auto; }
+.sheet-table { border-collapse: separate; border-spacing: 0; font-size: 13.5px; }
+.sheet-table thead th { position: sticky; top: 0; z-index: 2; padding: 0; }
+.sheet-table th .sort-btn { padding: 8px 10px; }
+.sheet-table td { padding: 0; border-bottom: 1px solid var(--border-soft); border-right: 1px solid var(--border-soft); }
+.sheet-table td.sheet-idx, .sheet-table th.sheet-idx {
+  position: sticky; left: 0; z-index: 1; width: 40px; min-width: 40px; text-align: center; background: var(--surface-2); padding: 6px 4px; font-size: 12px;
+}
+.sheet-table thead th.sheet-idx { z-index: 3; }
+.sheet-table td > input, .sheet-table td > select, .sheet-table .cell-with-link input {
+  border: 0; border-radius: 0; background: transparent; padding: 7px 9px; min-width: 120px; font-size: 13.5px;
+}
+.sheet-table td > input:focus, .sheet-table td > select:focus, .sheet-table .cell-with-link input:focus { box-shadow: inset 0 0 0 2px var(--orange); background: #fff; }
+.sheet-table td.t-text > input { min-width: 180px; }
+.sheet-table td.t-money > input, .sheet-table td.t-number > input { min-width: 100px; text-align: right; font-variant-numeric: tabular-nums; }
+.sheet-table td.t-date > input { min-width: 140px; }
+.sheet-table td.t-checkbox { text-align: center; }
+.sheet-table td.t-checkbox > input { width: 18px; height: 18px; min-width: 0; margin: 8px; }
+.sheet-table td.num:not(:has(input)) { padding: 7px 9px; white-space: nowrap; }
+.sheet-table td:not(:has(input, select)):not(.sheet-idx):not(.sheet-del) { padding: 7px 9px; }
+.sheet-table td.sheet-del { border-right: 0; width: 36px; text-align: center; }
+.sheet-table tfoot td { position: sticky; bottom: 0; background: var(--surface-2); padding: 8px 9px; border-top: 2px solid var(--border); }
+.sheet-table tbody tr:hover td { background: #fbfcfe; }
+.sheet-table tbody tr:hover td.sheet-idx { background: #eef2f7; }
+.sheet-table .sheet-empty { padding: 24px; text-align: center; }
+.cell-with-link { display: flex; align-items: center; }
+.cell-with-link a { padding: 0 8px; text-decoration: none; }
+.columns-editor .col-table input, .columns-editor .col-table select, .columns-editor .col-table textarea { min-width: 140px; }
+.columns-editor .col-table .move { white-space: nowrap; width: 80px; }
+.inline-check { display: flex; gap: 6px; align-items: center; font-weight: 500; white-space: nowrap; }
+.inline-check input { width: auto; }
+@media (max-width: 640px) {
+  .sheet-import { margin-left: 0; }
+  .sheet-toolbar .toolbar-right { margin-left: 0; width: 100%; justify-content: flex-end; }
+  .sheet-wrap { max-height: none; }
+}

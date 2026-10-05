@@ -7,6 +7,7 @@ import { api } from '../api.js';
 import { auth } from '../auth.js';
 import { STATUS, esc, fmtDate, fmtMoney, statusBadge, takeFlash, introText } from '../ui.js';
 import { shippingPerRequest } from '../formFields.js';
+import { hasHelp } from './help.js';
 
 export async function renderHome(el, { config }) {
   const me = auth.user.id;
@@ -102,7 +103,7 @@ export async function renderHome(el, { config }) {
       <section class="card home-steps">
         <h2>How ordering works</h2>
         <ol class="steps">${steps.map(([t, d]) => `<li><strong>${esc(t)}</strong><span>${esc(d)}</span></li>`).join('')}</ol>
-        <p class="muted small">Questions? Read the <a href="#/help">Help page</a>. You can come back here any time by clicking the logo.</p>
+        <p class="muted small">${hasHelp(config) ? 'Questions? Read the <a href="#/help">Help page</a>. ' : ''}You can come back here any time by clicking the logo.</p>
       </section>
     </div>`;
 }

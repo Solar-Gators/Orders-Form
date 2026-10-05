@@ -48,6 +48,8 @@ A person can have **more than one role** (e.g. Treasurer + Admin), and gets ever
 | Customize lists (columns, filters, sorting) and appearance (labels, colors) | | | | ✓ |
 | Manage people, roles, and permissions | | ✓ | ✓ | ✓ |
 | Approval rules, budgets, email / Teams notifications | | | | ✓ |
+| See the Finances tab | | ✓ | ✓ | ✓ |
+| Edit the Finances tab (sheets, columns, rows) | | | ✓ | ✓ |
 
 All of this can be changed in **Admin → People → Roles & permissions**, and you can add roles of your own (e.g. "Subsystem Lead", "Faculty Advisor"). The Chief Engineer and Treasurer see every tab; on the other role's queue the page is marked **view only**. Members only see the tabs they can use.
 
@@ -83,6 +85,15 @@ Changed your mind? Open a submitted request and click **Withdraw request** to tu
 - **Copy buttons:** every value on a request has a small copy icon (item name, vendor, link, part #, quantity, prices, request ID, total), for pasting into purchasing forms. **Copy all items** copies the whole item list as a table that pastes straight into Excel or Google Sheets.
 - **Edit costs:** if a price or shipping cost turns out different from what was requested, open the request and click **Edit costs**. This works on Approved, Ordered, and Received requests. Change any item's unit price or the order's shipping, and add a reason. The new total is previewed before saving. Every change is logged in the request's History (who, when, old → new, and why), and the item list is tagged **Costs adjusted**.
 
+### Finances (Treasurer)
+The **Finances** tab is a spreadsheet the Treasurer shapes himself, so his own tracking can live on the site instead of a separate Excel file.
+- **Sheets:** as many as he likes (e.g. Ledger, Reimbursements, Sponsorships). A **Ledger** sheet is there to start; rename, reshape or delete it.
+- **Columns & sheet:** add, rename, reorder or delete columns. Types: text, money, number, date, dropdown (your own options), checkbox, link, request (an SG number, linked to the request), and **running total** (a balance down the rows). Money and number columns can show a total at the bottom.
+- **Cells save as you leave them.** Enter moves down a row (and adds one at the bottom); Tab moves right.
+- **Add ordered requests:** adds a row for every Ordered or Received request not yet in the sheet, filling the columns you linked to a request detail (ID, title, vendor, total, ticket #, order date, Cost center…).
+- **Search, sort** (click a heading; **Keep this order** saves it), **Download .xlsx**, and **Import Excel…**: each worksheet of an existing file becomes a sheet, with column types guessed (dates, money, checkboxes, links). Formulas come in as their values.
+- Who can see and edit it is set in Admin → People → Roles & permissions (**See finances** / **Edit finances**). By default the Treasurer edits, Chief Engineers can look, and Members can't see it.
+
 ### Finding things
 - **Requests:** this season's requests. A season picker lets you look back at earlier seasons.
 - **Home:** click the logo (or "Orders") at the top left. It shows what needs you right now, your latest requests, and how ordering works. It is the page the site opens on.
@@ -114,7 +125,7 @@ Admin has six tabs, each with a few pages (on a phone, one menu lists them all).
 
 **Look & text**
 - **Colors & logo:** upload the logo, pick the accent color, and give dropdown answers colors (e.g. one per Cost center). Also rename how statuses are shown (e.g. "Ordered" → "Purchased") and pick their colors, plus priority colors. Only the display changes; the workflow stays the same.
-- **Text & banner:** an announcement banner at the top of every page (with an optional end date), a message on the sign-in page, your own intro line for each page (including Home), and the team's own **Help** page.
+- **Text & banner:** an announcement banner at the top of every page (with an optional end date), a message on the sign-in page, your own intro line for each page (including Home), and the team's own **Help** page (the Help tab appears once it has text).
 
 **Lists & exports**
 - **Request lists:** choose the columns of the Requests, Approvals, and Treasurer lists. Any request field works, including custom ones like Cost center, plus values like Total, Vendor, and Approved date. Also set each list's default sort, and which filters appear above the Requests list.

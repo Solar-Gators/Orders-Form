@@ -3,13 +3,14 @@ import { isConfigured } from './supabase.js';
 import { api, setNotificationsOn } from './api.js';
 import { auth } from './auth.js';
 import { startRouter } from './router.js';
+import { hasHelp } from './views/help.js';
 import { STATUS, STATUSES, EDITABLE_STATUSES, esc, errorBox, setCurrentSeason, setAppearance, renderRichText } from './ui.js';
 
 const app = document.getElementById('app');
 
 // Bump when adding a file to supabase/migrations/ (the migration sets general.schemaVersion).
-const REQUIRED_SCHEMA_VERSION = 13;
-const MIGRATIONS = { 2: '002_form_fields.sql', 3: '003_archive_and_import.sql', 4: '004_cost_adjustments.sql', 5: '005_editable_permissions.sql', 6: '006_seasons.sql', 7: '007_one_vendor_per_request.sql', 8: '008_roles_admin_history.sql', 9: '009_form_rules_layout_exports.sql', 10: '010_workflow_budgets_notifications.sql', 11: '011_notification_choices.sql', 12: '012_link_imported_requests.sql', 13: '013_history_drafts_ticket.sql' };
+const REQUIRED_SCHEMA_VERSION = 14;
+const MIGRATIONS = { 2: '002_form_fields.sql', 3: '003_archive_and_import.sql', 4: '004_cost_adjustments.sql', 5: '005_editable_permissions.sql', 6: '006_seasons.sql', 7: '007_one_vendor_per_request.sql', 8: '008_roles_admin_history.sql', 9: '009_form_rules_layout_exports.sql', 10: '010_workflow_budgets_notifications.sql', 11: '011_notification_choices.sql', 12: '012_link_imported_requests.sql', 13: '013_history_drafts_ticket.sql', 14: '014_finances.sql' };
 
 /** Shared config object handed to every view. Mutated in place on reload. */
 const config = {};
@@ -76,7 +77,7 @@ function updateChrome() {
     node.hidden = !auth.signedIn || !node.dataset.perm.split(' ').some((p) => auth.can(p));
   });
   // Help tab only when the team has written help text.
-  document.getElementById('nav-help').hidden = !auth.signedIn; // built-in guide until the team writes its own
+  document.getElementById('nav-help').hidden = !auth.signedIn || !hasHelp(config);
   updateAnnouncement();
   // Tell leads (only) when the live database is missing a migration.
   const banner = document.getElementById('banner');

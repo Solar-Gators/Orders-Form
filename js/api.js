@@ -175,6 +175,41 @@ export const api = {
     unwrap(await supabase.rpc('set_budgets', { p_budgets: budgets }));
   },
 
+  // ---- Finances (migration 014): the Treasurer's own sheets -----------------------
+
+  async listFinanceSheets() {
+    return unwrap(await supabase.from('finance_sheets').select('*').order('position'));
+  },
+  /** Every row of a sheet, in order (fetched 1,000 at a time, Supabase's page size). */
+  async listFinanceRows(sheetId) {
+    const rows = [];
+    for (let from = 0; ; from += 1000) {
+      const page = unwrap(await supabase.from('finance_rows').select('*').eq('sheet_id', sheetId).order('position').range(from, from + 999));
+      rows.push(...page);
+      if (page.length < 1000) return rows;
+    }
+  },
+  /** Create (id null) or update a sheet. Returns its id. */
+  async saveFinanceSheet(id, name, columns, position = null) {
+    return unwrap(await supabase.rpc('save_finance_sheet', { p_id: id, p_name: name, p_columns: columns, p_position: position }));
+  },
+  async deleteFinanceSheet(id) {
+    unwrap(await supabase.rpc('delete_finance_sheet', { p_id: id }));
+  },
+  /** rows: [{ data, request_id? }] → the new rows. */
+  async addFinanceRows(sheetId, rows) {
+    return unwrap(await supabase.rpc('add_finance_rows', { p_sheet: sheetId, p_rows: rows })) || [];
+  },
+  async setFinanceCell(rowId, key, value) {
+    unwrap(await supabase.rpc('set_finance_cell', { p_row: rowId, p_key: key, p_value: value }));
+  },
+  async moveFinanceRow(rowId, position) {
+    unwrap(await supabase.rpc('move_finance_row', { p_row: rowId, p_position: position }));
+  },
+  async deleteFinanceRows(ids) {
+    unwrap(await supabase.rpc('delete_finance_rows', { p_ids: ids }));
+  },
+
   /** The requester: pull a submitted request back to Draft. */
   async withdrawRequest(id) {
     unwrap(await supabase.rpc('withdraw_request', { p_id: id }));
