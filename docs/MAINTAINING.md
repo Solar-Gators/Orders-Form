@@ -9,7 +9,7 @@ This guide is for whoever maintains the site: setting it up from scratch, runnin
 - **Changing the site:** edit files, commit, and push to `main`. Pages redeploys in about a minute.
 
 **Permissions** live in the database (`permissions` and `role_permissions` tables), not in code:
-- **Changing what a role can do:** use **Admin → People → Roles & permissions** on the site. The Table Editor works too.
+- **Changing what a role can do:** use **Admin → Team → Roles & permissions** on the site. The Table Editor works too.
 - **Lockout protection:** the database refuses any change (to a role or to the grid) that would leave nobody with `users.manage`.
 - **Roles:** a person can hold several roles (`profile_roles` table); their permissions combine. Built-in roles are Member, Chief Engineer, Treasurer and Admin. More can be created on the site.
 - **Current permissions:**
@@ -19,7 +19,7 @@ This guide is for whoever maintains the site: setting it up from scratch, runnin
   - `site.customize`: list columns/filters/sorting, status and priority labels and colors.
   - `seasons.manage`: start a new season, import spreadsheets.
   - `users.manage`: roles, custom roles, and the permission grid.
-- **Settings history:** every version of `app_settings` (general, form, lists, appearance) and of the permission grid is kept in `settings_history`. Leads restore versions from **Admin → Season & records → History**.
+- **Settings history:** every version of `app_settings` (general, form, lists, appearance) and of the permission grid is kept in `settings_history`. Leads restore versions from the **History** link at the top of each Admin page.
 
 ## Setup (one time, about 15 minutes)
 
@@ -49,7 +49,7 @@ Open the site (locally or on GitHub Pages), click **Create an account**, and sig
 update public.profiles set role = 'treasurer' where email = 'you@ufl.edu';
 ```
 
-Refresh the page. From now on, roles are assigned from **Admin → People → Users**.
+Refresh the page. From now on, roles are assigned from **Admin → Team → Users**.
 
 ### 5. Publish on GitHub Pages
 Push this folder to a GitHub repository. Then go to **Settings → Pages → Build and deployment**, set **Deploy from a branch**, choose `main` and `/ (root)`, and save. The site appears at `https://<org>.github.io/<repo>/` within a minute or two.
@@ -131,7 +131,7 @@ tools/fake-supabase.js   Fake backend for local development
 
 Request IDs (`SG-001`, …) come from a database sequence, and the prefix is set in Settings. Totals are always calculated, never stored.
 
-**Excel export.** On **Export → Download .xlsx**, the browser builds the file: one row per item, with request, approval, order, and delivery info repeated on each row. The header is bold, filtered, and frozen, and prices and dates are formatted. The columns follow the form fields: every shown request field, then every shown item field, then the approval, order, and delivery columns. Renaming or adding a field in **Admin → Request form → Fields** changes the export too.
+**Excel export.** On **Requests → Download Excel → Download .xlsx**, the browser builds the file: one row per item, with request, approval, order, and delivery info repeated on each row. The header is bold, filtered, and frozen, and prices and dates are formatted. The columns follow the form fields: every shown request field, then every shown item field, then the approval, order, and delivery columns. Renaming or adding a field in **Admin → Request form → Fields** changes the export too.
 
 ## Database updates
 
@@ -197,9 +197,9 @@ If UF's tenant doesn't offer the trigger, or says it needs a premium license, po
 
 ## Yearly handover checklist
 
-When the new leads take over (usually with **Admin → Season & records → Team & season → Start a new season**):
-1. **Start the season:** Admin → Season & records → Team & season → **Start a new season**. Numbering restarts (e.g. SG27-001), last season moves to the Archive, and unfinished orders stay in the queues.
-2. **Roles:** give the new Chief Engineer and Treasurer their roles in **Admin → People → Users**, and set graduating leads to Member. At least one person must always keep "Manage people".
+When the new leads take over (usually with **Admin → Team → Team & season → Start a new season**):
+1. **Start the season:** Admin → Team → Team & season → **Start a new season**. Numbering restarts (e.g. SG27-001), last season moves to the Archive, and unfinished orders stay in the queues.
+2. **Roles:** give the new Chief Engineer and Treasurer their roles in **Admin → Team → Users**, and set graduating leads to Member. At least one person must always keep "Manage people".
 3. **Supabase:** invite the new leads to the Supabase organization (Organization settings → Team) so someone can run database updates and restore the project if it pauses.
 4. **GitHub:** give the new leads access to the `Solar-Gators/Orders-Form` repository.
 5. **Email (optional):** if you set up custom SMTP for sign-up and password-reset emails, make sure the account behind it isn't tied to someone who's graduating.

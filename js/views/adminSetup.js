@@ -1,6 +1,6 @@
 /**
  * Admin pages for customizing the site without code:
- *   #/admin/lists       — columns, filters and default sort of each request list
+ *   #/admin/display/lists —  columns, filters and default sort of each request list
  *   #/admin/appearance  — status labels & colors, priority colors
  *   #/admin/history     — every settings / permissions change, with Restore
  */
@@ -11,7 +11,7 @@ import {
 } from '../ui.js';
 import { LISTS, availableColumns, availableFilters, listSettings } from '../listColumns.js';
 import { requestFields, itemFields, fieldOptions } from '../formFields.js';
-import { adminHeader } from './admin.js';
+import { adminHeader, adminTop } from './admin.js';
 import { guardLeaving } from '../leaveGuard.js';
 
 const toneOptions = (selected) =>
@@ -19,7 +19,7 @@ const toneOptions = (selected) =>
 
 // ---- Lists ------------------------------------------------------------------------
 
-export async function renderLists(el, { config, rerender, reloadConfig }) {
+export async function renderLists(el, { config, rerender, reloadConfig, embedded }) {
   const available = availableColumns(config);
   const byKey = new Map(available.map((c) => [c.key, c]));
   const filtersAvailable = availableFilters(config);
@@ -36,7 +36,7 @@ export async function renderLists(el, { config, rerender, reloadConfig }) {
 
   el.innerHTML = `
     ${takeFlash()}
-    ${adminHeader('lists', "What each request list shows: columns, filters and default sorting. Any request field works as a column.")}
+    ${adminTop('lists', "What each request list shows: columns, filters and default sorting. Any request field works as a column.", embedded)}
     <div id="lists-errors"></div>
     <div class="segmented" role="tablist" aria-label="Which list">${Object.entries(LISTS)
       .map(([name, def]) => `<button type="button" role="tab" data-show-list="${name}">${esc(def.label)}</button>`)
@@ -499,7 +499,7 @@ function detail(doc, key, before, after) {
   return '';
 }
 
-export async function renderHistory(el, { rerender, reloadConfig }) {
+export async function renderHistory(el, { rerender, reloadConfig, params }) {
   let rows;
   try {
     rows = await api.listSettingsHistory(200);
@@ -525,9 +525,12 @@ export async function renderHistory(el, { rerender, reloadConfig }) {
   el.innerHTML = `
     ${takeFlash()}
     ${adminHeader('history', "Every change to settings and permissions. Restore any earlier version; restoring is itself recorded, so it can be undone too.")}
+    <a class="back-link" href="#" id="history-back">← Back</a>
     <div id="history-errors"></div>
     <div class="toolbar">
-      <select id="history-kind" aria-label="Show"><option value="">Everything</option>${Object.entries(WHAT)
+      <select id="history-kind" aria-label="Show"><option value="">Everything</option>${
+        params?.id && params.id.includes(',') ? `<option value="${esc(params.id)}">${esc(params.id.split(',').map((k) => WHAT[k] || k).join(' + '))}</option>` : ''
+      }${Object.entries(WHAT)
         .map(([k, v]) => `<option value="${k}">${esc(v)}</option>`)
         .join('')}</select>
     </div>
@@ -554,8 +557,19 @@ export async function renderHistory(el, { rerender, reloadConfig }) {
       </table>
     </div>`;
 
-  el.querySelector('#history-kind').addEventListener('change', (e) => {
-    el.querySelectorAll('tr[data-kind]').forEach((tr) => (tr.hidden = !!e.target.value && tr.dataset.kind !== e.target.value));
+  const kind = el.querySelector('#history-kind');
+  const filter = () => {
+    const keys = kind.value ? kind.value.split(',') : [];
+    el.querySelectorAll('tr[data-kind]').forEach((tr) => (tr.hidden = keys.length > 0 && !keys.includes(tr.dataset.kind)));
+  };
+  kind.addEventListener('change', filter);
+  if (params?.id) {
+    kind.value = params.id;
+    filter();
+  }
+  el.querySelector('#history-back').addEventListener('click', (e) => {
+    e.preventDefault();
+    history.back();
   });
 
   el.addEventListener('click', async (e) => {

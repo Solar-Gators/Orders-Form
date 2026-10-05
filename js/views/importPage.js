@@ -1,5 +1,5 @@
 /**
- * Admin → Import: bring old Excel order sheets into the app.
+ * Import (in Admin → Team → Team & season): bring old Excel order sheets into the app.
  *   • Past season  → Archive (every column kept as-is, searchable)
  *   • This season  → real requests with their approval / order history
  * Nothing is saved until the lead reviews the preview and clicks Import.
@@ -8,7 +8,7 @@ import { api } from '../api.js';
 import { esc, fmtMoney, fmtDate, fmtDateTime, statusBadge, errorBox, setFlash, takeFlash } from '../ui.js';
 import { itemFields, requestFields, fieldOptions } from '../formFields.js';
 import { readWorkbook, pickSheet, guessSeason, toArchiveRows, toRequests, guessSubsystem, detectColumns } from '../sheetImport.js';
-import { adminHeader } from './admin.js';
+import { adminTop } from './admin.js';
 
 // Kept between re-renders of this page.
 const state = { file: null, sheets: null, sheetName: '', mode: 'archive', season: '', subsystemMap: {}, target: '', picked: {} };
@@ -40,12 +40,12 @@ function defaultTarget(config) {
   return (teamLike || shown.find((f) => f.key === 'subsystem') || shown[0] || targets[0])?.key || 'subsystem';
 }
 
-export async function renderImport(el, { config, rerender, reloadConfig }) {
+export async function renderImport(el, { config, rerender, reloadConfig, embedded }) {
   const imports = await api.listArchiveImports();
 
   el.innerHTML = `
     ${takeFlash()}
-    ${adminHeader('import', "Bring old Excel order sheets into the app. Nothing is saved until you click Import.")}
+    ${embedded ? '<h2 class="section-title">Import old spreadsheets</h2>' : ''}${adminTop('import', "Bring old Excel order sheets into the app. Nothing is saved until you click Import.", embedded)}
     <div id="import-errors"></div>
     <section class="card">
       <h2>1. Choose a spreadsheet</h2>

@@ -2,7 +2,7 @@
  * Builds and downloads the .xlsx export in the browser (there is no server on
  * GitHub Pages).
  *
- * Export templates (Admin → Exports) pick columns from a catalog: every request
+ * Export templates (Admin → Display → Lists, layout & Excel) pick columns from a catalog: every request
  * field, every item field, and workflow values (status, approval, order, …).
  * The built-in "Full export" is one row per item with every column, and it
  * follows the form automatically: renaming or adding a field changes it too.

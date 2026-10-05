@@ -29,10 +29,10 @@ async function reloadConfig() {
     ...settings.form,
     statuses: STATUSES,
     editableStatuses: EDITABLE_STATUSES,
-    lists: settings.lists || {}, // Admin → Lists
-    appearance: settings.appearance || {}, // Admin → Appearance, Text & banner
+    lists: settings.lists || {}, // Admin → Display → Request lists
+    appearance: settings.appearance || {}, // Admin → Display → Colors & logo, Text & banner
     layout: settings.layout || {}, // Admin → Request page
-    exports: settings.exports || {}, // Admin → Exports
+    exports: settings.exports || {}, // Admin → Display → Excel templates
     workflow: settings.workflow || {}, // Admin → Workflow (rules, budgets)
     notifications: settings.notifications || {}, // Admin → Notifications
     sponsors: settings.sponsors || {}, // Sponsors board: stages, kinds, income sheet
@@ -45,7 +45,7 @@ async function reloadConfig() {
   document.getElementById('footer').textContent = `${config.teamName} · ${config.season} season`;
 }
 
-/** Logo and accent color from Admin → Appearance (also shown on the sign-in page). */
+/** Logo and accent color from Admin → Display → Colors & logo (also shown on the sign-in page). */
 function applyBranding() {
   const a = config.appearance || {};
   document.querySelector('.brand-logo').src = a.logo || 'assets/solar-gators-logo.png';
@@ -91,7 +91,7 @@ function updateChrome() {
        ${missing.map((f) => `<code>supabase/migrations/${esc(f)}</code>`).join(', then ')} from the GitHub repo.
        Until then, new features may not save correctly.</div>`;
 
-  const account = document.getElementById('account-link');
+  const account = document.getElementById('account-btn');
   account.innerHTML = auth.signedIn
     ? `<span class="account-name">${esc(auth.displayName)}</span><span class="account-role">${esc(auth.roleLabel)}</span>`
     : '';
@@ -107,9 +107,12 @@ async function refreshNavCounts() {
     if (id !== 'count-menu') total += n;
   };
   try {
-    const lead = auth.can('request.review') || auth.can('request.order');
-    if (lead) set('count-approvals', await api.countByStatus(STATUS.SUBMITTED));
-    if (lead) set('count-treasurer', await api.countByStatus(STATUS.APPROVED));
+    // Queue: what's waiting on you: approvals for reviewers, ordering for the Treasurer.
+    const queue = [
+      auth.can('request.review') ? await api.countByStatus(STATUS.SUBMITTED) : 0,
+      auth.can('request.order') ? await api.countByStatus(STATUS.APPROVED) : 0,
+    ];
+    set('count-queue', queue[0] + queue[1]);
     set('count-requests', await api.countMyChangesRequested(auth.user.id)); // yours to fix
     set('count-menu', total); // the folded menu on phones shows the sum
   } catch {
@@ -117,17 +120,29 @@ async function refreshNavCounts() {
   }
 }
 
-/** Phones and tablets: the Menu button opens the page links; picking one (or tapping elsewhere) closes it. */
+/**
+ * Phones and tablets: the Menu button opens the page links. Everywhere: your name
+ * opens the account menu (My account, Help, Sign out). Picking something, tapping
+ * elsewhere or Escape closes them.
+ */
 function setMenu(open) {
   document.body.classList.toggle('nav-open', open);
   document.getElementById('menu-btn').setAttribute('aria-expanded', String(open));
 }
+function setAccountMenu(open) {
+  document.getElementById('account-pop').hidden = !open;
+  document.getElementById('account-btn').setAttribute('aria-expanded', String(open));
+}
+const closeMenus = () => (setMenu(false), setAccountMenu(false));
 function bindMenu() {
   document.getElementById('menu-btn').addEventListener('click', () => setMenu(!document.body.classList.contains('nav-open')));
+  document.getElementById('account-btn').addEventListener('click', () => setAccountMenu(document.getElementById('account-pop').hidden));
+  document.getElementById('menu-sign-out').addEventListener('click', () => (closeMenus(), auth.signOut()));
   document.addEventListener('click', (e) => {
     if (!e.target.closest('#menu-btn, #main-nav')) setMenu(false);
+    if (!e.target.closest('.account-menu') || e.target.closest('#account-pop a')) setAccountMenu(false);
   });
-  document.addEventListener('keydown', (e) => e.key === 'Escape' && setMenu(false));
+  document.addEventListener('keydown', (e) => e.key === 'Escape' && closeMenus());
 }
 
 async function main() {
@@ -160,7 +175,7 @@ async function main() {
 
   bindMenu();
   updateChrome();
-  const render = startRouter({ config, reloadConfig }, { onRender: () => (setMenu(false), updateChrome(), refreshNavCounts()) });
+  const render = startRouter({ config, reloadConfig }, { onRender: () => (closeMenus(), updateChrome(), refreshNavCounts()) });
 }
 
 main();

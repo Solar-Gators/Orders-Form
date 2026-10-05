@@ -1,6 +1,6 @@
 /**
  * Which columns, filters and default sort each request list shows.
- * Saved in the `lists` settings (Admin → Lists) — these are just the defaults.
+ * Saved in the `lists` settings (Admin → Display → Lists, layout & Excel) — these are just the defaults.
  *
  * A column is either a request field (built-in like Subsystem, or custom like
  * Cost center — keyed by the field key) or a computed value (Requested, Total,

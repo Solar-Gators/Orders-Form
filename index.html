@@ -23,21 +23,26 @@
         <span class="menu-icon" aria-hidden="true"></span><span class="menu-label">Menu</span><span class="nav-count" id="count-menu" hidden></span>
       </button>
 
+      <!-- Each role only sees what it uses. Requests also holds the Archive and Excel download;
+           Queue holds approving (Chief Engineer) and ordering (Treasurer). -->
       <nav class="nav signed-in-only" id="main-nav" aria-label="Main">
-        <a href="#/new" data-nav="new">New Request</a>
         <a href="#/requests" data-nav="requests">Requests <span class="nav-count" id="count-requests" hidden title="Your requests sent back for changes"></span></a>
-        <!-- Leads (CE + Treasurer) see both queues; each page limits actions by role. -->
-        <a href="#/approvals" data-nav="approvals" data-perm="request.review request.order" hidden>Approvals <span class="nav-count" id="count-approvals" hidden></span></a>
-        <a href="#/treasurer" data-nav="treasurer" data-perm="request.review request.order" hidden>Treasurer <span class="nav-count" id="count-treasurer" hidden></span></a>
+        <a href="#/queue" data-nav="queue" data-perm="request.review request.order" hidden>Queue <span class="nav-count" id="count-queue" hidden title="Waiting on you"></span></a>
         <a href="#/finances" data-nav="finances" data-perm="finances.view finances.edit" hidden>Finances</a>
         <a href="#/sponsors" data-nav="sponsors" data-perm="sponsors.view sponsors.edit" hidden>Sponsors</a>
-        <a href="#/archive" data-nav="archive">Archive</a>
-        <a href="#/export" data-nav="export">Export</a>
-        <a href="#/help" data-nav="help" id="nav-help" hidden>Help</a>
         <a href="#/admin" data-nav="admin" data-perm="users.manage settings.edit site.customize seasons.manage workflow.edit" hidden>Admin</a>
       </nav>
 
-      <a class="account-link signed-in-only" id="account-link" href="#/account" data-nav="account" title="My account"></a>
+      <a class="btn btn-primary new-cta signed-in-only" href="#/new" data-nav="new" aria-label="New request"><span aria-hidden="true">+</span><span class="cta-label"> New Request</span></a>
+
+      <div class="account-menu signed-in-only">
+        <button type="button" class="account-link" id="account-btn" aria-expanded="false" aria-controls="account-pop" aria-haspopup="true"></button>
+        <div class="account-pop" id="account-pop" hidden>
+          <a href="#/account" data-nav="account">My account &amp; notifications</a>
+          <a href="#/help" data-nav="help" id="nav-help" hidden>Help</a>
+          <button type="button" id="menu-sign-out">Sign out</button>
+        </div>
+      </div>
     </div>
   </header>
 

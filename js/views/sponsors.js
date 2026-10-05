@@ -31,7 +31,7 @@ const DEFAULT_STAGES = [
 ];
 
 /** The board's settings with defaults filled in. */
-export function sponsorSettings(config) {
+function sponsorSettings(config) {
   const s = config.sponsors || {};
   return {
     stages: Array.isArray(s.stages) && s.stages.length ? s.stages : DEFAULT_STAGES,

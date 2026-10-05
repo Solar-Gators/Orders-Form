@@ -10,7 +10,7 @@ import { requestFields, fieldOptions } from '../formFields.js';
 import { workflowSettings } from '../workflow.js';
 import { ORDER_METRICS, PLAIN_NUMERIC, requestDetails, isNumeric, isCalc, checkColumns } from '../financeCalc.js';
 
-export const COLUMN_TYPES = [
+const COLUMN_TYPES = [
   ['Typed in', [
     ['text', 'Text'], ['money', 'Money ($)'], ['number', 'Number'], ['date', 'Date'], ['select', 'Dropdown'],
     ['checkbox', 'Checkbox'], ['link', 'Link'], ['request', 'Request (SG number)'],
@@ -20,12 +20,11 @@ export const COLUMN_TYPES = [
     ['reqinfo', 'From the request'], ['math', 'Math (+ / −)'], ['running', 'Running total'],
   ]],
 ];
-export const typeLabel = (t) => COLUMN_TYPES.flatMap((g) => g[1]).find((x) => x[0] === t)?.[1] || t;
 
 export const newKey = () => `f_${Math.random().toString(36).slice(2, 9)}`;
 
 /** Dropdowns on the request form whose list a column can use (e.g. Cost center). */
-export const formDropdowns = (config) => requestFields(config).filter((f) => f.type === 'select');
+const formDropdowns = (config) => requestFields(config).filter((f) => f.type === 'select');
 
 /** A Dropdown column's options: its own list, or a form dropdown's current list. */
 export function optionsOf(c, config) {
@@ -98,7 +97,7 @@ export function openColumnEditor(box, { sheet, sheets, rowsCount, config, onDone
         return `<span>The site's budget for this row's</span>
           <select data-set="by">${colOptions(others.filter((x) => ['select', 'text'].includes(x.type)), c.by, 'Choose a column')}</select>
           ${sumBox(c)}
-          <span class="hint">Same numbers as the Treasurer page${budgets.field ? `, set per ${esc(dropdowns.find((f) => f.key === budgets.field)?.label || budgets.field)}` : ''}. You can type a budget straight into this column.</span>`;
+          <span class="hint">Same numbers as the Budgets card above the sheets${budgets.field ? `, set per ${esc(dropdowns.find((f) => f.key === budgets.field)?.label || budgets.field)}` : ''}. You can type a budget straight into this column.</span>`;
       case 'orders': {
         const perRow = !!c.by;
         return `<span>Add up requests that are</span>
@@ -310,7 +309,7 @@ export function openColumnEditor(box, { sheet, sheets, rowsCount, config, onDone
 
 // ---- New sheet: blank or from a template ---------------------------------------------------
 
-export const TEMPLATES = [
+const TEMPLATES = [
   ['blank', 'Blank sheet', 'Two columns to start (Item and Amount). Add your own.'],
   ['budget', 'Budget by cost center', 'One row per cost center: budget, spent, approved but not ordered, and what\'s left. Fills itself in from the orders.'],
   ['income', 'Income (sponsorships & donations)', 'Log money coming in: date, from, type, amount.'],
@@ -318,7 +317,7 @@ export const TEMPLATES = [
 ];
 
 /** The new sheets a template makes: [{ name, columns, rows }] (an Overview may also need an Income sheet). */
-export function templateSheets(kind, name, { config, sheets }) {
+function templateSheets(kind, name, { config, sheets }) {
   const k = newKey;
   if (kind === 'blank') return [{ name, columns: [{ key: k(), label: 'Item', type: 'text' }, { key: k(), label: 'Amount', type: 'money', sum: true }], rows: [] }];
   if (kind === 'income') return [incomeSheet(name)];

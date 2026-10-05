@@ -77,7 +77,7 @@ export const LOCKED = new Set(['title', 'item_name', 'quantity', 'unit_price']);
 export const MONEY_FIELDS = new Set(['unit_price', 'shipping_cost']);
 
 /**
- * Shipping as one amount for the whole request (Admin → Settings, on by default)
+ * Shipping as one amount for the whole request (Admin → Request form → Dropdowns & rules, on by default)
  * instead of per item. It's stored on the first item, so every total stays the
  * same sum of items + shipping; the pages just show it as one line.
  */

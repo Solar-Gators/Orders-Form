@@ -21,10 +21,10 @@ It works on phones and laptops. Sign in with your **@ufl.edu** email.
 | Status | What it means | Who acts next |
 | --- | --- | --- |
 | **Draft** | Saved but not sent. Only the person who created it can see the Edit button. | The requester |
-| **Submitted** | Waiting for approval. Shows up in the **Approvals** tab. | A Chief Engineer, or whoever the approval rules name |
+| **Submitted** | Waiting for approval. Shows up in **Queue → To approve**. | A Chief Engineer, or whoever the approval rules name |
 | **Changes Requested** | The Chief Engineer asked for changes. Their comment shows at the top of the request. | The requester edits and resubmits |
 | **Rejected** | Won't be ordered. The Chief Engineer's comment explains why. | — |
-| **Approved** | Ready to buy. Shows up in the **Treasurer** tab. | The Treasurer |
+| **Approved** | Ready to buy. Shows up in **Queue → To order**. | The Treasurer |
 | **Ordered** | Purchased, with the order date and ticket / department order number. | The Treasurer, when it arrives |
 | **Received** | Delivered. | — |
 
@@ -51,14 +51,14 @@ A person can have **more than one role** (e.g. Treasurer + Admin), and gets ever
 | See the Finances tab | | ✓ | ✓ | ✓ |
 | Edit the Finances tab (sheets, columns, rows) | | | ✓ | ✓ |
 
-All of this can be changed in **Admin → People → Roles & permissions**, and you can add roles of your own (e.g. "Subsystem Lead", "Faculty Advisor"). The Chief Engineer and Treasurer see every tab; on the other role's queue the page is marked **view only**. Members only see the tabs they can use.
+All of this can be changed in **Admin → Team → Roles & permissions**, and you can add roles of your own (e.g. "Subsystem Lead", "Faculty Advisor"). Each person only sees the top-bar items their roles use: a Member sees **Requests** and the **+ New Request** button; leads also get **Queue**; the Treasurer **Finances**; the Business Coordinator **Sponsors**; Admins **Admin**. On the other role's part of the Queue the page is marked **view only**.
 
 ---
 
 ## Using the site
 
 ### Requesting parts (everyone)
-1. Click **New Request**.
+1. Click **+ New Request** (top right, on every page).
 2. Fill in the request details: title, subsystem, needed-by date, priority, and why you need the items.
 3. Enter the **vendor** once, then add one row per item: name, link, quantity and unit price. Enter **shipping once for the whole order** (under the items), the way the vendor charges it. Totals update as you type. (Leads can switch to per-item shipping in Admin → Request form → Dropdowns & rules.)
    - **Same for every item:** you still add a row for every item, but you can tick a field (the link, quantity, unit price, or any other required item field) to type it once for all rows, e.g. one shared Digi-Key or McMaster-Carr cart link.
@@ -70,18 +70,18 @@ If the Chief Engineer requests changes, the request appears at the top of **Requ
 Changed your mind? Open a submitted request and click **Withdraw request** to turn it back into a draft. Drafts and requests sent back for changes can be deleted.
 
 ### Approving (Chief Engineer)
-- The **Approvals** tab lists everything waiting, sorted by needed-by date. The number on the tab is how many are waiting.
+- **Queue → To approve** lists everything waiting, sorted by needed-by date. The number on **Queue** is how many requests are waiting on you.
 - Open a request and choose **Approve**, **Request Changes**, or **Reject**. Changes and rejections need a comment so the requester knows why.
-- When approval rules send some requests to specific people, the Approvals tab splits into **Waiting on you** and **Waiting on someone else**.
+- When approval rules send some requests to specific people, To approve splits into **Waiting on you** and **Waiting on someone else**.
 - The review box says who has to approve (e.g. "all of: Griffin ✓, Cara") and, if budgets are set up, how much of the budget is used and what approving would bring it to.
 
 ### Ordering and delivery (Treasurer)
-- The **Treasurer** tab has two lists: **To order** (approved) and **Awaiting delivery** (ordered).
+- **Queue → To order & deliveries** has two lists: **To order** (approved) and **Awaiting delivery** (ordered). For the Treasurer, **Queue** opens here.
 - **Mark as Ordered:** record the order date, ticket / department order number (required unless turned off in Admin → Request form → Dropdowns & rules), and any notes.
-- **Order several at once:** bought a few approved requests in one checkout? Open **Order several at once** on the Treasurer tab, tick them (grouped by vendor), and enter the date and ticket number once.
+- **Order several at once:** bought a few approved requests in one checkout? Open **Order several at once** there, tick them (grouped by vendor), and enter the date and ticket number once.
 - **Late deliveries:** Awaiting delivery shows how long each order has been out, and highlights anything over 14 days.
 - **Mark as Received:** record when it arrived, e.g. "in office".
-- **Budgets:** the Treasurer sets them on the Treasurer tab (**Set budgets** / **Edit budgets**): pick a dropdown such as Cost center and enter an amount for each option. The tab shows each budget, how much is used this season, what's left, and what's waiting for approval. Optionally, approving over budget needs a written reason, which is kept in the request's History.
+- **Budgets:** the Treasurer sets them in the **Budgets** card at the top of **Finances** (**Set budgets** / **Edit budgets**): pick a dropdown such as Cost center and enter an amount for each option. The card shows each budget, how much is used this season, what's left, and what's waiting for approval. Optionally, approving over budget needs a written reason, which is kept in the request's History. The Queue warns when a budget is over.
 - **Copy buttons:** every value on a request has a small copy icon (item name, vendor, link, part #, quantity, prices, request ID, total), for pasting into purchasing forms. **Copy all items** copies the whole item list as a table that pastes straight into Excel or Google Sheets.
 - **Edit costs:** if a price or shipping cost turns out different from what was requested, open the request and click **Edit costs**. This works on Approved, Ordered, and Received requests. Change any item's unit price or the order's shipping, and add a reason. The new total is previewed before saving. Every change is logged in the request's History (who, when, old → new, and why), and the item list is tagged **Costs adjusted**.
 
@@ -91,7 +91,7 @@ The **Finances** tab is a spreadsheet the Treasurer shapes himself, so his own t
 - **New sheet:** start blank, or from a template: **Budget by cost center**, **Income (sponsorships & donations)**, or **Funds overview** (the general pool: money in minus what's spent and approved).
 - **Columns & sheet:** add, rename, reorder or delete columns. Typed-in columns: text, money, number, date, dropdown (your own options, or the form's list, e.g. Cost center), checkbox, link, request (an SG number, linked to the request). Money and number columns can show a total at the bottom.
 - **Calculated columns** (shaded; click any cell to see exactly what was added up). They're set up with menus, never typed formulas:
-  - **Budget:** the site's budget for the row's cost center. It's the same number as on the Treasurer page, and typing one here changes it there too.
+  - **Budget:** the site's budget for the row's cost center. It's the same number as in the Budgets card, and typing one here changes it there too.
   - **From orders:** requests that are spent (ordered + received), approved but not ordered, or waiting for approval, this season or every season, per row's cost center or for the whole team.
   - **Total from a sheet:** add up a money column of any sheet, for every row or only matching rows, optionally only where a column has a value (e.g. Type is Sponsorship).
   - **From the request:** a detail of the request in the row (total, vendor, status, Cost center…), kept up to date.
@@ -102,7 +102,7 @@ The **Finances** tab is a spreadsheet the Treasurer shapes himself, so his own t
 - **Cells save as you leave them.** Enter moves down a row (and adds one at the bottom); Tab moves right.
 - **Add ordered requests:** adds a row for every Ordered or Received request not yet in the sheet, filling the columns you linked to a request detail (ID, title, vendor, total, ticket #, order date, Cost center…).
 - **Search, sort** (click a heading; **Keep this order** saves it), **Download .xlsx**, and **Import Excel…**: each worksheet of an existing file becomes a sheet, with column types guessed (dates, money, checkboxes, links). Formulas come in as their values.
-- Who can see and edit it is set in Admin → People → Roles & permissions (**See finances** / **Edit finances**). By default the Treasurer edits, Chief Engineers can look, and Members can't see it.
+- Who can see and edit it is set in Admin → Team → Roles & permissions (**See finances** / **Edit finances**). By default the Treasurer edits, Chief Engineers can look, and Members can't see it.
 
 ### Sponsors (Business Coordinator)
 The **Sponsors** tab tracks sponsorships and donations on a board, and keeps every season for future teams.
@@ -118,19 +118,25 @@ The **Sponsors** tab tracks sponsorships and donations on a board, and keeps eve
 - Permissions: **See sponsors** / **Edit sponsors**. A **Business Coordinator** role has both (and can see Finances). Chief Engineers and the Treasurer can see the board and watch cards.
 
 ### Finding things
-- **Requests:** this season's requests. A season picker lets you look back at earlier seasons.
+- **Requests:** this season's requests, with three tabs at the top: **Requests**, **Archive** and **Download Excel**. A season picker lets you look back at earlier seasons.
+- **Your name (top right):** My account & notifications, Help (once your team writes it), and Sign out.
 - **Home:** click the logo (or "Orders") at the top left. It shows what needs you right now, your latest requests, and how ordering works. It is the page the site opens on.
-- **Sorting:** click any column heading on Requests, Approvals, or Treasurer to sort by it, and click again to reverse. On a phone, use the **Sort by** menu above the list. Search by ID, title, requester, vendor, item name, part number or ticket number, and filter by status, subsystem, or "My requests".
-- **Archive:** orders from past seasons: requests made on this site in earlier seasons, plus the old spreadsheets imported from Excel. Type any words (item, vendor, part number, person, ticket) and filter by season, subteam, or status. Click a row to see every column exactly as it was in the original sheet.
-- **Export:** download a season (or all seasons) as an Excel file. Pick a **template**: the full export (every column, one row per item), or ones your leads made, e.g. the exact columns the department's purchasing form wants. There's one row per item, with request, approval, order, and delivery details on each row, ready to filter or pivot.
+- **Sorting:** click any column heading on Requests or either part of the Queue to sort by it, and click again to reverse. On a phone, use the **Sort by** menu above the list. Search by ID, title, requester, vendor, item name, part number or ticket number, and filter by status, subsystem, or "My requests".
+- **Requests → Archive:** orders from past seasons: requests made on this site in earlier seasons, plus the old spreadsheets imported from Excel. Type any words (item, vendor, part number, person, ticket) and filter by season, subteam, or status. Click a row to see every column exactly as it was in the original sheet.
+- **Requests → Download Excel:** download a season (or all seasons) as an Excel file. Pick a **template**: the full export (every column, one row per item), or ones your leads made, e.g. the exact columns the department's purchasing form wants. There's one row per item, with request, approval, order, and delivery details on each row, ready to filter or pivot.
 
 ### Admin
 
-Admin has six tabs, each with a few pages (on a phone, one menu lists them all). Each page appears only for people whose roles allow it.
+Admin has four tabs, each with a few pages (on a phone, one menu lists them all). Each page appears only for people whose roles allow it, and each has a **History** link (top right) listing earlier versions of its settings, with who changed what and when. **Restore** puts back any earlier version, and a restore can itself be undone; if something looks wrong after a change, that's the first place to go.
 
-**People**
+**Team**
 - **Users:** tick the roles each person has; someone can hold several.
 - **Roles & permissions:** add your own roles, rename any role, or delete custom ones, and a checkbox grid of what each role can do. There's one safety rule: at least one person must always keep **Manage people & roles**, so the team can't lock itself out.
+- **Team & season:** the team name, request ID prefix, allowed sign-up email domains, **Start a new season**, and **Import old spreadsheets**:
+  - A **past season** goes into the Archive with every column kept.
+  - **This season's** sheet becomes real requests, including their approvals, order status, ticket numbers, and shipping.
+  - Imported requests are linked to people's accounts by the Requester name ("Bella N" → Bella Nguyen, or "Josh" when there's only one Josh), so they show under **My requests** and their requester gets notifications. This also happens when someone signs up later or fixes their name on My account. If a match is wrong or missing, a lead can pick the right person under **Account → Change** on the request's page.
+  - You see a preview before anything is saved, with a checkbox per request. Orders already on the site (same person, day and total) start unticked, so you can re-import an updated copy of the sheet to add just the new rows.
 
 **Request form**
 - **Fields:** change the request form without touching code.
@@ -144,34 +150,22 @@ Admin has six tabs, each with a few pages (on a phone, one menu lists them all).
   - The Excel export follows the form automatically.
   - Request title, item name, quantity, and unit price are locked because totals and approvals depend on them.
 - **Dropdowns & rules:** the options of every dropdown on the form (built-in ones like Subsystem and Priority, plus any you add, e.g. "Cost center"), and the request rules: one vendor per request, shipping as one total, ticket number required.
-- **Request page:** which fields show in a request's Details box and Items table, and in what order. Also: fields only leads see, who gets copy buttons, and whether Items comes first.
 
-**Look & text**
+**Display**
+- **Lists, layout & Excel** (three sections):
+  - **Request lists:** choose the columns of the Requests list and both parts of the Queue. Any request field works, including custom ones like Cost center, plus values like Total, Vendor, and Approved date. Also set each list's default sort, and which filters appear above the Requests list.
+  - **Request page:** which fields show in a request's Details box and Items table, and in what order. Also: fields only leads see, who gets copy buttons, and whether Items comes first.
+  - **Excel templates:** your own columns and headings, one row per item or per request, an optional status filter, and a file name.
 - **Colors & logo:** upload the logo, pick the accent color, and give dropdown answers colors (e.g. one per Cost center). Also rename how statuses are shown (e.g. "Ordered" → "Purchased") and pick their colors, plus priority colors. Only the display changes; the workflow stays the same.
-- **Text & banner:** an announcement banner at the top of every page (with an optional end date), a message on the sign-in page, your own intro line for each page (including Home), and the team's own **Help** page (the Help tab appears once it has text).
-
-**Lists & exports**
-- **Request lists:** choose the columns of the Requests, Approvals, and Treasurer lists. Any request field works, including custom ones like Cost center, plus values like Total, Vendor, and Approved date. Also set each list's default sort, and which filters appear above the Requests list.
-- **Excel templates:** your own columns and headings, one row per item or per request, an optional status filter, and a file name.
+- **Text & banner:** an announcement banner at the top of every page (with an optional end date), a message on the sign-in page, your own intro line for each page (including Home), and the team's own **Help** page (it appears in the menu under your name once it has text).
 
 **Approvals & alerts**
 - **Approval rules:**
   - Rules are checked from the top when a request is submitted; the first that matches decides who approves. A rule can look at any answer on the form (e.g. Cost center is Battery) and/or the total (e.g. $1,000 or more).
   - Each rule lets **any Chief Engineer** approve, sends it to **specific people** (any one of them, or **all** of them, e.g. two CEs for big orders), or **approves automatically** (e.g. under $25).
   - No matching rule → any Chief Engineer, as before. Admins can always step in.
-  - **Budgets** are set by the Treasurer on the Treasurer tab.
+  - **Budgets** are set by the Treasurer in the Budgets card on **Finances**.
 - **Notifications:** email and Microsoft Teams messages (see below).
-
-**Season & records**
-- **Team & season:** the team name, request ID prefix, allowed sign-up email domains, and **Start a new season**.
-- **Import:** bring in an old Excel order sheet.
-  - A **past season** goes into the Archive with every column kept.
-  - **This season's** sheet becomes real requests, including their approvals, order status, ticket numbers, and shipping.
-  - Imported requests are linked to people's accounts by the Requester name ("Bella N" → Bella Nguyen, or "Josh" when there's only one Josh), so they show under **My requests** and their requester gets notifications. This also happens when someone signs up later or fixes their name on My account. If a match is wrong or missing, a lead can pick the right person under **Account → Change** on the request's page.
-  - You see a preview before anything is saved, with a checkbox per request. Orders already on the site (same person, day and total) start unticked, so you can re-import an updated copy of the sheet to add just the new rows.
-- **History:** every change to settings and permissions, with who made it and when.
-  - **Restore** puts back any earlier version, and a restore can itself be undone.
-  - If something looks wrong after a change, this is the first place to go.
 
 ---
 
@@ -190,13 +184,13 @@ Messages go to your UF email and/or a Teams chat from the Power Automate bot, wi
 
 ## Starting a new season
 
-Once a year, when the new season's orders begin, a Chief Engineer or Treasurer goes to **Admin → Season & records → Team & season → Start a new season** and clicks **Start 2027-2028** (or whichever year is next). That's the only step. It:
+Once a year, when the new season's orders begin, a Chief Engineer or Treasurer goes to **Admin → Team → Team & season → Start a new season** and clicks **Start 2027-2028** (or whichever year is next). That's the only step. It:
 - **Numbering:** restarts request numbers with the new year (**SG27-001**, **SG27-002**, …).
 - **Requests & Export:** shows the new season by default.
 - **Archive:** moves last season's requests there, searchable with their full history.
 - **Unfinished orders:** keeps anything still waiting on approval, ordering, or delivery in the Approvals and Treasurer queues, labeled with its season, until it's done.
 
-Also hand over the roles: give the new Chief Engineer and Treasurer their roles in **Admin → People → Users**, and set graduating leads back to Member.
+Also hand over the roles: give the new Chief Engineer and Treasurer their roles in **Admin → Team → Users**, and set graduating leads back to Member.
 
 ---
 
@@ -212,7 +206,7 @@ Ask a Chief Engineer to **Request Changes**. The request comes back to you to ed
 No. The Treasurer can **Edit costs** at any point after approval, and the change and reason are recorded in the request's History for everyone to see.
 
 **Where are the old order sheets?**
-In the **Archive** tab, once a lead has imported them (Admin → Season & records → Import). Each season is searchable, with every original column. This season's sheet is imported as regular requests instead, so it can keep moving through ordering and delivery.
+In **Requests → Archive**, once a lead has imported them (Admin → Team → Team & season → Import old spreadsheets). Each season is searchable, with every original column. This season's sheet is imported as regular requests instead, so it can keep moving through ordering and delivery.
 
 **Is our order data public?**
 No. The website's code is public on GitHub, but the order data lives in a private database. Only signed-in team members can see it, and the database itself enforces who can approve, order, or change anything.

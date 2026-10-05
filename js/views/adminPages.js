@@ -1,14 +1,16 @@
 /**
  * More "customize without code" Admin pages (permission: Customize lists & appearance):
- *   #/admin/page     — what a request's page shows (layout settings)
- *   #/admin/exports  — Excel export templates
+ *   #/admin/display/page     — what a request's page shows (layout settings)
+ *   #/admin/display/exports  — Excel export templates
+ *   #/admin/display          — the page holding those two and Request lists
  *   #/admin/text     — announcement banner, sign-in message, page intros, Help page
  */
 import { api } from '../api.js';
 import { esc, errorBox, setFlash, takeFlash, statusLabel, renderRichText } from '../ui.js';
 import { COPY_MODES, pageLayout, detailCandidates, itemCandidates } from '../pageLayout.js';
 import { exportCatalog, exportTemplates } from '../excel.js';
-import { adminHeader } from './admin.js';
+import { adminHeader, adminTop } from './admin.js';
+import { renderLists } from './adminSetup.js';
 import { guardLeaving } from '../leaveGuard.js';
 
 const move = (list, i, d) => {
@@ -22,7 +24,7 @@ const guardUnsaved = (el, isDirty) => guardLeaving(el, isDirty);
 
 // ---- Request page layout -------------------------------------------------------------
 
-export async function renderPageLayout(el, { config, rerender, reloadConfig }) {
+export async function renderPageLayout(el, { config, rerender, reloadConfig, embedded }) {
   const layout = pageLayout(config);
   // Working state: every candidate in display order, with shown / lead-only flags.
   const build = (candidates, chosenKeys, prefix) => {
@@ -87,7 +89,7 @@ export async function renderPageLayout(el, { config, rerender, reloadConfig }) {
 
   el.innerHTML = `
     ${takeFlash()}
-    ${adminHeader('page', "What a request's page shows, and in what order. Open any request to see the result.")}
+    ${adminTop('page', "What a request's page shows, and in what order. Open any request to see the result.", embedded)}
     <div id="layout-errors"></div>
     <div id="layout-body"></div>
     <div class="form-actions sticky-actions">
@@ -163,7 +165,7 @@ export async function renderPageLayout(el, { config, rerender, reloadConfig }) {
 
 // ---- Export templates ------------------------------------------------------------------
 
-export async function renderExportTemplates(el, { config, rerender, reloadConfig }) {
+export async function renderExportTemplates(el, { config, rerender, reloadConfig, embedded }) {
   const catalog = exportCatalog(config);
   const byKey = new Map(catalog.map((c) => [c.key, c]));
   const builtIn = exportTemplates(config)[0];
@@ -249,7 +251,7 @@ export async function renderExportTemplates(el, { config, rerender, reloadConfig
 
   el.innerHTML = `
     ${takeFlash()}
-    ${adminHeader('exports', "Excel export templates, e.g. the exact columns the department's purchasing form wants.")}
+    ${adminTop('exports', "Excel export templates, e.g. the exact columns the department's purchasing form wants.", embedded)}
     <div id="exports-errors"></div>
     <div id="exports-body"></div>
     <div class="form-actions sticky-actions">
@@ -440,4 +442,22 @@ export async function renderTextBanner(el, { config, rerender, reloadConfig }) {
       button.disabled = false;
     }
   });
+}
+
+// ---- Lists, layout & Excel: one Admin page with three sections ------------------------------
+
+const DISPLAY_SECTIONS = [
+  ['lists', 'Request lists', () => renderLists],
+  ['page', 'Request page', () => renderPageLayout],
+  ['exports', 'Excel templates', () => renderExportTemplates],
+];
+
+/** #/admin/display/<section>: how requests are shown in lists, on their page, and in Excel. */
+export async function renderDisplay(el, ctx) {
+  const [key, , view] = DISPLAY_SECTIONS.find((s) => s[0] === ctx.params.id) || DISPLAY_SECTIONS[0];
+  el.innerHTML = `
+    ${adminHeader(key)}
+    <nav class="segmented" aria-label="Section">${DISPLAY_SECTIONS.map(([k, label]) => `<a href="#/admin/display/${k}" ${k === key ? 'aria-current="page"' : ''}>${esc(label)}</a>`).join('')}</nav>
+    <div id="display-body"></div>`;
+  await view()(el.querySelector('#display-body'), { ...ctx, embedded: true });
 }

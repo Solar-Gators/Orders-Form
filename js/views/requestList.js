@@ -1,12 +1,11 @@
 /**
  * Requests page: this season's requests (or a past season), filterable and sortable.
- * Columns, filters and the default sort come from Admin → Lists (js/listColumns.js).
- * On top: your own requests that need you (from any season), and a welcome for
- * people who haven't made a request yet.
+ * Columns, filters and the default sort come from Admin → Lists, layout & Excel (js/listColumns.js).
+ * On top: your own requests that need you (from any season). Newcomers start on Home.
  */
 import { api } from '../api.js';
 import { auth } from '../auth.js';
-import { esc, requestTable, bindRowLinks, bindSorting, sortRows, statusBadge, takeFlash, introText } from '../ui.js';
+import { esc, requestTable, bindRowLinks, bindSorting, sortRows, statusBadge, takeFlash, introText, pageTabs } from '../ui.js';
 import { listColumns, listSort, listFilters } from '../listColumns.js';
 
 // Kept while navigating around the app (not across reloads).
@@ -70,23 +69,15 @@ export async function renderRequestList(el, { config, rerender }) {
       </section>`
     : '';
 
-  // First visit: nothing of yours anywhere yet (checked across the season you're looking at).
-  const neverRequested = !mine.length && !all.some((r) => r.created_by === auth.user.id) && isCurrent;
-  const welcome = neverRequested && !auth.can('request.review') && !auth.can('request.order')
-    ? `<div class="alert alert-info small welcome-hint">First time using the Order Form? <a href="#/home">See how ordering works</a>
-        (you can always get back there by clicking the logo).</div>`
-    : '';
-
   el.innerHTML = `
     ${takeFlash()}
+    ${pageTabs('requests', 'requests')}
     <div class="page-header">
       <div>
         <h1>Requests</h1>
         <p class="subtitle">${isCurrent ? introText('requests', `Purchase requests for the ${esc(season)} season.`) : `Past season: ${esc(season)}.`}</p>
       </div>
-      <a class="btn btn-primary" href="#/new">+ New Request</a>
     </div>
-    ${welcome}
     ${needsYouStrip}
     ${isCurrent ? '' : `<div class="alert alert-info small">You're looking at <strong>${esc(season)}</strong>. <a href="#" id="back-current">Back to ${esc(config.season)}</a></div>`}
     <div class="toolbar">

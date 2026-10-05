@@ -11,30 +11,43 @@ import { api } from '../api.js';
 import { auth } from '../auth.js';
 import { esc, fmtDate, errorBox, setFlash, takeFlash } from '../ui.js';
 import { guardLeaving } from '../leaveGuard.js';
+import { renderImport } from './importPage.js';
 import {
   FIELD_TYPES, LOCKED, LIST_FIELDS, CONDITION_OPS, requestFields, itemFields, typeLabel, makeKey, fieldOptions, describeCondition,
 } from '../formFields.js';
 
 /**
  * Admin pages, each shown only with its permission, grouped into a few tabs.
- * Also used by the router. [key, label, permissions, group]
+ * Also used by the router. [key, label, permissions, group, hidden]
+ * Hidden pages are reached from another page: Request page / Request lists / Excel
+ * templates are sections of "Lists, layout & Excel", Import is part of "Team & season",
+ * and History opens from the "History" link on each page.
  */
 export const ADMIN_TABS = [
-  ['users', 'Users', ['users.manage'], 'People'],
-  ['roles', 'Roles & permissions', ['users.manage'], 'People'],
+  ['users', 'Users', ['users.manage'], 'Team'],
+  ['roles', 'Roles & permissions', ['users.manage'], 'Team'],
+  ['season', 'Team & season', ['settings.edit', 'seasons.manage'], 'Team'],
   ['fields', 'Fields', ['settings.edit'], 'Request form'],
   ['dropdowns', 'Dropdowns & rules', ['settings.edit'], 'Request form'],
-  ['page', 'Request page', ['site.customize'], 'Request form'],
-  ['appearance', 'Colors & logo', ['site.customize'], 'Look & text'],
-  ['text', 'Text & banner', ['site.customize'], 'Look & text'],
-  ['lists', 'Request lists', ['site.customize'], 'Lists & exports'],
-  ['exports', 'Excel templates', ['site.customize'], 'Lists & exports'],
+  ['display', 'Lists, layout & Excel', ['site.customize'], 'Display'],
+  ['appearance', 'Colors & logo', ['site.customize'], 'Display'],
+  ['text', 'Text & banner', ['site.customize'], 'Display'],
   ['workflow', 'Approval rules', ['workflow.edit'], 'Approvals & alerts'],
   ['notifications', 'Notifications', ['workflow.edit'], 'Approvals & alerts'],
-  ['season', 'Team & season', ['settings.edit', 'seasons.manage'], 'Season & records'],
-  ['import', 'Import', ['seasons.manage'], 'Season & records'],
-  ['history', 'History', ['users.manage', 'settings.edit', 'site.customize', 'workflow.edit'], 'Season & records'],
+  ['lists', 'Request lists', ['site.customize'], 'Display', true],
+  ['page', 'Request page', ['site.customize'], 'Display', true],
+  ['exports', 'Excel templates', ['site.customize'], 'Display', true],
+  ['import', 'Import', ['seasons.manage'], 'Team', true],
+  ['history', 'History', ['users.manage', 'settings.edit', 'site.customize', 'workflow.edit'], 'Team', true],
 ];
+/** Where a hidden page lives. */
+const PARENT = { lists: 'display', page: 'display', exports: 'display', import: 'season' };
+/** Which settings each page changes, for its "History" link. */
+const HISTORY_KEYS = {
+  users: 'permissions', roles: 'permissions', season: 'general', fields: 'form', dropdowns: 'form',
+  display: 'lists,layout,exports', lists: 'lists', page: 'layout', exports: 'exports',
+  appearance: 'appearance', text: 'appearance', workflow: 'workflow', notifications: 'notifications',
+};
 
 /**
  * Top of every Admin page: title, one tab per group, the group's pages as small
@@ -42,30 +55,38 @@ export const ADMIN_TABS = [
  * `actions` is extra HTML for the right of the title (e.g. a Preview button).
  */
 export function adminHeader(active, intro = '', actions = '') {
-  const items = ADMIN_TABS.filter(([, , perms]) => perms.some((p) => auth.can(p)));
-  const group = ADMIN_TABS.find(([key]) => key === active)?.[3];
+  const page = PARENT[active] || active;
+  const items = ADMIN_TABS.filter(([, , perms, , hidden]) => !hidden && perms.some((p) => auth.can(p)));
+  const group = ADMIN_TABS.find(([key]) => key === page)?.[3];
   const groups = [...new Set(items.map((t) => t[3]))];
   const here = (on) => (on ? 'class="active" aria-current="page"' : '');
   const tabs = groups
-    .map((g) => `<a href="#/admin/${items.find((t) => t[3] === g)[0]}" ${here(g === group)}>${esc(g)}</a>`)
+    .map((g) => `<a href="#/admin/${items.find((t) => t[3] === g)[0]}" ${here(g === group && page !== 'history')}>${esc(g)}</a>`)
     .join('');
   const siblings = items.filter((t) => t[3] === group);
-  const subnav = siblings.length > 1
-    ? `<nav class="admin-subnav" aria-label="${esc(group)}">${siblings.map(([key, label]) => `<a href="#/admin/${key}" ${here(key === active)}>${esc(label)}</a>`).join('')}</nav>`
+  const subnav = siblings.length > 1 && page !== 'history'
+    ? `<nav class="admin-subnav" aria-label="${esc(group)}">${siblings.map(([key, label]) => `<a href="#/admin/${key}" ${here(key === page)}>${esc(label)}</a>`).join('')}</nav>`
     : '';
-  const jump = `<label class="admin-jump"><span class="sr-only">Admin page</span><select data-admin-jump>${groups
+  const jump = `<label class="admin-jump"><span class="sr-only">Admin page</span><select data-admin-jump>${page === 'history' ? '<option value="history" selected>History</option>' : ''}${groups
     .map((g) => `<optgroup label="${esc(g)}">${items
       .filter((t) => t[3] === g)
-      .map(([key, label]) => `<option value="${key}" ${key === active ? 'selected' : ''}>${esc(label)}</option>`)
+      .map(([key, label]) => `<option value="${key}" ${key === page ? 'selected' : ''}>${esc(label)}</option>`)
       .join('')}</optgroup>`)
     .join('')}</select></label>`;
+  const canHistory = ADMIN_TABS.find((t) => t[0] === 'history')[2].some((p) => auth.can(p));
+  const history = canHistory && HISTORY_KEYS[active]
+    ? `<a class="btn btn-sm btn-ghost" href="#/admin/history/${HISTORY_KEYS[active]}" title="Earlier versions of this page's settings">History</a>`
+    : '';
   return `<div class="admin-top">
-    <div class="page-header admin-head"><div><h1>Admin</h1></div>${actions}</div>
+    <div class="page-header admin-head"><div><h1>Admin</h1></div><div class="card-actions">${history}${actions}</div></div>
     <nav class="tabs admin-tabs" aria-label="Admin">${tabs}</nav>
     ${jump}${subnav}
     ${intro ? `<p class="admin-intro">${intro}</p>` : ''}
   </div>`;
 }
+
+/** A page shown inside another one (e.g. Import inside Team & season) gets only its intro line. */
+export const adminTop = (key, intro, embedded) => (embedded ? `<p class="admin-intro section-intro">${intro}</p>` : adminHeader(key, intro));
 
 // The phone menu: pick a page to go there.
 document.addEventListener('change', (e) => {
@@ -359,7 +380,14 @@ const lines = (text) => [...new Set(text.split('\n').map((s) => s.trim()).filter
 
 /** "Dropdowns & rules" (form options) and "Team & season" share this page code. */
 export const renderDropdowns = (el, ctx) => renderSettings(el, ctx, 'dropdowns');
-export const renderSeason = (el, ctx) => renderSettings(el, ctx, 'season');
+export async function renderSeason(el, ctx) {
+  await renderSettings(el, ctx, 'season');
+  if (!auth.can('seasons.manage')) return;
+  const box = document.createElement('div');
+  box.className = 'import-section';
+  el.appendChild(box);
+  await renderImport(box, { ...ctx, embedded: true });
+}
 
 async function renderSettings(el, { rerender, reloadConfig }, part) {
   const settings = await api.getSettings();
@@ -482,7 +510,7 @@ async function renderSettings(el, { rerender, reloadConfig }, part) {
     ${takeFlash()}
     ${adminHeader(part, part === 'dropdowns'
       ? 'The options in each dropdown, and rules that apply to every request.'
-      : 'Team name, request numbers, who can sign up, and the yearly season change.')}
+      : 'Team name, request numbers, who can sign up, the yearly season change, and importing old spreadsheets.')}
     <div id="settings-errors"></div>
     ${part === 'dropdowns'
       ? dropdownsPart

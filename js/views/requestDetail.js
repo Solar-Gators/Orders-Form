@@ -18,7 +18,7 @@ import { approvalState, canReview, workflowSettings, budgetSummary, budgetFor } 
 
 /** Copy buttons (for pasting into purchasing forms) go to whoever Admin → Request page says. */
 let layout = null; // set on each render from the `layout` settings
-let wholeOrderShipping = true; // Admin → Settings: shipping is one total per request
+let wholeOrderShipping = true; // Admin → Request form → Dropdowns & rules: shipping is one total per request
 const showCopy = () => copyAllowed(layout);
 
 /** Plain text to copy for a field value (dollars without "$", URLs as-is). */

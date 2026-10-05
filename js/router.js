@@ -12,8 +12,8 @@ import { auth } from './auth.js';
 import { renderLogin } from './views/login.js';
 import { renderAccount, renderResetPassword } from './views/account.js';
 import { renderUsers, renderRoles, renderDropdowns, renderSeason, renderFormFields, ADMIN_TABS } from './views/admin.js';
-import { renderLists, renderAppearance, renderHistory } from './views/adminSetup.js';
-import { renderPageLayout, renderExportTemplates, renderTextBanner } from './views/adminPages.js';
+import { renderAppearance, renderHistory } from './views/adminSetup.js';
+import { renderDisplay, renderTextBanner } from './views/adminPages.js';
 import { renderWorkflow, renderNotifications } from './views/adminWorkflow.js';
 import { renderHelp } from './views/help.js';
 import { renderHome } from './views/home.js';
@@ -26,7 +26,6 @@ import { renderFinances } from './views/finances.js';
 import { renderSponsors, renderSponsorCard } from './views/sponsors.js';
 import { renderExport } from './views/exportPage.js';
 import { renderArchive } from './views/archive.js';
-import { renderImport } from './views/importPage.js';
 import { errorBox } from './ui.js';
 import { confirmLeave } from './leaveGuard.js';
 
@@ -41,13 +40,15 @@ const ROUTES = [
   { pattern: /^\/requests$/, nav: 'requests', view: renderRequestList },
   { pattern: /^\/requests\/([^/]+)\/edit$/, nav: 'requests', view: renderRequestForm },
   { pattern: /^\/requests\/([^/]+)$/, nav: 'requests', view: renderRequestDetail },
-  { pattern: /^\/approvals$/, nav: 'approvals', view: renderApprovals, perm: LEADS },
-  { pattern: /^\/treasurer$/, nav: 'treasurer', view: renderTreasurer, perm: LEADS },
+  { pattern: /^\/approvals$/, nav: 'queue', view: renderApprovals, perm: LEADS },
+  { pattern: /^\/treasurer$/, nav: 'queue', view: renderTreasurer, perm: LEADS },
+  // Queue opens on what you do: ordering for the Treasurer, approving for everyone else.
+  { pattern: /^\/queue$/, redirect: () => (auth.can('request.order') && !auth.can('request.review') ? '#/treasurer' : '#/approvals') },
   { pattern: /^\/finances$/, nav: 'finances', view: renderFinances, perm: ['finances.view', 'finances.edit'] },
   { pattern: /^\/sponsors$/, nav: 'sponsors', view: renderSponsors, perm: ['sponsors.view', 'sponsors.edit'] },
   { pattern: /^\/sponsors\/([^/]+)$/, nav: 'sponsors', view: renderSponsorCard, perm: ['sponsors.view', 'sponsors.edit'] },
-  { pattern: /^\/archive$/, nav: 'archive', view: renderArchive },
-  { pattern: /^\/export$/, nav: 'export', view: renderExport },
+  { pattern: /^\/archive$/, nav: 'requests', view: renderArchive },
+  { pattern: /^\/export$/, nav: 'requests', view: renderExport },
   { pattern: /^\/admin\/users$/, nav: 'admin', view: renderUsers, perm: tabPerms('users') },
   { pattern: /^\/admin\/fields$/, nav: 'admin', view: renderFormFields, perm: tabPerms('fields') },
   { pattern: /^\/admin\/roles$/, nav: 'admin', view: renderRoles, perm: tabPerms('roles') },
@@ -55,18 +56,18 @@ const ROUTES = [
   { pattern: /^\/admin\/season$/, nav: 'admin', view: renderSeason, perm: tabPerms('season') },
   // The old Settings page is now Dropdowns & rules + Team & season.
   { pattern: /^\/admin\/settings$/, redirect: () => (auth.can('settings.edit') ? '#/admin/dropdowns' : '#/admin/season') },
-  { pattern: /^\/admin\/lists$/, nav: 'admin', view: renderLists, perm: tabPerms('lists') },
-  { pattern: /^\/admin\/page$/, nav: 'admin', view: renderPageLayout, perm: tabPerms('page') },
-  { pattern: /^\/admin\/exports$/, nav: 'admin', view: renderExportTemplates, perm: tabPerms('exports') },
+  { pattern: /^\/admin\/display(?:\/(lists|page|exports))?$/, nav: 'admin', view: renderDisplay, perm: tabPerms('display') },
+  // Old addresses of what are now sections of "Lists, layout & Excel", and Import (in Team & season).
+  { pattern: /^\/admin\/(lists|page|exports)$/, redirect: () => `#/admin/display/${location.hash.split('/').pop()}` },
+  { pattern: /^\/admin\/import$/, redirect: () => '#/admin/season' },
   { pattern: /^\/admin\/appearance$/, nav: 'admin', view: renderAppearance, perm: tabPerms('appearance') },
   { pattern: /^\/admin\/text$/, nav: 'admin', view: renderTextBanner, perm: tabPerms('text') },
   { pattern: /^\/admin\/workflow$/, nav: 'admin', view: renderWorkflow, perm: tabPerms('workflow') },
   { pattern: /^\/admin\/notifications$/, nav: 'admin', view: renderNotifications, perm: tabPerms('notifications') },
   { pattern: /^\/help$/, nav: 'help', view: renderHelp },
-  { pattern: /^\/admin\/import$/, nav: 'admin', view: renderImport, perm: tabPerms('import') },
-  { pattern: /^\/admin\/history$/, nav: 'admin', view: renderHistory, perm: tabPerms('history') },
+  { pattern: /^\/admin\/history(?:\/([\w,]+))?$/, nav: 'admin', view: renderHistory, perm: tabPerms('history') },
   // "Admin" opens the first tab this person can use.
-  { pattern: /^\/admin$/, redirect: () => `#/admin/${(ADMIN_TABS.find(([, , perms]) => perms.some((p) => auth.can(p))) || ['users'])[0]}` },
+  { pattern: /^\/admin$/, redirect: () => `#/admin/${(ADMIN_TABS.find(([, , perms, , hidden]) => !hidden && perms.some((p) => auth.can(p))) || ['users'])[0]}` },
   { pattern: /^\/account$/, nav: 'account', view: renderAccount },
   { pattern: /^\/reset-password$/, view: renderResetPassword },
 ];

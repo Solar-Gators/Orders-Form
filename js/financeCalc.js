@@ -3,7 +3,7 @@
  * so they're tested in Node (tests/financeCalc.test.mjs).
  *
  * Column types that are calculated (read-only, except Budget):
- *   budget   — the site's budget (Treasurer page) for this row's value, e.g. its Cost center.
+ *   budget   — the site's budget for this row's value, e.g. its Cost center.
  *              { by: column key in this sheet }
  *   orders   — total of requests in a stage for this row's value, or for the whole team.
  *              { metric: 'spent' | 'to_order' | 'in_review', by?: column key, field: form field key, season: 'current' | 'all' }
@@ -25,7 +25,7 @@ export const ORDER_METRICS = [
 ];
 
 /** What a Request column can show, and what "Add ordered requests" can fill in. */
-export const REQUEST_DETAILS = [
+const REQUEST_DETAILS = [
   ['request', 'Request ID', (r) => r.request_number],
   ['title', 'Request title', (r) => r.title],
   ['requester', 'Requester', (r) => r.requester],
@@ -53,7 +53,7 @@ export function requestDetails(formFields = []) {
 }
 
 export const PLAIN_NUMERIC = new Set(['money', 'number']);
-export const CALC_TYPES = new Set(['budget', 'orders', 'lookup', 'reqinfo', 'math', 'running']);
+const CALC_TYPES = new Set(['budget', 'orders', 'lookup', 'reqinfo', 'math', 'running']);
 /** Columns Math may use, and Running totals may add up (besides Math). */
 const MATH_OPERANDS = new Set(['money', 'number', 'budget', 'orders', 'lookup', 'reqinfo']);
 

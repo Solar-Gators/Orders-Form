@@ -20,6 +20,7 @@ import {
   PLAIN_NUMERIC, requestDetails, isNumeric, isMoney, isCalc, toNumber, same, computeRows, runningTotals, explain,
 } from '../financeCalc.js';
 import { openColumnEditor, newSheetDialog, optionsOf, formFieldOf, newKey } from './financeColumns.js';
+import { renderBudgetPanel } from './treasurer.js';
 
 // Kept while moving around the app.
 const view = { sheetId: null, q: '', sort: null };
@@ -89,6 +90,8 @@ export async function renderFinances(el, { config, rerender, reloadConfig }) {
       </div>
     </div>
 
+    <div id="budget-panel"></div>
+
     <div class="sheet-tabs" role="tablist" aria-label="Sheets">
       ${sheets.map((s) => `<button type="button" role="tab" data-sheet="${esc(s.id)}" aria-selected="${s.id === sheet.id}">${esc(s.name)}</button>`).join('')}
       ${canEdit ? `<button type="button" class="sheet-add" id="new-sheet">+ New sheet</button>
@@ -124,6 +127,8 @@ export async function renderFinances(el, { config, rerender, reloadConfig }) {
     </div>
     ${canEdit ? '<div class="add-row"><button type="button" class="btn btn-sm" id="add-row">+ Add row</button><span class="hint hide-touch">Enter moves down a row; Tab moves right.</span></div>' : ''}
     ${columns.some((c) => c.type === 'request') ? `<datalist id="request-numbers">${requests.map((r) => `<option value="${esc(r.request_number)}">${esc(r.title || '')}</option>`).join('')}</datalist>` : ''}`;
+
+  renderBudgetPanel(el.querySelector('#budget-panel'), { config, reloadConfig, rerender }).catch(() => {});
 
   const errors = el.querySelector('#fin-errors');
   const status = el.querySelector('#fin-status');
@@ -170,7 +175,7 @@ export async function renderFinances(el, { config, rerender, reloadConfig }) {
     const attrs = `data-row="${esc(row.id)}" data-key="${esc(c.key)}" aria-label="${esc(c.label)}"`;
     if (c.type === 'budget' && canBudget) {
       const bv = values.get(row.id)?.[c.key] ?? '';
-      return `<td class="num t-money is-budget" title="The site's budget (same as the Treasurer page)"><input type="text" inputmode="decimal" data-budget-row="${esc(row.id)}" data-key="${esc(c.key)}" aria-label="${esc(c.label)}" value="${bv === '' ? '' : toNumber(bv).toFixed(2)}" placeholder="—"></td>`;
+      return `<td class="num t-money is-budget" title="The site's budget (same as the Budgets card)"><input type="text" inputmode="decimal" data-budget-row="${esc(row.id)}" data-key="${esc(c.key)}" aria-label="${esc(c.label)}" value="${bv === '' ? '' : toNumber(bv).toFixed(2)}" placeholder="—"></td>`;
     }
     if (isCalc(c)) return `<td class="${isNumeric(c) ? 'num ' : ''}is-calc" data-calc="${esc(c.key)}" data-row-id="${esc(row.id)}" tabindex="0" title="Calculated: click to see how"></td>`;
     if (!canEdit) {
@@ -342,7 +347,7 @@ export async function renderFinances(el, { config, rerender, reloadConfig }) {
     }
   };
 
-  /** Budget cells change the site's budgets (the Treasurer page uses the same numbers). */
+  /** Budget cells change the site's budgets (the Budgets card uses the same numbers). */
   const saveBudget = async (input) => {
     const row = rows.find((r) => r.id === input.dataset.budgetRow);
     const col = columns.find((c) => c.key === input.dataset.key);
@@ -359,7 +364,7 @@ export async function renderFinances(el, { config, rerender, reloadConfig }) {
     const field = formFieldOf(columns.find((c) => c.key === col.by));
     if (!budgets.field) budgets.field = field;
     if (field && budgets.field !== field) {
-      showError(new Error('The site\'s budgets are set per another field. Change "Budget by" on the Treasurer page first.'));
+      showError(new Error('The site\'s budgets are set per another field. Change "Budget by" in the Budgets card first.'));
       return;
     }
     const existing = Object.keys(budgets.amounts || {}).find((k) => same(k, name));
@@ -640,7 +645,7 @@ async function importWorkbook(file, startPosition) {
 }
 
 /** A column's type from its name and values. */
-export function guessType(label, values) {
+function guessType(label, values) {
   if (!values.length) return 'text';
   const all = (re) => values.every((v) => re.test(String(v).trim()));
   if (all(/^\d{4}-\d{2}-\d{2}$/)) return 'date';

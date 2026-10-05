@@ -2,11 +2,11 @@
  * Archive: past seasons, searchable. Two sources, shown together:
  *   • old order sheets imported from Excel (click a row to see every original column)
  *   • requests made in this app in earlier seasons (click a row to open the request)
- * Imports are managed in Admin → Import; seasons roll over in Admin → Settings.
+ * Imports and the season rollover are in Admin → Team → Team & season.
  */
 import { api } from '../api.js';
 import { auth } from '../auth.js';
-import { esc, fmtMoney, fmtDate, introText } from '../ui.js';
+import { esc, fmtMoney, fmtDate, introText, pageTabs } from '../ui.js';
 
 // Filters persist while moving around the app.
 const filters = { q: '', season: '', subteam: '', status: '' };
@@ -48,9 +48,10 @@ export async function renderArchive(el, { config }) {
 
   if (!rows.length) {
     el.innerHTML = `
+      ${pageTabs('requests', 'archive')}
       <div class="page-header"><div><h1>Archive</h1><p class="subtitle">Past seasons' orders.</p></div></div>
       <div class="empty">Nothing here yet. Past seasons show up once a new season starts, or when old spreadsheets are imported.${
-        auth.can('settings.edit') ? ' Add them in <a href="#/admin/import">Admin → Import</a>.' : ''
+        auth.can('settings.edit') ? ' Add them in <a href="#/admin/season">Admin → Team &amp; season</a>.' : ''
       }</div>`;
     return;
   }
@@ -61,6 +62,7 @@ export async function renderArchive(el, { config }) {
   const distinct = (key) => [...new Set(rows.map((r) => r[key]).filter(Boolean))].sort((a, b) => a.localeCompare(b));
 
   el.innerHTML = `
+    ${pageTabs('requests', 'archive')}
     <div class="page-header">
       <div>
         <h1>Archive</h1>

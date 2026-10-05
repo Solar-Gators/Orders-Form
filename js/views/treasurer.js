@@ -1,17 +1,17 @@
 /**
  * Treasurer: approved requests to order, and ordered requests awaiting delivery.
- * Both lists are sortable; their columns and default sorts come from Admin → Lists.
- * Budgets are shown (and set, by the Treasurer) above them.
+ * Both lists are sortable; their columns and default sorts come from Admin → Display → Request lists.
+ * Budgets live on the Finances page (renderBudgetPanel, below); this page only warns when one is over.
  */
 import { api } from '../api.js';
 import { auth } from '../auth.js';
-import { STATUS, LATE_DELIVERY_DAYS, esc, fmtMoney, todayISO, requestTable, bindRowLinks, bindSorting, errorBox, setFlash, takeFlash, introText } from '../ui.js';
+import { STATUS, LATE_DELIVERY_DAYS, esc, fmtMoney, todayISO, requestTable, bindRowLinks, bindSorting, errorBox, setFlash, takeFlash, introText, pageTabs } from '../ui.js';
 import { budgetSummary, workflowSettings } from '../workflow.js';
 import { requestFields, fieldOptions } from '../formFields.js';
 import { listColumns, listSort } from '../listColumns.js';
 import { rememberedSort } from './listSortState.js';
 
-export async function renderTreasurer(el, { config, rerender, reloadConfig }) {
+export async function renderTreasurer(el, { config, rerender }) {
   const all = await api.listRequests([STATUS.APPROVED, STATUS.ORDERED]);
   const toOrder = all.filter((r) => r.status === STATUS.APPROVED);
   const inTransit = all.filter((r) => r.status === STATUS.ORDERED);
@@ -23,23 +23,22 @@ export async function renderTreasurer(el, { config, rerender, reloadConfig }) {
 
   el.innerHTML = `
     ${takeFlash()}
+    ${pageTabs('queue', 'treasurer')}
     <div class="page-header">
       <div>
-        <h1>Treasurer</h1>
+        <h1>To order &amp; deliveries</h1>
         ${introText('treasurer', '') ? `<p class="page-intro">${introText('treasurer', '')}</p>` : ''}
         <p class="subtitle"><span>${toOrder.length} to order (${sum(toOrder)}) · ${inTransit.length} awaiting delivery (${sum(inTransit)})${late.length ? ` · <strong class="late-text">${late.length} ordered over ${LATE_DELIVERY_DAYS} days ago</strong>` : ''}</span></p>
       </div>
     </div>
     ${auth.can('request.order') ? '' : '<div class="alert alert-info">View only — only the <strong>Treasurer</strong> can mark requests as Ordered or Received.</div>'}
 
-    ${budgets.length
-      ? budgetCard(budgets, config, canSetBudgets())
-      : canSetBudgets()
-        ? `<section class="card budget-card"><div class="card-head"><h2>Budgets</h2>
-             <button type="button" class="btn btn-sm" id="edit-budgets">Set budgets</button></div>
-             <p class="muted small">No budgets yet. Set an amount per Cost center (or Subsystem) to track spending this season.</p>
-             <div id="budget-editor"></div></section>`
-        : ''}
+    ${budgets.some((b) => b.over)
+      ? `<div class="alert alert-warning small">Over budget: ${budgets
+          .filter((b) => b.over)
+          .map((b) => `<strong>${esc(b.value)}</strong> by ${fmtMoney(-b.remaining)}`)
+          .join(', ')}. <a href="#/finances">See budgets in Finances</a></div>`
+      : ''}
 
     <h2 class="section-title">To order</h2>
     ${auth.can('request.order') && toOrder.length > 1 ? batchCard(toOrder, config) : ''}
@@ -61,7 +60,25 @@ export async function renderTreasurer(el, { config, rerender, reloadConfig }) {
   }
   bindRowLinks(el);
   bindBatch(el, toOrder, rerender);
-  bindBudgetEditor(el, config, reloadConfig, rerender);
+}
+
+/**
+ * The budget card (Finances page): each budget, what's used, what's left, and the
+ * Treasurer's editor. Same numbers as the Budget columns in Finances sheets.
+ */
+export async function renderBudgetPanel(box, { config, reloadConfig, rerender }) {
+  const budgets = workflowSettings(config).budgets.field
+    ? budgetSummary(config, await api.listRequests(null, { season: config.season }))
+    : [];
+  box.innerHTML = budgets.length
+    ? budgetCard(budgets, config, canSetBudgets())
+    : canSetBudgets()
+      ? `<section class="card budget-card"><div class="card-head"><h2>Budgets</h2>
+           <button type="button" class="btn btn-sm" id="edit-budgets">Set budgets</button></div>
+           <p class="muted small">No budgets yet. Set an amount per Cost center (or Subsystem) to track spending this season.</p>
+           <div id="budget-editor"></div></section>`
+      : '';
+  bindBudgetEditor(box, config, reloadConfig, rerender);
 }
 
 /**

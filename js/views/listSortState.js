@@ -1,6 +1,6 @@
 /**
  * Remembers each list's sort while you move around the app. Starts from the
- * list's configured default (Admin → Lists), and goes back to it if an admin
+ * list's configured default (Admin → Display → Request lists), and goes back to it if an admin
  * changes that default or the sorted column is removed from the list.
  */
 const remembered = new Map(); // listName → { sort, from }

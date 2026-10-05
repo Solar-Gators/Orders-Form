@@ -1,6 +1,6 @@
 /**
  * Admin pages for "Workflow, budgets & notifications" (permission workflow.edit):
- *   #/admin/workflow       — approval rules (who approves what); budgets are on the Treasurer page
+ *   #/admin/workflow       — approval rules (who approves what); budgets are on the Finances page
  *   #/admin/notifications  — email / Teams messages: on/off, per event, wording, log
  * The database enforces both (migration 010); the send-notifications Edge
  * Function delivers the messages (docs/MAINTAINING.md).
@@ -128,12 +128,12 @@ export async function renderWorkflow(el, { config, rerender, reloadConfig }) {
 
   const draw = () => {
     el.querySelector('#rules').innerHTML = rulesList();
-    // (Budgets are edited on the Treasurer page.)
+    // (Budgets are edited on the Finances page.)
   };
 
   el.innerHTML = `
     ${takeFlash()}
-    ${adminHeader('workflow', "Who approves which requests. Budgets are set by the Treasurer on the Treasurer page.")}
+    ${adminHeader('workflow', "Who approves which requests. Budgets are set by the Treasurer on the Finances page.")}
     <div id="wf-errors"></div>
     <section class="card">
       <div class="card-head"><h2>Approval rules</h2><button type="button" class="btn btn-sm" id="add-rule">+ Add rule</button></div>
@@ -142,7 +142,7 @@ export async function renderWorkflow(el, { config, rerender, reloadConfig }) {
       <div id="rules"></div>
     </section>
     <section class="card"><h2>Budgets</h2>
-      <p class="muted small">Budgets (per Cost center, Subsystem, …) are set by the Treasurer on the <a href="#/treasurer">Treasurer page</a>.</p></section>
+      <p class="muted small">Budgets (per Cost center, Subsystem, …) are set by the Treasurer on the <a href="#/finances">Finances page</a>.</p></section>
     <div class="form-actions sticky-actions">
       <span class="muted small" id="wf-dirty" hidden>Unsaved changes</span>
       <button type="button" class="btn btn-primary" id="wf-save" disabled>Save workflow</button>
@@ -347,7 +347,7 @@ export async function renderNotifications(el, { config, rerender, reloadConfig }
 
   el.innerHTML = `
     ${takeFlash()}
-    ${adminHeader('notifications', "Email and Microsoft Teams messages when a request needs someone or changes status.")}
+    ${adminHeader('notifications', 'Team-wide email and Microsoft Teams settings: what gets sent and how it\'s worded. Each person picks which messages they get on <a href="#/account">My account</a>.')}
     <div id="n-errors"></div>
     <div class="two-col">
       <section class="card">

@@ -55,7 +55,7 @@ export function todayISO() {
 
 const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-');
 
-// ---- Appearance (Admin → Appearance) -------------------------------------------
+// ---- Appearance (Admin → Display → Colors & logo) -------------------------------------------
 // Status labels/colors and priority colors come from the `appearance` settings.
 // Colors are named tones (see .tone-* in styles.css) so text always stays readable.
 
@@ -139,7 +139,7 @@ export function renderRichText(text) {
   return out.join('');
 }
 
-/** Color for a dropdown answer (Admin → Appearance → Dropdown colors), or '' for none. */
+/** Color for a dropdown answer (Admin → Display → Colors & logo), or '' for none. */
 export const optionColor = (fieldKey, value) => {
   const t = appearance.optionColors?.[fieldKey]?.[value];
   return TONE_KEYS.has(t) ? t : '';
@@ -336,6 +336,20 @@ export const COLUMNS = {
   itemCount: { label: 'Items', className: 'num', cell: (r) => String(r.items.length), sort: (r) => r.items.length, defaultDir: 'desc', dirLabels: NUM_LABELS },
 };
 for (const [key, col] of Object.entries(COLUMNS)) col.key = key;
+
+/**
+ * Pages grouped under one top-bar item get small tabs at the top:
+ * Requests (this season, Archive, Excel download) and Queue (approving, ordering).
+ */
+const PAGE_GROUPS = {
+  requests: [['requests', 'Requests'], ['archive', 'Archive'], ['export', 'Download Excel']],
+  queue: [['approvals', 'To approve'], ['treasurer', 'To order & deliveries']],
+};
+export function pageTabs(group, active) {
+  return `<nav class="page-tabs" aria-label="${group === 'queue' ? 'Queue' : 'Requests'}">${PAGE_GROUPS[group]
+    .map(([key, label]) => `<a href="#/${key}" ${key === active ? 'class="active" aria-current="page"' : ''}>${esc(label)}</a>`)
+    .join('')}</nav>`;
+}
 
 /** Make clickable table rows navigate (event delegation, once per view). */
 export function bindRowLinks(el) {

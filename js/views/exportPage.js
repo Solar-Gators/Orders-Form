@@ -1,11 +1,11 @@
 /** Export page: status summary + in-browser .xlsx download. */
 import { api } from '../api.js';
 import { downloadWorkbook, exportTemplates, templateColumns } from '../excel.js';
-import { esc, fmtMoney, statusBadge, errorBox, introText } from '../ui.js';
+import { esc, fmtMoney, statusBadge, errorBox, introText, pageTabs } from '../ui.js';
 
 // '' = current season, 'all' = every season, otherwise a season like 2026-2027.
 let pick = '';
-let templateId = 'full'; // Admin → Exports
+let templateId = 'full'; // Admin → Display → Excel templates
 
 export async function renderExport(el, { config, rerender }) {
   const seasons = [...new Set([config.season, ...(await api.listSeasons())])].filter(Boolean).sort().reverse();
@@ -29,9 +29,10 @@ export async function renderExport(el, { config, rerender }) {
     .join('');
 
   el.innerHTML = `
+    ${pageTabs('requests', 'export')}
     <div class="page-header">
       <div>
-        <h1>Export</h1>
+        <h1>Download Excel</h1>
         <p class="subtitle">${introText('export', 'Download requests and items as an Excel workbook.')}</p>
       </div>
       <div class="field export-season">
