@@ -175,11 +175,44 @@ export const api = {
     unwrap(await supabase.rpc('set_budgets', { p_budgets: budgets }));
   },
 
-  // ---- Files & links (migration 017): kind is 'sponsor' | 'request' | 'finance' --------
+  // ---- The Treasurer's ledger (migration 018) -----------------------------------------
+
+  /** Every ledger row (purchases on their own, and the Treasurer's extras on requests), or null before 018. */
+  async listPurchases() {
+    const { data, error } = await supabase.from('finance_purchases').select('*').order('created_at');
+    return error ? null : data;
+  },
+  /** Create (id null; pass request_id to add the extras for a request) or update. Returns the id. */
+  async savePurchase(id, fields) {
+    return unwrap(await supabase.rpc('save_purchase', { p_id: id, p_fields: fields }));
+  },
+  async deletePurchase(id) {
+    unwrap(await supabase.rpc('delete_purchase', { p_id: id }));
+  },
+  async listFunds(season) {
+    const { data, error } = await supabase.from('finance_funds').select('*').eq('season', season).order('position');
+    return error ? [] : data;
+  },
+  async saveFund(id, fields) {
+    return unwrap(await supabase.rpc('save_fund', { p_id: id, p_fields: fields }));
+  },
+  async deleteFund(id) {
+    unwrap(await supabase.rpc('delete_fund', { p_id: id }));
+  },
+  /** { rainy_day, notes } for a season (empty if nothing saved yet). */
+  async getFinanceSeason(season) {
+    const { data } = await supabase.from('finance_seasons').select('*').eq('season', season).maybeSingle();
+    return data || { season, rainy_day: null, notes: '' };
+  },
+  async saveFinanceSeason(season, fields) {
+    unwrap(await supabase.rpc('save_finance_season', { p_season: season, p_fields: fields }));
+  },
+
+  // ---- Files & links (migration 017): kind is 'sponsor' | 'request' | 'finance' | 'purchase' --------
 
   /** Files and links of one sponsor card / request / Finances row, oldest first. Files get a 1-hour link (`href`). */
   async listAttachments(kind, ownerId) {
-    const column = { sponsor: 'sponsor_card_id', request: 'request_id', finance: 'finance_row_id' }[kind];
+    const column = { sponsor: 'sponsor_card_id', request: 'request_id', finance: 'finance_row_id', purchase: 'finance_purchase_id' }[kind];
     const { data, error } = await supabase.from('attachments').select('*').eq(column, ownerId).order('created_at');
     if (error) return null; // before migration 017
     const paths = data.filter((a) => a.path).map((a) => a.path);

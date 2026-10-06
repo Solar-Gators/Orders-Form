@@ -1,13 +1,12 @@
 /**
  * Treasurer: approved requests to order, and ordered requests awaiting delivery.
  * Both lists are sortable; their columns and default sorts come from Admin → Display → Request lists.
- * Budgets live on the Finances page (renderBudgetPanel, below); this page only warns when one is over.
+ * Budgets live on Finances → Budget; this page only warns when one is over.
  */
 import { api } from '../api.js';
 import { auth } from '../auth.js';
 import { STATUS, LATE_DELIVERY_DAYS, esc, fmtMoney, todayISO, requestTable, bindRowLinks, bindSorting, errorBox, setFlash, takeFlash, introText, pageTabs } from '../ui.js';
 import { budgetSummary, workflowSettings } from '../workflow.js';
-import { requestFields, fieldOptions } from '../formFields.js';
 import { listColumns, listSort } from '../listColumns.js';
 import { rememberedSort } from './listSortState.js';
 
@@ -18,7 +17,7 @@ export async function renderTreasurer(el, { config, rerender }) {
   const sum = (rows) => fmtMoney(rows.reduce((s, r) => s + r.total, 0));
   const late = inTransit.filter((r) => r.order?.order_date && Date.now() - new Date(`${String(r.order.order_date).slice(0, 10)}T12:00:00`) > LATE_DELIVERY_DAYS * 86400000);
   const budgets = workflowSettings(config).budgets.field
-    ? budgetSummary(config, await api.listRequests(null, { season: config.season }))
+    ? budgetSummary(config, await api.listRequests(null, { season: config.season }), (await api.listPurchases().catch(() => [])) || [])
     : [];
 
   el.innerHTML = `
@@ -60,25 +59,6 @@ export async function renderTreasurer(el, { config, rerender }) {
   }
   bindRowLinks(el);
   bindBatch(el, toOrder, rerender);
-}
-
-/**
- * The budget card (Finances page): each budget, what's used, what's left, and the
- * Treasurer's editor. Same numbers as the Budget columns in Finances sheets.
- */
-export async function renderBudgetPanel(box, { config, reloadConfig, rerender }) {
-  const budgets = workflowSettings(config).budgets.field
-    ? budgetSummary(config, await api.listRequests(null, { season: config.season }))
-    : [];
-  box.innerHTML = budgets.length
-    ? budgetCard(budgets, config, canSetBudgets())
-    : canSetBudgets()
-      ? `<section class="card budget-card"><div class="card-head"><h2>Budgets</h2>
-           <button type="button" class="btn btn-sm" id="edit-budgets">Set budgets</button></div>
-           <p class="muted small">No budgets yet. Set an amount per Cost center (or Subsystem) to track spending this season.</p>
-           <div id="budget-editor"></div></section>`
-      : '';
-  bindBudgetEditor(box, config, reloadConfig, rerender);
 }
 
 /**
@@ -157,108 +137,5 @@ function bindBatch(el, toOrder, rerender) {
     }
     setFlash(`${done.join(', ')} marked as ordered.`);
     await rerender();
-  });
-}
-
-/** Budget used / left per cost center (or whatever field Admin → Workflow picked). */
-function budgetCard(budgets, config, canEdit) {
-  const rows = budgets
-    .map((b) => {
-      const pct = b.amount > 0 ? Math.min(100, Math.round((b.used / b.amount) * 100)) : 100;
-      return `<tr class="${b.over ? 'is-over' : ''}">
-        <td class="cell-primary" data-label=""><strong>${esc(b.value)}</strong></td>
-        <td class="num" data-label="Budget">${fmtMoney(b.amount)}</td>
-        <td class="num" data-label="Used">${fmtMoney(b.used)}</td>
-        <td class="num" data-label="Left">${b.remaining >= 0 ? fmtMoney(b.remaining) : `${fmtMoney(-b.remaining)} over`}</td>
-        <td class="num muted" data-label="Awaiting approval">${b.pending ? fmtMoney(b.pending) : '—'}</td>
-        <td class="budget-bar-cell" data-label=""><span class="budget-bar"><span style="width:${pct}%"></span></span></td>
-      </tr>`;
-    })
-    .join('');
-  return `<section class="card budget-card">
-    <div class="card-head"><h2>Budgets · ${esc(config.season)}</h2>
-      ${canEdit ? '<button type="button" class="btn btn-sm" id="edit-budgets">Edit budgets</button>' : ''}</div>
-    <div id="budget-editor"></div>
-    <div class="table-wrap flat"><table class="table stack-mobile">
-      <thead><tr><th>${esc(budgetLabel(config))}</th><th class="num">Budget</th><th class="num">Used</th><th class="num">Left</th><th class="num">Awaiting approval</th><th></th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table></div>
-    <p class="muted small">Used = approved, ordered and received this season (with shipping).</p>
-  </section>`;
-}
-
-function budgetLabel(config) {
-  const key = workflowSettings(config).budgets.field;
-  return (config.requestFields || []).find((f) => f.key === key)?.label || (key === 'subsystem' ? 'Subsystem' : key);
-}
-
-/** Budgets are the Treasurer's (Order & receive), or anyone who manages the workflow. */
-const canSetBudgets = () => auth.can('request.order') || auth.can('workflow.edit');
-
-/** Dropdowns a budget can follow: Cost center, Subsystem… (not Priority or yes/no). */
-function budgetFields(config) {
-  return requestFields(config).filter((f) => f.type === 'select' && f.key !== 'priority' && !f.hidden && fieldOptions(f, config).length);
-}
-
-function bindBudgetEditor(el, config, reloadConfig, rerender) {
-  const open = el.querySelector('#edit-budgets');
-  const box = el.querySelector('#budget-editor');
-  if (!open || !box) return;
-  const fields = budgetFields(config);
-  const state = structuredClone(workflowSettings(config).budgets);
-  if (!state.field && fields.length) state.field = fields.find((f) => /cost\s*cent/i.test(f.label))?.key || fields[0].key;
-
-  const draw = () => {
-    const field = fields.find((x) => x.key === state.field);
-    box.innerHTML = `<form id="budget-form" class="budget-editor" novalidate>
-      <div class="field"><label for="budget-field">Budget by</label>
-        <select id="budget-field">${fields.map((x) => `<option value="${esc(x.key)}" ${x.key === state.field ? 'selected' : ''}>${esc(x.label)}</option>`).join('')}</select>
-        <div class="hint">Amounts are for the current season (${esc(config.season)}). Leave an option blank for no budget.</div></div>
-      ${field ? `<table class="table budget-table"><thead><tr><th>${esc(field.label)}</th><th>Budget ($)</th></tr></thead><tbody>${fieldOptions(field, config)
-        .map((o) => `<tr><td>${esc(o)}</td><td><input type="number" min="0" step="0.01" inputmode="decimal" data-budget="${esc(o)}" value="${esc(state.amounts?.[o] ?? '')}" placeholder="No budget" aria-label="Budget for ${esc(o)}"></td></tr>`)
-        .join('')}</tbody></table>` : '<p class="muted small">Add a dropdown like Cost center to the form first.</p>'}
-      <label class="rule-toggle"><input type="checkbox" id="budget-block" ${state.block ? 'checked' : ''}>
-        <span>Approving over budget needs a written reason <span class="hint">The approver has to say why; it's kept in the request's History. Off: approvers just see a warning.</span></span></label>
-      <div id="budget-errors"></div>
-      <div class="form-actions">
-        <button type="button" class="btn btn-ghost" id="budget-cancel">Cancel</button>
-        <button type="submit" class="btn btn-primary">Save budgets</button>
-      </div>
-    </form>`;
-  };
-
-  open.addEventListener('click', () => {
-    open.hidden = true;
-    draw();
-  });
-  box.addEventListener('change', (e) => {
-    if (e.target.id === 'budget-field') {
-      state.field = e.target.value;
-      state.amounts = {};
-      draw();
-    } else if (e.target.id === 'budget-block') state.block = e.target.checked;
-  });
-  box.addEventListener('input', (e) => {
-    const option = e.target.dataset.budget;
-    if (option === undefined) return;
-    state.amounts ||= {};
-    if (e.target.value === '') delete state.amounts[option];
-    else state.amounts[option] = e.target.value;
-  });
-  box.addEventListener('click', (e) => {
-    if (e.target.id !== 'budget-cancel') return;
-    box.innerHTML = '';
-    open.hidden = false;
-  });
-  box.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    try {
-      await api.setBudgets(state);
-      await reloadConfig();
-      setFlash('Budgets saved.');
-      await rerender();
-    } catch (err) {
-      box.querySelector('#budget-errors').innerHTML = errorBox(err);
-    }
   });
 }

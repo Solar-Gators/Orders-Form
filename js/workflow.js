@@ -92,9 +92,11 @@ const answer = (r, key) => String(r?.[key] ?? r?.data?.[key] ?? '').trim();
 /**
  * Budget use for the current season: one row per budgeted value,
  * { value, amount, used, pending, remaining, over }. `used` counts Approved,
- * Ordered and Received; `pending` is what's waiting for approval.
+ * Ordered and Received requests, plus purchases the Treasurer logged on their own
+ * (Finances → Purchases; cancelled ones don't count); `pending` is what's waiting
+ * for approval. Same rule as the database's over-budget check.
  */
-export function budgetSummary(config, requests) {
+export function budgetSummary(config, requests, purchases = []) {
   const { field, amounts } = workflowSettings(config).budgets;
   if (!field) return [];
   const spent = [STATUS.APPROVED, STATUS.ORDERED, STATUS.RECEIVED];
@@ -104,7 +106,11 @@ export function budgetSummary(config, requests) {
     .map(([value, amount]) => {
       const mine = inSeason.filter((r) => answer(r, field).toLowerCase() === value.toLowerCase());
       const sum = (rows) => rows.reduce((s, r) => s + (r.total || 0), 0);
-      const used = sum(mine.filter((r) => spent.includes(r.status)));
+      const own = (purchases || []).filter(
+        (p) => !p.request_id && p.dept_status !== 'cancelled' && (!config.season || p.season === config.season)
+          && String(p.category || '').trim().toLowerCase() === value.toLowerCase()
+      );
+      const used = sum(mine.filter((r) => spent.includes(r.status))) + own.reduce((s, p) => s + (Number(p.amount) || 0), 0);
       const pending = sum(mine.filter((r) => r.status === STATUS.SUBMITTED));
       return { value, amount: Number(amount), used, pending, remaining: Number(amount) - used, over: used > Number(amount) };
     });

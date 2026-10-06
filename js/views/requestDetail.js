@@ -447,7 +447,9 @@ export async function renderRequestDetail(el, { config, params, rerender }) {
   const [people, summary, watchers] = await Promise.all([
     isLead() || showWatchers || (r.status === STATUS.SUBMITTED && approvalState(r).type === 'people') ? api.listProfiles().catch(() => []) : [],
     isLead() && workflowSettings(config).budgets.field && [STATUS.SUBMITTED, STATUS.APPROVED].includes(r.status)
-      ? api.listRequests(null, { season: config.season }).then((rows) => budgetSummary(config, rows)).catch(() => [])
+      ? Promise.all([api.listRequests(null, { season: config.season }), api.listPurchases().catch(() => [])])
+          .then(([rows, purchases]) => budgetSummary(config, rows, purchases || []))
+          .catch(() => [])
       : [],
     showWatchers ? api.listRequestWatchers(r.id) : null, // null: before migration 016
   ]);

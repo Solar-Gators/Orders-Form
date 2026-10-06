@@ -1080,3 +1080,84 @@ nav.segmented a[aria-current="page"] { background: none; color: var(--text); bor
 .row-files.has-files { opacity: 1; color: var(--navy); }
 .sheet-table tr:hover .row-files, .row-files:focus-visible { opacity: 1; }
 @media (hover: none) { .row-files { opacity: .7; } }
+
+/* ---- Finances: the Treasurer's ledger, budget and funding (migration 018) ------------- */
+.inline-select { width: auto; display: inline-block; padding: 2px 6px; font-weight: 600; }
+.fin-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 16px; }
+.fin-tile { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; display: grid; gap: 2px; }
+.fin-tile strong { font-size: 20px; font-variant-numeric: tabular-nums; }
+.fin-tile-label { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.fin-tile.is-bad strong { color: var(--red); }
+.fin-tabs { margin-bottom: 14px; }
+.toolbar-end { margin-left: auto; }
+.sheets-intro { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.sheets-intro p { margin: 0; }
+
+/* Steps, in the old spreadsheet's legend colors */
+.step-chip, .step-pill, .step-select { border-radius: 999px; font-size: 12px; font-weight: 700; border: 1px solid transparent; white-space: nowrap; }
+.step-chip { display: inline-block; padding: 2px 9px; }
+.step-gray { background: #eef1f4; color: #4b5563; border-color: #dfe3e8; }
+.step-pink { background: #ffe1df; color: #a1281e; border-color: #ffc2bd; }
+.step-lightgreen { background: #e4f1d9; color: #3d6b1f; border-color: #c6e0b4; }
+.step-green { background: #c9efd7; color: #0b6b30; border-color: #8fd8aa; }
+.step-teal { background: #d9f2f5; color: #0e6c78; border-color: #b3e2e8; }
+.step-red { background: #fde4e2; color: #b42318; border-color: #f8c3be; }
+.step-select { width: auto; padding: 3px 8px; cursor: pointer; }
+.step-strip { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.step-pill { padding: 5px 12px; cursor: pointer; font: inherit; font-size: 12.5px; font-weight: 600; }
+.step-pill strong { margin-left: 4px; }
+.step-pill.is-on { box-shadow: 0 0 0 2px var(--navy); }
+
+.ledger-table td { padding: 4px 6px; vertical-align: middle; }
+.ledger-table th { padding: 8px 6px; }
+.ledger-table input { padding: 5px 7px; font-size: 13.5px; border-color: transparent; background: transparent; }
+.ledger-table input:hover { border-color: var(--border); }
+.ledger-table input:focus { background: #fff; }
+.ledger-table td.num input { text-align: right; width: 100px; }
+.ledger-desc { min-width: 240px; }
+.ledger-desc input { min-width: 240px; font-weight: 600; }
+.ledger-desc a { text-decoration: none; color: var(--text); font-weight: 600; }
+.ledger-desc a:hover { color: var(--blue); }
+.ledger-dept input { width: 52px; text-align: center; }
+.ledger-notes input { min-width: 200px; }
+.ledger-actions { white-space: nowrap; text-align: right; }
+.ledger-actions .row-files { opacity: .45; font-size: 13px; }
+.ledger-table tbody tr td:first-child { border-left: 4px solid transparent; }
+.ledger-table tr.step-row-pink td:first-child { border-left-color: #ffaaa4; }
+.ledger-table tr.step-row-lightgreen td:first-child { border-left-color: #a9d08e; }
+.ledger-table tr.step-row-green td:first-child { border-left-color: #00b050; }
+.ledger-table tr.step-row-teal td:first-child { border-left-color: #0e6c78; }
+.ledger-table tr.step-row-red td:first-child { border-left-color: #ff0000; }
+.ledger-table tr.is-cancelled td:not(:first-child) { opacity: .55; }
+.ledger-table tr.is-cancelled .ledger-desc input, .ledger-table tr.is-cancelled .ledger-desc a { text-decoration: line-through; }
+
+.budget-ledger tr.is-over td { color: var(--red); }
+.budget-input { width: 120px; text-align: right; padding: 5px 7px; }
+.budget-bar.two-part { display: flex; }
+.budget-bar .bar-spent { background: var(--navy); }
+.budget-bar .bar-pipe { background: #b9c9e4; }
+.budget-ledger tr.is-over .bar-spent { background: var(--red); }
+.budget-add { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0; }
+.budget-add input { width: auto; flex: 0 1 220px; }
+
+.funds-table input { padding: 5px 7px; border-color: transparent; background: transparent; }
+.funds-table input:hover { border-color: var(--border); }
+.funds-table input:focus { background: #fff; }
+.funds-table td.num input { text-align: right; width: 120px; }
+.funds-table tr.is-auto td { background: var(--surface-2); }
+.fund-compare { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-top: 16px; }
+.fund-compare > div { display: grid; gap: 2px; }
+.fund-compare strong { font-size: 18px; }
+.fund-compare .is-bad strong { color: var(--red); }
+.fund-compare input { max-width: 160px; }
+#fin-notes { font-size: 14px; }
+@media (max-width: 640px) {
+  .toolbar-end { margin-left: 0; width: 100%; }
+  .fin-tile strong { font-size: 17px; }
+}
+
+/* Empty date boxes in the ledger stay blank until clicked */
+.ledger-table input.date-quiet:invalid:not(:focus) { color: transparent; }
+
+/* Narrow phones: the logo alone, so the + and account menu never cover "Orders" */
+@media (max-width: 420px) { .brand-divider, #brand-name { display: none; } }

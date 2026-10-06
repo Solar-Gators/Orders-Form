@@ -90,7 +90,19 @@ Changed your mind? Open a submitted request and click **Withdraw request** to tu
 - **Edit costs:** if a price or shipping cost turns out different from what was requested, open the request and click **Edit costs**. This works on Approved, Ordered, and Received requests. Change any item's unit price or the order's shipping, and add a reason. The new total is previewed before saving. Every change is logged in the request's History (who, when, old → new, and why), and the item list is tagged **Costs adjusted**.
 
 ### Finances (Treasurer)
-The **Finances** tab is a spreadsheet the Treasurer shapes himself, so his own tracking can live on the site instead of a separate Excel file.
+The **Finances** tab follows the Treasurer's own spreadsheet, so it can replace it. At the top: the season's budget, spent, in the pipeline, left, funds received and the rainy-day fund. Then five tabs:
+- **Purchases:** the ledger. Every request shows up here once it's approved, plus anything bought outside the site (**+ Add a purchase**: a PayPal invoice, a quote over the phone).
+  - Each line has its **purchasing step**, colored like the old sheet's legend: To submit → Request sent (to MAE / ECE purchasing) → Dept approved → Ordered → Received, or Cancelled. Click a step at the top to see only those lines.
+  - Also **M/E** (who orders it: M = MAE, E = ECE, A = other), category, order #, date, notes, and 📎 for receipts and quotes.
+  - A request's description, cost, category and order # come from the request; Ordered and Received are marked on the request itself (they record the date and ticket number, and tell the requester).
+- **Budget:** per category (from the budgets' dropdown, e.g. Cost center): budget, spent (ordered + received), in the pipeline (approved but not ordered), and left. Type a budget straight into the table or add a category. Purchases added by hand count too, including in the approver's over-budget warning; cancelled ones don't.
+- **Funding:** where the money comes from (the allocation, donations, ECE…), expected and received; the Sponsors board's received cards add themselves. Shows the expected funds against the total budget (to spare / short), and the rainy-day fund balance.
+- **Notes:** the Treasurer's planning notes for the season.
+- **Custom sheets:** free-form spreadsheets for anything else (below).
+- **Import from spreadsheet…** reads the old Financials workbook: each line with its status (from the row's color), M/E, subteam, order # and notes; the budget table; the rainy-day balance; and the notes. A preview comes first; lines that match a request by order # are linked instead of duplicated, and importing the same file again skips what's already there. **Download .xlsx** gives the season back as a workbook (purchases in the legend colors, budget, funding, notes).
+- Seasons: the season picker under the title shows earlier seasons.
+
+**Custom sheets**
 - **Sheets:** as many as he likes (e.g. Ledger, Reimbursements, Sponsorships). A **Ledger** sheet is there to start; rename, reshape or delete it.
 - **New sheet:** start blank, or from a template: **Budget by cost center**, **Income (sponsorships & donations)**, or **Funds overview** (the general pool: money in minus what's spent and approved).
 - **Columns & sheet:** add, rename, reorder or delete columns. Typed-in columns: text, money, number, date, dropdown (your own options, or the form's list, e.g. Cost center), checkbox, link, request (an SG number, linked to the request). Money and number columns can show a total at the bottom.

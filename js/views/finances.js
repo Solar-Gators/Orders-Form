@@ -1,672 +1,673 @@
 /**
- * Finances (#/finances): spreadsheet-like sheets the Treasurer shapes himself
- * (migration 014). Typed-in columns save as you leave a cell; calculated columns
- * (budgets, order totals, totals from another sheet, request details, + / − math,
- * running totals) fill themselves in, and clicking one shows what was added up.
- * See js/financeCalc.js (the math) and js/views/financeColumns.js (the column editor).
- *
- * Also: totals row, search, sorting (with "Keep this order"), "Add ordered requests",
- * "Add a row per Cost center", Excel import and download.
- * Viewing needs finances.view; changing, finances.edit.
+ * Finances (#/finances), laid out the way the Treasurer works (migration 018):
+ *   Purchases  — the ledger: every approved request plus anything bought outside the
+ *                site, with the department steps (to submit → request sent → dept
+ *                approved → ordered → received, or cancelled), M / E, order #, notes.
+ *   Budget     — per category: budget, spent, in the pipeline, left.
+ *   Funding    — where the money comes from (expected / received), the Sponsors
+ *                board's income, and the rainy-day fund.
+ *   Notes      — the Treasurer's planning notes for the season.
+ *   Custom sheets — the free-form spreadsheets (js/views/financeSheets.js).
+ * The math is in js/ledger.js. Viewing needs finances.view; changing, finances.edit.
  */
 import { api } from '../api.js';
 import { auth } from '../auth.js';
-import { esc, fmtMoney, fmtDate, errorBox, setFlash, takeFlash } from '../ui.js';
-import { requestFields } from '../formFields.js';
+import { esc, fmtMoney, fmtDate, errorBox, setFlash, takeFlash, renderRichText } from '../ui.js';
+import { requestFields, fieldOptions } from '../formFields.js';
 import { workflowSettings } from '../workflow.js';
 import { loadExcelJS } from '../excel.js';
 import { cellText } from '../sheetImport.js';
-import {
-  PLAIN_NUMERIC, requestDetails, isNumeric, isMoney, isCalc, toNumber, same, computeRows, runningTotals, explain,
-} from '../financeCalc.js';
-import { openColumnEditor, newSheetDialog, optionsOf, formFieldOf, newKey } from './financeColumns.js';
-import { renderBudgetPanel } from './treasurer.js';
+import { STEPS, stepOf, DEPTS, ledgerLines, budgetTable, fundingTotals, readFinancialsSheet } from '../ledger.js';
 import { openAttachmentsDialog } from '../attachments.js';
+import { renderSheets } from './financeSheets.js';
+
+const TABS = [['purchases', 'Purchases'], ['budget', 'Budget'], ['funding', 'Funding'], ['notes', 'Notes'], ['sheets', 'Custom sheets']];
+const SORTS = [['newest', 'Newest first'], ['oldest', 'Oldest first'], ['status', 'By status'], ['category', 'By category'], ['cost', 'Highest cost']];
 
 // Kept while moving around the app.
-const view = { sheetId: null, q: '', sort: null };
+const view = { tab: 'purchases', season: '', q: '', status: '', category: '', sort: 'newest' };
 
-export async function renderFinances(el, { config, rerender, reloadConfig }) {
+const money = (n) => (n === null || n === undefined || n === '' ? '' : fmtMoney(Number(n)));
+const toAmount = (v) => {
+  const s = String(v ?? '').trim();
+  if (s === '') return '';
+  const n = Number(s.replace(/[$,\s]/g, ''));
+  return Number.isFinite(n) ? n.toFixed(2) : null;
+};
+
+/** The dropdowns budgets can follow (Cost center, Subsystem…). */
+const budgetFields = (config) => requestFields(config).filter((f) => f.type === 'select' && f.key !== 'priority' && !f.hidden);
+
+export async function renderFinances(el, ctx) {
+  const { config, rerender, reloadConfig } = ctx;
   const canEdit = auth.can('finances.edit');
   const canBudget = canEdit && (auth.can('request.order') || auth.can('workflow.edit'));
-  let sheets;
-  try {
-    sheets = await api.listFinanceSheets();
-  } catch {
-    el.innerHTML = `<div class="page-header"><div><h1>Finances</h1></div></div>
-      <div class="alert alert-info">The Finances tab needs database update <code>014_finances.sql</code>.</div>`;
-    return;
-  }
+  const purchases = await api.listPurchases();
+  if (!view.season) view.season = config.season;
+  const season = view.season;
 
-  const startNew = async () => {
-    const id = await newSheetDialog({ config, sheets });
-    if (id) {
-      view.sheetId = id;
-      view.sort = null;
-      setFlash('Sheet created. Use "Columns & sheet" to change it.');
-      rerender();
-    }
-  };
-
-  if (!sheets.length) {
+  // Before migration 018 only the custom sheets exist.
+  if (purchases === null) {
     el.innerHTML = `${takeFlash()}<div class="page-header"><div><h1>Finances</h1></div></div>
-      <div class="empty"><p>No sheets yet.</p>${canEdit ? '<button type="button" class="btn btn-primary" id="first-sheet">+ New sheet</button>' : ''}</div>`;
-    el.querySelector('#first-sheet')?.addEventListener('click', startNew);
-    return;
+      <div class="alert alert-info">The ledger, budget and funding tabs need database update <code>018_treasurer_ledger.sql</code>.</div>
+      <div id="fin-tab"></div>`;
+    return renderSheets(el.querySelector('#fin-tab'), ctx);
   }
-  if (!sheets.some((s) => s.id === view.sheetId)) view.sheetId = sheets[0].id;
-  const sheet = sheets.find((s) => s.id === view.sheetId);
-  const columns = sheet.columns || [];
-  const rows = await api.listFinanceRows(sheet.id);
-  if (view.sort && !columns.some((c) => c.key === view.sort.key)) view.sort = null;
 
-  // What calculated columns need: requests, other sheets' rows, the site's budgets.
-  const needsRequests = columns.some((c) => ['request', 'orders', 'reqinfo'].includes(c.type));
-  const requests = needsRequests ? await api.listRequests(null).catch(() => []) : [];
-  const byNumber = new Map(requests.map((r) => [r.request_number.toLowerCase(), r]));
-  const sheetData = new Map([[sheet.id, { sheet, rows }]]);
-  for (const id of new Set(columns.filter((c) => c.type === 'lookup' && c.sheet && c.sheet !== sheet.id).map((c) => c.sheet))) {
-    const other = sheets.find((s) => s.id === id);
-    if (other) sheetData.set(id, { sheet: other, rows: await api.listFinanceRows(id) });
-  }
-  const ctx = {
-    requests, season: config.season, budgets: workflowSettings(config).budgets, sheets: sheetData,
-    details: requestDetails(requestFields(config)), columns,
-  };
-  const hasFill = columns.some((c) => c.fill);
-  const fileCounts = await api.attachmentCounts('finance');
-  const perOption = columns.find((c) => c.type === 'select' && formFieldOf(c));
+  const budgets = workflowSettings(config).budgets;
+  const [requests, funds, seasonInfo, seasons, purchaseFiles, requestFiles, sponsorsIn] = await Promise.all([
+    api.listRequests(['Approved', 'Ordered', 'Received'], { season }),
+    api.listFunds(season),
+    api.getFinanceSeason(season),
+    api.listSeasons(),
+    api.attachmentCounts('purchase'),
+    api.attachmentCounts('request'),
+    sponsorIncome(config, season),
+  ]);
+  const lines = ledgerLines({ requests, purchases, field: budgets.field, season });
+  const table = budgetTable(lines, budgets.amounts);
+  const funding = fundingTotals(funds, sponsorsIn);
+  const seasonList = [...new Set([config.season, ...seasons, ...purchases.map((p) => p.season)])].filter(Boolean).sort().reverse();
+  const field = budgetFields(config).find((f) => f.key === budgets.field);
+  const categories = [...new Set([
+    ...Object.keys(budgets.amounts || {}),
+    ...(field ? fieldOptions(field, config) : []),
+    ...lines.map((l) => l.category).filter(Boolean),
+  ])];
+  const fileCount = (l) => (l.kind === 'request' ? requestFiles[l.request.id] : purchaseFiles[l.purchaseId]) || 0;
 
   el.innerHTML = `
     ${takeFlash()}
     <div class="page-header">
       <div>
         <h1>Finances</h1>
-        <p class="subtitle">${canEdit
-          ? 'Your own sheets. Typed cells save as you go; shaded cells are calculated (click one to see how).'
-          : 'View only. Shaded cells are calculated; click one to see how.'}</p>
+        <p class="subtitle">${seasonList.length > 1
+          ? `<select id="fin-season" aria-label="Season" class="inline-select">${seasonList.map((s) => `<option ${s === season ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select>`
+          : esc(season)} season${canEdit ? '' : ' · view only'}</p>
       </div>
       <div class="card-actions">
-        ${canEdit && hasFill ? '<button type="button" class="btn" id="add-ordered">Add ordered requests</button>' : ''}
-        <button type="button" class="btn" id="download">Download .xlsx</button>
+        ${canEdit ? `<label class="btn btn-sm">Import from spreadsheet…<input type="file" id="fin-import" accept=".xlsx" hidden></label>` : ''}
+        <button type="button" class="btn btn-sm" id="fin-download">Download .xlsx</button>
       </div>
     </div>
 
-    <div id="budget-panel"></div>
-
-    <div class="sheet-tabs" role="tablist" aria-label="Sheets">
-      ${sheets.map((s) => `<button type="button" role="tab" data-sheet="${esc(s.id)}" aria-selected="${s.id === sheet.id}">${esc(s.name)}</button>`).join('')}
-      ${canEdit ? `<button type="button" class="sheet-add" id="new-sheet">+ New sheet</button>
-        <label class="btn btn-sm btn-ghost sheet-import">Import Excel…<input type="file" id="import-file" accept=".xlsx" hidden></label>` : ''}
+    <div class="fin-tiles">
+      ${tile('Budget', fmtMoney(table.total.budget), table.rows.filter((r) => r.budget !== null).length ? `${table.rows.filter((r) => r.budget !== null).length} categories` : 'Not set yet')}
+      ${tile('Spent', fmtMoney(table.total.spent), 'Ordered + received')}
+      ${tile('In the pipeline', fmtMoney(table.total.pipeline), 'Approved, not ordered yet')}
+      ${table.total.budget
+        ? tile('Left', fmtMoney(table.total.left), `${Math.round(((table.total.spent + table.total.pipeline) / table.total.budget) * 100)}% used`, table.total.left < 0)
+        : tile('Left', '—', 'Set budgets on the Budget tab')}
+      ${tile('Funds received', fmtMoney(funding.received), funding.expected ? `of ${fmtMoney(funding.expected)} expected` : 'Add sources in Funding')}
+      ${seasonInfo.rainy_day !== null ? tile('Rainy-day fund', fmtMoney(seasonInfo.rainy_day), 'Kept aside') : ''}
     </div>
 
+    <nav class="segmented fin-tabs" aria-label="Finances">${TABS.map(([k, label]) => `<a href="#/finances" data-tab="${k}" ${k === view.tab ? 'aria-current="page"' : ''}>${esc(label)}${
+      k === 'purchases' ? ` <span class="muted small">${lines.length}</span>` : ''}</a>`).join('')}</nav>
     <div id="fin-errors"></div>
-    <div id="columns-editor"></div>
-
-    <div class="toolbar sheet-toolbar">
-      <input type="search" id="fin-q" placeholder="Search this sheet" value="${esc(view.q)}" aria-label="Search this sheet">
-      <span class="muted small" id="fin-count"></span>
-      <span class="muted small" id="fin-status" aria-live="polite"></span>
-      <span class="toolbar-right">
-        <span id="keep-order-box"></span>
-        <span id="per-option-box"></span>
-        ${canEdit ? '<button type="button" class="btn btn-sm" id="edit-columns">Columns &amp; sheet</button>' : ''}
-      </span>
-    </div>
-
-    <div class="table-wrap sheet-wrap">
-      <table class="table sheet-table">
-        <thead><tr>
-          <th class="sheet-idx">#</th>
-          ${columns.map((c) => `<th class="${isNumeric(c) ? 'num' : ''} ${isCalc(c) ? 'is-calc-head' : ''}" ${isCalc(c) ? 'title="Calculated"' : ''}>
-            <button type="button" class="sort-btn" data-sort="${esc(c.key)}">${esc(c.label)}<span class="sort-ind" aria-hidden="true">${
-              view.sort?.key === c.key ? (view.sort.dir === 'desc' ? '▼' : '▲') : '↕'}</span></button></th>`).join('')}
-          ${canEdit ? '<th class="sheet-del"></th>' : ''}
-        </tr></thead>
-        <tbody id="sheet-body"></tbody>
-        <tfoot id="sheet-foot"></tfoot>
-      </table>
-    </div>
-    ${canEdit ? '<div class="add-row"><button type="button" class="btn btn-sm" id="add-row">+ Add row</button><span class="hint hide-touch">Enter moves down a row; Tab moves right.</span></div>' : ''}
-    ${columns.some((c) => c.type === 'request') ? `<datalist id="request-numbers">${requests.map((r) => `<option value="${esc(r.request_number)}">${esc(r.title || '')}</option>`).join('')}</datalist>` : ''}`;
-
-  renderBudgetPanel(el.querySelector('#budget-panel'), { config, reloadConfig, rerender }).catch(() => {});
+    <div id="fin-tab"></div>`;
 
   const errors = el.querySelector('#fin-errors');
-  const status = el.querySelector('#fin-status');
-  const showError = (err) => {
-    errors.innerHTML = errorBox(err);
-    status.textContent = '';
-  };
+  const showError = (err) => (errors.innerHTML = errorBox(err));
+  const box = el.querySelector('#fin-tab');
 
-  // ---- values: typed + calculated --------------------------------------------------------
-  let values = computeRows(columns, rows, ctx);
-  let running = new Map();
-  const recalc = () => {
-    values = computeRows(columns, rows, ctx);
-  };
+  el.querySelector('.fin-tabs').addEventListener('click', (e) => {
+    const a = e.target.closest('[data-tab]');
+    if (!a) return;
+    e.preventDefault();
+    view.tab = a.dataset.tab;
+    rerender();
+  });
+  el.querySelector('#fin-season')?.addEventListener('change', (e) => {
+    view.season = e.target.value;
+    rerender();
+  });
+  el.querySelector('#fin-download').addEventListener('click', () => download({ season, lines, table, funds, funding, sponsorsIn, seasonInfo }).catch(showError));
+  el.querySelector('#fin-import')?.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (file) importSpreadsheet(file, { config, season, requests, purchases, budgets, canBudget, reloadConfig, rerender }).catch(showError);
+  });
 
-  const textOf = (row) => Object.values(values.get(row.id) || row.data || {}).join(' ').toLowerCase();
-  const shownRows = () => {
+  const shared = { ...ctx, canEdit, canBudget, season, lines, table, funds, funding, sponsorsIn, seasonInfo, categories, budgets, fileCount, showError };
+  if (view.tab === 'purchases') drawPurchases(box, shared);
+  else if (view.tab === 'budget') drawBudget(box, shared);
+  else if (view.tab === 'funding') drawFunding(box, shared);
+  else if (view.tab === 'notes') drawNotes(box, shared);
+  else await renderSheets(box, ctx);
+}
+
+const tile = (label, value, note, bad = false) => `<div class="fin-tile ${bad ? 'is-bad' : ''}">
+  <span class="fin-tile-label">${esc(label)}</span><strong>${value}</strong>${note ? `<span class="muted small">${esc(note)}</span>` : ''}</div>`;
+
+/** Money the Sponsors board brought in this season (cards in a "received" or "done" stage). */
+async function sponsorIncome(config, season) {
+  if (!auth.can('sponsors.view') && !auth.can('sponsors.edit')) return 0;
+  const stages = Array.isArray(config.sponsors?.stages) ? config.sponsors.stages : [];
+  const paid = new Set(stages.filter((s) => ['received', 'done'].includes(s.kind)).map((s) => s.key));
+  if (!paid.size) return 0;
+  const cards = await api.listSponsorCards().catch(() => []);
+  return cards.filter((c) => c.season === season && paid.has(c.stage)).reduce((s, c) => s + (Number(c.amount) || 0), 0);
+}
+
+const stepChip = (key) => `<span class="step-chip step-${esc(stepOf(key).tone)}" title="${esc(stepOf(key).hint)}">${esc(stepOf(key).label)}</span>`;
+
+// ---- Purchases ---------------------------------------------------------------------------
+
+function drawPurchases(box, s) {
+  const { canEdit, categories, rerender, showError } = s;
+  const lines = s.lines;
+  const order = STEPS.map((x) => x.key);
+
+  const shown = () => {
     const words = view.q.toLowerCase().split(/\s+/).filter(Boolean);
-    let list = rows.filter((r) => words.every((w) => textOf(r).includes(w)));
-    if (view.sort) {
-      const col = columns.find((c) => c.key === view.sort.key);
-      const dir = view.sort.dir === 'desc' ? -1 : 1;
-      const raw = (r) => values.get(r.id)?.[col.key] ?? '';
-      list = [...list].sort((a, b) => {
-        const [x, y] = [raw(a), raw(b)];
-        if (x === '' || y === '') return x === y ? 0 : x === '' ? 1 : -1; // blanks last
-        if (isNumeric(col)) return (toNumber(x) - toNumber(y)) * dir;
-        return String(x).localeCompare(String(y), undefined, { numeric: true, sensitivity: 'base' }) * dir;
-      });
-    }
-    return list;
+    let list = lines.filter(
+      (l) =>
+        (!view.status || l.status === view.status) &&
+        (!view.category || l.category.toLowerCase() === view.category.toLowerCase()) &&
+        words.every((w) => [l.description, l.number, l.category, l.dept, l.orderNumber, l.notes].join(' ').toLowerCase().includes(w))
+    );
+    const by = {
+      newest: (a, b) => b.sortDate.localeCompare(a.sortDate),
+      oldest: (a, b) => a.sortDate.localeCompare(b.sortDate),
+      status: (a, b) => order.indexOf(a.status) - order.indexOf(b.status) || b.sortDate.localeCompare(a.sortDate),
+      category: (a, b) => a.category.localeCompare(b.category) || b.sortDate.localeCompare(a.sortDate),
+      cost: (a, b) => (b.amount || 0) - (a.amount || 0),
+    }[view.sort];
+    return [...list].sort(by);
   };
 
-  const show = (c, v) => {
-    if (v === '' || v === undefined || v === null) return '';
-    if (isMoney(c)) return fmtMoney(toNumber(v));
-    if (isNumeric(c)) return String(Number(toNumber(v).toFixed(6)));
-    return esc(v);
+  const statusCell = (l) => {
+    if (!canEdit || (l.kind === 'request' && ['ordered', 'received'].includes(l.status))) return stepChip(l.status);
+    const options = l.kind === 'request' ? STEPS.filter((x) => !['ordered', 'received'].includes(x.key)) : STEPS;
+    return `<select data-f="dept_status" class="step-select step-${esc(stepOf(l.status).tone)}" aria-label="Status">${options
+      .map((x) => `<option value="${x.key}" ${x.key === l.status ? 'selected' : ''}>${esc(x.label)}</option>`)
+      .join('')}${l.kind === 'request' ? '<option value="goto">Ordered… (on the request)</option>' : ''}</select>`;
   };
-  const negative = (c, v) => isNumeric(c) && v !== '' && toNumber(v) < 0;
-
-  const cell = (row, c) => {
-    const v = row.data?.[c.key] ?? '';
-    const attrs = `data-row="${esc(row.id)}" data-key="${esc(c.key)}" aria-label="${esc(c.label)}"`;
-    if (c.type === 'budget' && canBudget) {
-      const bv = values.get(row.id)?.[c.key] ?? '';
-      return `<td class="num t-money is-budget" title="The site's budget (same as the Budgets card)"><input type="text" inputmode="decimal" data-budget-row="${esc(row.id)}" data-key="${esc(c.key)}" aria-label="${esc(c.label)}" value="${bv === '' ? '' : toNumber(bv).toFixed(2)}" placeholder="—"></td>`;
-    }
-    if (isCalc(c)) return `<td class="${isNumeric(c) ? 'num ' : ''}is-calc" data-calc="${esc(c.key)}" data-row-id="${esc(row.id)}" tabindex="0" title="Calculated: click to see how"></td>`;
-    if (!canEdit) {
-      const req = c.type === 'request' && v ? byNumber.get(String(v).toLowerCase()) : null;
-      const shown =
-        c.type === 'money' ? show(c, v)
-        : c.type === 'date' ? (v ? fmtDate(v) : '')
-        : c.type === 'checkbox' ? (v ? '✓' : '')
-        : c.type === 'link' && v ? `<a href="${esc(v)}" target="_blank" rel="noopener">${esc(v)}</a>`
-        : req ? `<a href="#/requests/${esc(req.request_number)}" title="${esc(req.title || '')}">${esc(v)}</a>`
-        : esc(v);
-      return `<td class="${PLAIN_NUMERIC.has(c.type) ? 'num' : ''} ${negative(c, v) ? 'is-negative' : ''}">${shown}</td>`;
-    }
-    let input;
-    if (c.type === 'checkbox') input = `<input type="checkbox" ${attrs} ${v ? 'checked' : ''}>`;
-    else if (c.type === 'select') {
-      const opts = [...new Set([...optionsOf(c, config), ...(v ? [v] : [])])];
-      input = `<select ${attrs}><option value=""></option>${opts.map((o) => `<option ${o === v ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`;
-    } else if (c.type === 'date') input = `<input type="date" ${attrs} value="${esc(v)}">`;
-    else if (PLAIN_NUMERIC.has(c.type)) input = `<input type="text" inputmode="decimal" ${attrs} value="${esc(c.type === 'money' && v !== '' ? toNumber(v).toFixed(2) : v)}" ${c.type === 'money' ? 'placeholder="$"' : ''}>`;
-    else if (c.type === 'request') {
-      const r = byNumber.get(String(v).toLowerCase());
-      input = `<span class="cell-with-link"><input type="text" list="request-numbers" ${attrs} value="${esc(v)}" placeholder="SG-…">${
-        r ? `<a href="#/requests/${esc(r.request_number)}" title="${esc(r.title || '')}" aria-label="Open ${esc(v)}">↗</a>` : ''}</span>`;
-    } else if (c.type === 'link') {
-      input = `<span class="cell-with-link"><input type="url" ${attrs} value="${esc(v)}">${
-        /^https?:\/\//i.test(v) ? `<a href="${esc(v)}" target="_blank" rel="noopener" aria-label="Open link">↗</a>` : ''}</span>`;
-    } else input = `<input type="text" ${attrs} value="${esc(v)}">`;
-    return `<td class="${PLAIN_NUMERIC.has(c.type) ? 'num' : ''} t-${esc(c.type)} ${negative(c, v) ? 'is-negative' : ''}">${input}</td>`;
+  const input = (l, f, value, attrs = '') => `<input data-f="${f}" value="${esc(value ?? '')}" ${attrs}>`;
+  const row = (l) => {
+    const own = l.kind === 'own';
+    const files = s.fileCount(l);
+    return `<tr data-line="${esc(l.key)}" class="step-row-${esc(stepOf(l.status).tone)} ${l.status === 'cancelled' ? 'is-cancelled' : ''}">
+      <td class="ledger-status">${statusCell(l)}</td>
+      <td class="ledger-desc">${own && canEdit
+        ? input(l, 'description', l.description, 'placeholder="What was bought" aria-label="Description"')
+        : own ? esc(l.description) : `<a href="#/requests/${esc(l.number)}"><span class="mono small">${esc(l.number)}</span> ${esc(l.description)}</a>`}</td>
+      <td class="num">${own && canEdit ? input(l, 'amount', l.amount === null ? '' : l.amount.toFixed(2), 'inputmode="decimal" placeholder="$" aria-label="Cost"') : money(l.amount)}</td>
+      <td class="ledger-dept">${canEdit ? input(l, 'dept', l.dept, 'list="fin-depts" maxlength="20" aria-label="M/E"') : esc(l.dept)}</td>
+      <td>${own && canEdit ? input(l, 'category', l.category, 'list="fin-categories" aria-label="Category"') : esc(l.category || '—')}</td>
+      <td>${own && canEdit ? input(l, 'order_number', l.orderNumber, 'aria-label="Order #"') : esc(l.orderNumber || '—')}</td>
+      <td class="nowrap">${own && canEdit ? input(l, 'purchased_on', l.date, 'type="date" class="date-quiet" required aria-label="Date"') : l.date ? fmtDate(l.date) : '—'}</td>
+      <td class="ledger-notes">${canEdit ? input(l, 'notes', l.notes, 'aria-label="Notes"') : esc(l.notes)}</td>
+      <td class="ledger-actions">
+        <button type="button" class="row-files ${files ? 'has-files' : ''}" data-files title="${files ? `${files} file(s)` : 'Attach a receipt or file'}" aria-label="Files">📎${files ? `<span>${files}</span>` : ''}</button>
+        ${own && canEdit ? '<button type="button" class="icon-btn" data-delete title="Delete" aria-label="Delete purchase">&times;</button>' : ''}
+      </td>
+    </tr>`;
   };
 
   const draw = () => {
-    const list = shownRows();
-    el.querySelector('#sheet-body').innerHTML = list.length
-      ? list
-          .map(
-            (row, i) => `<tr data-row-id="${esc(row.id)}">
-              <td class="sheet-idx muted">${i + 1}${fileCounts[row.id] || canEdit
-                ? `<button type="button" class="row-files ${fileCounts[row.id] ? 'has-files' : ''}" data-row-files="${esc(row.id)}" title="${fileCounts[row.id] ? `${fileCounts[row.id]} file(s)` : 'Attach a receipt or file'}" aria-label="Files for row ${i + 1}">📎${fileCounts[row.id] ? `<span>${fileCounts[row.id]}</span>` : ''}</button>`
-                : ''}</td>
-              ${columns.map((c) => cell(row, c)).join('')}
-              ${canEdit ? `<td class="sheet-del"><button type="button" class="icon-btn" data-delete-row="${esc(row.id)}" title="Delete row" aria-label="Delete row ${i + 1}">&times;</button></td>` : ''}
-            </tr>`
-          )
-          .join('')
-      : `<tr><td colspan="${columns.length + 2}" class="muted sheet-empty">${rows.length ? 'No rows match your search.' : canEdit ? 'No rows yet. Click "+ Add row".' : 'No rows yet.'}</td></tr>`;
-    el.querySelector('#fin-count').textContent = list.length === rows.length ? `${rows.length} row${rows.length === 1 ? '' : 's'}` : `${list.length} of ${rows.length} rows`;
-    el.querySelector('#keep-order-box').innerHTML = canEdit && view.sort && !view.q
-      ? '<button type="button" class="btn btn-sm btn-ghost" id="keep-order" title="Save the rows in this order">Keep this order</button>'
-      : '';
-    const missing = perOption && canEdit ? optionsOf(perOption, config).filter((o) => !rows.some((r) => same(r.data?.[perOption.key], o))) : [];
-    el.querySelector('#per-option-box').innerHTML = missing.length
-      ? `<button type="button" class="btn btn-sm" id="per-option" title="${esc(missing.join(', '))}">Add a row per ${esc(perOption.label)} (${missing.length})</button>`
-      : '';
-    fillCalculated(list);
+    const list = shown();
+    const total = list.filter((l) => l.status !== 'cancelled').reduce((sum, l) => sum + (l.amount || 0), 0);
+    box.querySelector('#ledger-body').innerHTML = list.length
+      ? list.map(row).join('')
+      : `<tr><td colspan="9" class="muted sheet-empty">${lines.length ? 'Nothing matches.' : 'No purchases yet this season. Approved requests show up here on their own.'}</td></tr>`;
+    box.querySelector('#ledger-count').textContent = `${list.length} of ${lines.length} · ${fmtMoney(total)} (not counting cancelled)`;
   };
 
-  /** Calculated cells, running totals and the totals row (over the rows shown, in the order shown). */
-  const fillCalculated = (list = shownRows()) => {
-    running = runningTotals(columns, list, values);
-    for (const td of el.querySelectorAll('#sheet-body [data-calc]')) {
-      const c = columns.find((x) => x.key === td.dataset.calc);
-      const v = c.type === 'running' ? running.get(td.dataset.rowId)?.[c.key] : values.get(td.dataset.rowId)?.[c.key];
-      td.innerHTML = show(c, v ?? '');
-      td.classList.toggle('is-negative', negative(c, v ?? ''));
-    }
-    const any = columns.some((c) => (c.sum && isNumeric(c)) || c.type === 'running');
-    el.querySelector('#sheet-foot').innerHTML = any
-      ? `<tr><td class="sheet-idx" title="Totals of the rows shown"><strong>Σ</strong></td>${columns
-          .map((c) => {
-            let total;
-            if (c.type === 'running') total = list.length ? running.get(list[list.length - 1].id)?.[c.key] ?? 0 : 0;
-            else if (c.sum && isNumeric(c)) total = list.reduce((s, r) => s + toNumber(values.get(r.id)?.[c.key]), 0);
-            else return '<td></td>';
-            return `<td class="num ${total < 0 ? 'is-negative' : ''}"><strong>${isMoney(c) ? fmtMoney(total) : Number(total.toFixed(6))}</strong></td>`;
-          })
-          .join('')}${canEdit ? '<td></td>' : ''}</tr>`
-      : '';
-  };
+  const counts = Object.fromEntries(STEPS.map((x) => [x.key, lines.filter((l) => l.status === x.key).length]));
+  box.innerHTML = `
+    <div class="step-strip">${STEPS.map((x) => `<button type="button" class="step-pill step-${esc(x.tone)} ${view.status === x.key ? 'is-on' : ''}" data-step="${x.key}" title="${esc(x.hint)}">
+      ${esc(x.label)} <strong>${counts[x.key]}</strong></button>`).join('')}</div>
+    <div class="toolbar">
+      <input type="search" id="ledger-q" placeholder="Search description, order #, notes…" value="${esc(view.q)}" aria-label="Search purchases">
+      <select id="ledger-category" aria-label="Category"><option value="">All categories</option>${categories.map((c) => `<option ${c === view.category ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
+      <select id="ledger-sort" aria-label="Sort">${SORTS.map(([k, l]) => `<option value="${k}" ${k === view.sort ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>
+      <span class="muted small" id="ledger-count"></span>
+      ${canEdit ? '<button type="button" class="btn btn-sm btn-primary toolbar-end" id="ledger-add">+ Add a purchase</button>' : ''}
+    </div>
+    <div class="table-wrap sheet-wrap">
+      <table class="table ledger-table">
+        <thead><tr><th>Status</th><th>Description</th><th class="num">Cost</th><th>M/E</th><th>Category</th><th>Order #</th><th>Date</th><th>Notes</th><th></th></tr></thead>
+        <tbody id="ledger-body"></tbody>
+      </table>
+    </div>
+    <p class="hint">Requests show up here once they're approved. Add a purchase for anything bought outside the site (a PayPal invoice, a quote over the phone).
+      M/E is who orders it: <strong>M</strong> MAE, <strong>E</strong> ECE, <strong>A</strong> other.</p>
+    <datalist id="fin-depts">${DEPTS.map(([k, l]) => `<option value="${k}">${esc(l)}</option>`).join('')}</datalist>
+    <datalist id="fin-categories">${categories.map((c) => `<option value="${esc(c)}">`).join('')}</datalist>`;
 
-  // ---- "Click to see why" ----------------------------------------------------------
-  const why = (td) => {
-    const c = columns.find((x) => x.key === td.dataset.calc);
-    const row = rows.find((r) => r.id === td.dataset.rowId);
-    if (!c || !row) return;
-    let info;
-    if (c.type === 'running') {
-      const of = columns.find((x) => x.key === c.of);
-      const list = shownRows();
-      const upTo = list.slice(0, list.indexOf(row) + 1);
-      info = { text: `${of?.label || '?'} added up row by row, in the order shown (row 1 to this row).`, items: upTo.map((r, i) => ({ label: `Row ${i + 1}`, amount: toNumber(values.get(r.id)?.[c.of]) })) };
-    } else info = explain(c, row, values.get(row.id) || {}, ctx);
-    const total = c.type === 'running' ? running.get(row.id)?.[c.key] : values.get(row.id)?.[c.key];
-    const dialog = document.createElement('dialog');
-    dialog.className = 'card calc-dialog';
-    dialog.innerHTML = `<h2>${esc(c.label)}</h2>
-      <p>${esc(info.text)}</p>
-      ${info.items.length
-        ? `<ul class="calc-items">${info.items
-            .slice(0, 200)
-            .map((i) => `<li>${i.href ? `<a href="${esc(i.href)}">${esc(i.label)}</a>` : `<span>${esc(i.label)}</span>`}${i.amount !== undefined ? `<span class="num">${fmtMoney(i.amount)}</span>` : ''}</li>`)
-            .join('')}</ul>${info.items.length > 200 ? `<p class="muted small">…and ${info.items.length - 200} more.</p>` : ''}`
-        : '<p class="muted small">Nothing to add up yet.</p>'}
-      ${isNumeric(c) ? `<p class="calc-total"><span>Total</span><strong>${show(c, total ?? 0) || fmtMoney(0)}</strong></p>` : ''}
-      <div class="form-actions"><button type="button" class="btn" id="calc-close">Close</button></div>`;
-    document.body.appendChild(dialog);
-    const close = () => {
-      dialog.close();
-      dialog.remove();
-    };
-    dialog.querySelector('#calc-close').addEventListener('click', close);
-    dialog.addEventListener('click', (e) => (e.target === dialog || e.target.closest('a')) && close());
-    dialog.addEventListener('cancel', close);
-    dialog.showModal();
-  };
-
-  // ---- saving cells ---------------------------------------------------------------
-  let pending = 0;
-  const parseAmount = (input, value) => {
-    // Accepts 1234.5, $1,234.50, -5 and accounting-style (12.50).
-    const n = /^-?\(?-?\$?\s?[\d,]*\.?\d+\)?$/.test(value) ? toNumber(value) : NaN;
-    if (!Number.isFinite(n)) {
-      input.classList.add('is-invalid');
-      status.textContent = `"${value}" isn't a number.`;
-      return null;
-    }
-    input.classList.remove('is-invalid');
-    return n;
-  };
-
-  const save = async (input) => {
-    const row = rows.find((r) => r.id === input.dataset.row);
-    const col = columns.find((c) => c.key === input.dataset.key);
-    if (!row || !col) return;
-    let value = input.type === 'checkbox' ? (input.checked ? 'Yes' : '') : input.value.trim();
-    if (PLAIN_NUMERIC.has(col.type) && value !== '') {
-      const n = parseAmount(input, value);
-      if (n === null) return;
-      value = col.type === 'money' ? n.toFixed(2) : String(n);
-      input.value = value;
-    }
-    input.classList.remove('is-invalid');
-    if ((row.data[col.key] ?? '') === value) return;
-    const before = row.data[col.key];
-    if (value === '') delete row.data[col.key];
-    else row.data[col.key] = value;
-    input.closest('td')?.classList.toggle('is-negative', negative(col, value));
-    recalc();
-    fillCalculated();
-    pending++;
-    status.textContent = 'Saving…';
+  const lineOf = (node) => lines.find((l) => l.key === node.closest('tr[data-line]')?.dataset.line);
+  const save = async (l, fields) => {
     try {
-      await api.setFinanceCell(row.id, col.key, value);
-      if (!--pending) status.textContent = 'All changes saved';
-      errors.innerHTML = '';
-    } catch (err) {
-      pending--;
-      if (before === undefined) delete row.data[col.key];
-      else row.data[col.key] = before;
-      recalc();
-      fillCalculated();
-      showError(err);
-    }
-    // A request number or link that changed gets its ↗.
-    if (col.type === 'request' || col.type === 'link') {
-      const td = input.closest('td');
-      const tr = input.closest('tr');
-      const focusKey = document.activeElement?.dataset?.key;
-      td.outerHTML = cell(row, col);
-      if (focusKey && focusKey !== col.key) tr.querySelector(`[data-key="${CSS.escape(focusKey)}"]`)?.focus();
-    }
-  };
-
-  /** Budget cells change the site's budgets (the Budgets card uses the same numbers). */
-  const saveBudget = async (input) => {
-    const row = rows.find((r) => r.id === input.dataset.budgetRow);
-    const col = columns.find((c) => c.key === input.dataset.key);
-    const name = String(row?.data?.[col.by] ?? '').trim();
-    const value = input.value.trim();
-    if (!name) {
-      input.value = '';
-      showError(new Error(`Pick a ${columns.find((c) => c.key === col.by)?.label || 'value'} in this row first.`));
-      return;
-    }
-    const n = value === '' ? '' : parseAmount(input, value);
-    if (n === null) return;
-    const budgets = structuredClone(workflowSettings(config).budgets);
-    const field = formFieldOf(columns.find((c) => c.key === col.by));
-    if (!budgets.field) budgets.field = field;
-    if (field && budgets.field !== field) {
-      showError(new Error('The site\'s budgets are set per another field. Change "Budget by" in the Budgets card first.'));
-      return;
-    }
-    const existing = Object.keys(budgets.amounts || {}).find((k) => same(k, name));
-    budgets.amounts = { ...(budgets.amounts || {}) };
-    if (existing !== undefined) delete budgets.amounts[existing];
-    if (n !== '') budgets.amounts[existing ?? name] = String(n);
-    status.textContent = 'Saving budget…';
-    try {
-      await api.setBudgets(budgets);
-      await reloadConfig();
-      ctx.budgets = workflowSettings(config).budgets;
-      input.value = n === '' ? '' : n.toFixed(2);
-      recalc();
-      fillCalculated();
-      status.textContent = 'Budget saved';
-      errors.innerHTML = '';
+      if (l.purchaseId) await api.savePurchase(l.purchaseId, fields);
+      else l.purchaseId = await api.savePurchase(null, { ...fields, request_id: l.request.id });
+      document.querySelector('#fin-errors').innerHTML = '';
+      return true;
     } catch (err) {
       showError(err);
+      return false;
     }
   };
 
-  el.addEventListener('change', (e) => {
-    if (e.target.matches('[data-budget-row]')) saveBudget(e.target);
-    else if (e.target.matches('[data-row][data-key]')) save(e.target);
-  });
-
-  // Enter: down to the same column in the next row (adds a row at the bottom).
-  el.addEventListener('keydown', async (e) => {
-    const input = e.target;
-    if (e.key === 'Enter' && input.matches?.('td[data-calc]')) return why(input);
-    if (e.key !== 'Enter' || !input.matches?.('input[data-row][data-key], input[data-budget-row]')) return;
-    e.preventDefault();
-    input.blur(); // saves
-    const tr = input.closest('tr');
-    let next = tr.nextElementSibling;
-    if (!next && canEdit && !input.dataset.budgetRow) {
-      await addRows([{ data: {} }]);
-      next = el.querySelector('#sheet-body tr:last-child');
+  box.addEventListener('change', async (e) => {
+    const t = e.target;
+    if (t.id === 'ledger-category') return (view.category = t.value), draw();
+    if (t.id === 'ledger-sort') return (view.sort = t.value), draw();
+    const f = t.dataset.f;
+    const l = f && lineOf(t);
+    if (!l) return;
+    if (f === 'dept_status' && t.value === 'goto') {
+      location.hash = `#/requests/${l.number}`;
+      return;
     }
-    next?.querySelector(`[data-key="${CSS.escape(input.dataset.key)}"]`)?.focus();
+    let value = t.value.trim();
+    if (f === 'amount') {
+      value = toAmount(value);
+      if (value === null) return showError(new Error(`"${t.value}" isn't a number.`));
+      t.value = value;
+    }
+    if (await save(l, { [f]: value })) {
+      if (f === 'dept_status') return rerender(); // totals and tiles change
+      if (f === 'amount' || f === 'category') return rerender();
+      l[{ dept: 'dept', notes: 'notes', description: 'description', order_number: 'orderNumber', purchased_on: 'date' }[f]] = value;
+    }
   });
-
-  const addRows = async (list) => {
-    try {
-      const added = await api.addFinanceRows(sheet.id, list);
-      rows.push(...added);
-      view.sort = null; // new rows go at the bottom, where you can see them
-      recalc();
+  box.addEventListener('input', (e) => {
+    if (e.target.id === 'ledger-q') {
+      view.q = e.target.value;
       draw();
-      return added;
-    } catch (err) {
-      showError(err);
-      return [];
     }
-  };
-
-  // ---- clicks ---------------------------------------------------------------------
-  el.addEventListener('click', async (e) => {
-    const calc = e.target.closest('td[data-calc]');
-    if (calc && !e.target.closest('a')) return why(calc);
-    const btn = e.target.closest('button');
-    if (!btn) return;
-    if (btn.dataset.rowFiles) {
-      const n = shownRows().findIndex((r) => r.id === btn.dataset.rowFiles) + 1;
-      return openAttachmentsDialog({
-        title: `Files · ${sheet.name}, row ${n}`, kind: 'finance', ownerId: btn.dataset.rowFiles, canEdit,
-        onChange: (count) => {
-          fileCounts[btn.dataset.rowFiles] = count;
-          draw();
-        },
-      });
-    }
-    if (btn.dataset.sheet) {
-      view.sheetId = btn.dataset.sheet;
-      view.sort = null;
-      return rerender();
-    }
-    if (btn.dataset.sort) {
-      const key = btn.dataset.sort;
-      view.sort = view.sort?.key !== key ? { key, dir: 'asc' } : view.sort.dir === 'asc' ? { key, dir: 'desc' } : null;
-      el.querySelectorAll('[data-sort]').forEach((b) => {
-        b.querySelector('.sort-ind').textContent = view.sort?.key === b.dataset.sort ? (view.sort.dir === 'desc' ? '▼' : '▲') : '↕';
-      });
+  });
+  box.addEventListener('click', async (e) => {
+    const step = e.target.closest('[data-step]');
+    if (step) {
+      view.status = view.status === step.dataset.step ? '' : step.dataset.step;
+      box.querySelectorAll('[data-step]').forEach((b) => b.classList.toggle('is-on', b.dataset.step === view.status));
       return draw();
     }
-    if (btn.id === 'add-row') {
-      const [row] = await addRows([{ data: {} }]);
-      const first = columns.find((c) => !isCalc(c));
-      if (row && first) el.querySelector(`[data-row="${CSS.escape(row.id)}"][data-key="${CSS.escape(first.key)}"]`)?.focus();
-      return;
-    }
-    if (btn.id === 'per-option') {
-      const missing = optionsOf(perOption, config).filter((o) => !rows.some((r) => same(r.data?.[perOption.key], o)));
-      await addRows(missing.map((o) => ({ data: { [perOption.key]: o } })));
-      status.textContent = `Added ${missing.length} row${missing.length === 1 ? '' : 's'}.`;
-      return;
-    }
-    if (btn.dataset.deleteRow) {
-      if (!confirm('Delete this row? This can\'t be undone.')) return;
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    if (btn.id === 'ledger-add') {
       try {
-        await api.deleteFinanceRows([btn.dataset.deleteRow]);
-        rows.splice(rows.findIndex((r) => r.id === btn.dataset.deleteRow), 1);
-        recalc();
-        draw();
+        await api.savePurchase(null, { season: s.season, purchased_on: new Date().toISOString().slice(0, 10), category: view.category || '' });
+        view.sort = 'newest';
+        view.status = '';
+        await rerender();
+        document.querySelector('.ledger-table [data-f="description"]')?.focus();
       } catch (err) {
         showError(err);
       }
       return;
     }
-    if (btn.id === 'keep-order') {
-      const list = shownRows();
-      btn.disabled = true;
-      status.textContent = 'Saving order…';
-      try {
-        for (const [i, row] of list.entries()) {
-          if (row.position !== i + 1) {
-            await api.moveFinanceRow(row.id, i + 1);
-            row.position = i + 1;
-          }
-        }
-        view.sort = null;
-        setFlash('Row order saved.');
-        return rerender();
-      } catch (err) {
-        showError(err);
-        btn.disabled = false;
-      }
-      return;
-    }
-    if (btn.id === 'new-sheet') return startNew();
-    if (btn.id === 'edit-columns') {
-      btn.hidden = true;
-      const box = el.querySelector('#columns-editor');
-      openColumnEditor(box, {
-        sheet, sheets, rowsCount: rows.length, config, rerender,
-        setView: (v) => Object.assign(view, v),
-        onDone: () => {
-          box.innerHTML = '';
-          btn.hidden = false;
-        },
+    const l = lineOf(btn);
+    if (!l) return;
+    if (btn.hasAttribute('data-files')) {
+      if (l.kind === 'own' && !l.purchaseId) return;
+      openAttachmentsDialog({
+        title: `Files · ${l.number || l.description || 'Purchase'}`,
+        kind: l.kind === 'request' ? 'request' : 'purchase',
+        ownerId: l.kind === 'request' ? l.request.id : l.purchaseId,
+        canEdit: l.kind === 'request' ? auth.can('request.order') || auth.can('request.review') : canEdit,
+        onChange: () => {},
       });
-      box.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      return;
+    } else if (btn.hasAttribute('data-delete')) {
+      if (!confirm(`Delete "${l.description || 'this purchase'}"? This can't be undone.`)) return;
+      try {
+        await api.deletePurchase(l.purchaseId);
+        await rerender();
+      } catch (err) {
+        showError(err);
+      }
     }
-    if (btn.id === 'download') return download(sheet, columns, shownRows(), values, running).catch(showError);
-    if (btn.id === 'add-ordered') return addOrdered();
   });
-
-  el.querySelector('#fin-q').addEventListener('input', (e) => {
-    view.q = e.target.value;
-    draw();
-  });
-
-  el.querySelector('#import-file')?.addEventListener('change', async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    status.textContent = 'Reading the file…';
-    try {
-      const made = await importWorkbook(file, sheets.length);
-      if (!made.length) throw new Error('No sheets with data were found in that file.');
-      view.sheetId = made[0];
-      setFlash(`Imported ${made.length} sheet${made.length === 1 ? '' : 's'} from ${file.name}.`);
-      rerender();
-    } catch (err) {
-      showError(err);
-    }
-    e.target.value = '';
-  });
-
-  // ---- "Add ordered requests" -------------------------------------------------------
-  async function addOrdered() {
-    const sources = new Map(ctx.details.map(([k, , get]) => [k, get]));
-    const linked = new Set(rows.map((r) => r.request_id).filter(Boolean));
-    const ordered = (await api.listRequests(['Ordered', 'Received']))
-      .filter((r) => !linked.has(r.id))
-      .sort((a, b) => String(a.order?.order_date || a.created_at).localeCompare(String(b.order?.order_date || b.created_at)));
-    if (!ordered.length) return alert('Every ordered request is already in this sheet.');
-    if (!confirm(`Add ${ordered.length} ordered request${ordered.length === 1 ? '' : 's'} not yet in "${sheet.name}"?`)) return;
-    const list = ordered.map((r) => ({
-      request_id: r.id,
-      data: Object.fromEntries(
-        columns
-          .filter((c) => c.fill && sources.has(c.fill))
-          .map((c) => [c.key, String(sources.get(c.fill)(r) ?? '').trim()])
-          .filter(([, v]) => v !== '')
-      ),
-    }));
-    const added = await addRows(list);
-    if (added.length) status.textContent = `Added ${added.length} row${added.length === 1 ? '' : 's'}.`;
-  }
-
   draw();
 }
 
-// ---- Excel: download and import --------------------------------------------------------
+// ---- Budget --------------------------------------------------------------------------------
 
-async function download(sheet, columns, rows, values, running) {
+function drawBudget(box, s) {
+  const { table, canBudget, config, budgets, reloadConfig, rerender, showError } = s;
+  const fields = budgetFields(config);
+  const bar = (r) => {
+    if (r.budget === null || r.budget <= 0) return '';
+    const spent = Math.min(100, (r.spent / r.budget) * 100);
+    const pipe = Math.min(100 - spent, (r.pipeline / r.budget) * 100);
+    return `<span class="budget-bar two-part" title="${Math.round(((r.spent + r.pipeline) / r.budget) * 100)}% used"><span class="bar-spent" style="width:${spent}%"></span><span class="bar-pipe" style="width:${pipe}%"></span></span>`;
+  };
+  box.innerHTML = `
+    <div class="table-wrap">
+      <table class="table stack-mobile budget-ledger">
+        <thead><tr><th>Category</th><th class="num">Budget</th><th class="num">Spent</th><th class="num">In the pipeline</th><th class="num">Left</th><th></th></tr></thead>
+        <tbody>${table.rows
+          .map(
+            (r) => `<tr class="${r.left !== null && r.left < 0 ? 'is-over' : ''}">
+              <td class="cell-primary" data-label=""><a href="#/finances" data-category="${esc(r.category)}" title="See its purchases">${esc(r.category)}</a></td>
+              <td class="num" data-label="Budget">${canBudget && r.category !== '(no category)'
+                ? `<input class="budget-input" data-budget="${esc(r.category)}" value="${r.budget === null ? '' : r.budget.toFixed(2)}" inputmode="decimal" placeholder="Set" aria-label="Budget for ${esc(r.category)}">`
+                : money(r.budget) || '—'}</td>
+              <td class="num" data-label="Spent">${fmtMoney(r.spent)}</td>
+              <td class="num" data-label="In the pipeline">${fmtMoney(r.pipeline)}</td>
+              <td class="num" data-label="Left"><strong>${r.left === null ? '—' : r.left < 0 ? `${fmtMoney(-r.left)} over` : fmtMoney(r.left)}</strong></td>
+              <td class="budget-bar-cell" data-label="">${bar(r)}</td>
+            </tr>`
+          )
+          .join('') || '<tr><td colspan="6" class="muted sheet-empty">No budgets yet.</td></tr>'}</tbody>
+        <tfoot><tr><td><strong>Total</strong></td><td class="num"><strong>${fmtMoney(table.total.budget)}</strong></td><td class="num"><strong>${fmtMoney(table.total.spent)}</strong></td>
+          <td class="num"><strong>${fmtMoney(table.total.pipeline)}</strong></td><td class="num"><strong>${table.total.left < 0 ? `${fmtMoney(-table.total.left)} over` : fmtMoney(table.total.left)}</strong></td><td></td></tr></tfoot>
+      </table>
+    </div>
+    ${canBudget ? `<form class="budget-add" id="budget-add" novalidate>
+        <input id="new-category" list="fin-categories" placeholder="Add a category, e.g. Competition" aria-label="New category">
+        <input id="new-amount" inputmode="decimal" placeholder="Budget ($)" aria-label="Budget">
+        <button type="submit" class="btn btn-sm">Add</button>
+      </form>
+      <datalist id="fin-categories">${s.categories.map((c) => `<option value="${esc(c)}">`).join('')}</datalist>
+      <details class="about"><summary>Budget settings</summary><div>
+        <div class="field"><label for="budget-field">Requests count toward the budget of their</label>
+          <select id="budget-field"><option value="">(choose a dropdown)</option>${fields.map((f) => `<option value="${esc(f.key)}" ${f.key === budgets.field ? 'selected' : ''}>${esc(f.label)}</option>`).join('')}</select></div>
+        <label class="rule-toggle"><input type="checkbox" id="budget-block" ${budgets.block ? 'checked' : ''}>
+          <span>Approving over budget needs a written reason <span class="hint">The approver has to say why; it's kept in the request's History.</span></span></label>
+      </div></details>` : ''}
+    <p class="hint">Spent = ordered + received. In the pipeline = approved but not ordered yet (to submit, sent, or approved by the department).
+      Purchases added by hand count too; cancelled ones don't. The same budgets warn approvers before a request goes over.</p>`;
+
+  const saveBudgets = async (next) => {
+    try {
+      await api.setBudgets({ ...budgets, ...next });
+      await reloadConfig();
+      await rerender();
+    } catch (err) {
+      showError(err);
+    }
+  };
+  box.addEventListener('change', (e) => {
+    const t = e.target;
+    if (t.dataset.budget !== undefined) {
+      const value = toAmount(t.value);
+      if (value === null) return showError(new Error(`"${t.value}" isn't a number.`));
+      const amounts = { ...(budgets.amounts || {}) };
+      if (value === '') delete amounts[t.dataset.budget];
+      else amounts[t.dataset.budget] = value;
+      return saveBudgets({ amounts });
+    }
+    if (t.id === 'budget-field') return saveBudgets({ field: t.value });
+    if (t.id === 'budget-block') return saveBudgets({ block: t.checked });
+  });
+  box.querySelector('#budget-add')?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const name = box.querySelector('#new-category').value.trim();
+    const value = toAmount(box.querySelector('#new-amount').value);
+    if (!name || !value) return showError(new Error('Enter a category and its budget.'));
+    saveBudgets({ amounts: { ...(budgets.amounts || {}), [name]: value } });
+  });
+  box.addEventListener('click', (e) => {
+    const a = e.target.closest('[data-category]');
+    if (!a) return;
+    e.preventDefault();
+    view.tab = 'purchases';
+    view.category = a.dataset.category === '(no category)' ? '' : a.dataset.category;
+    rerender();
+  });
+}
+
+// ---- Funding -------------------------------------------------------------------------------
+
+const FUND_KINDS = ['University allocation', 'Donations', 'Department', 'Sponsorship', 'Grant', 'Fundraiser', 'Other'];
+
+function drawFunding(box, s) {
+  const { funds, funding, sponsorsIn, table, canEdit, seasonInfo, season, rerender, showError } = s;
+  const gap = funding.expected - table.total.budget;
+  const cell = (f, key, attrs = '') => (canEdit ? `<input data-fund="${esc(f.id)}" data-k="${key}" value="${esc(key === 'expected' || key === 'received' ? (f[key] === null ? '' : Number(f[key]).toFixed(2)) : f[key] || '')}" ${attrs}>` : esc(key === 'expected' || key === 'received' ? money(f[key]) : f[key] || ''));
+  box.innerHTML = `
+    <div class="table-wrap">
+      <table class="table stack-mobile funds-table">
+        <thead><tr><th>Source</th><th>Type</th><th class="num">Expected</th><th class="num">Received</th><th>Notes</th><th></th></tr></thead>
+        <tbody>${funds
+          .map(
+            (f) => `<tr>
+              <td class="cell-primary" data-label="">${cell(f, 'name', 'aria-label="Source"')}</td>
+              <td data-label="Type">${cell(f, 'kind', 'list="fund-kinds" aria-label="Type"')}</td>
+              <td class="num" data-label="Expected">${cell(f, 'expected', 'inputmode="decimal" placeholder="$" aria-label="Expected"')}</td>
+              <td class="num" data-label="Received">${cell(f, 'received', 'inputmode="decimal" placeholder="$" aria-label="Received"')}</td>
+              <td data-label="Notes">${cell(f, 'notes', 'aria-label="Notes"')}</td>
+              <td data-label="">${canEdit ? `<button type="button" class="icon-btn" data-delete-fund="${esc(f.id)}" aria-label="Delete source">&times;</button>` : ''}</td>
+            </tr>`
+          )
+          .join('')}
+          ${sponsorsIn ? `<tr class="is-auto"><td class="cell-primary" data-label=""><a href="#/sponsors">Sponsors board</a> <span class="muted small">(cards received this season)</span></td><td data-label="Type">Sponsorship</td>
+            <td class="num" data-label="Expected">${fmtMoney(sponsorsIn)}</td><td class="num" data-label="Received">${fmtMoney(sponsorsIn)}</td><td data-label="Notes" class="muted small">Adds itself up</td><td></td></tr>` : ''}
+          ${!funds.length && !sponsorsIn ? '<tr><td colspan="6" class="muted sheet-empty">No funding sources yet, e.g. the university allocation, donations, or money from ECE.</td></tr>' : ''}
+        </tbody>
+        <tfoot><tr><td><strong>Total</strong></td><td></td><td class="num"><strong>${fmtMoney(funding.expected)}</strong></td><td class="num"><strong>${fmtMoney(funding.received)}</strong></td><td></td><td></td></tr></tfoot>
+      </table>
+    </div>
+    ${canEdit ? '<button type="button" class="btn btn-sm" id="fund-add">+ Add a source</button>' : ''}
+    <datalist id="fund-kinds">${FUND_KINDS.map((k) => `<option value="${esc(k)}">`).join('')}</datalist>
+    <div class="fund-compare card">
+      <div><span class="muted small">Expected funds</span><strong>${fmtMoney(funding.expected)}</strong></div>
+      <div><span class="muted small">Total budget</span><strong>${fmtMoney(table.total.budget)}</strong></div>
+      <div class="${gap < 0 ? 'is-bad' : ''}"><span class="muted small">${gap < 0 ? 'Short by' : 'To spare'}</span><strong>${fmtMoney(Math.abs(gap))}</strong></div>
+      <div><span class="muted small">Rainy-day fund</span>${canEdit
+        ? `<input id="rainy-day" inputmode="decimal" value="${seasonInfo.rainy_day === null ? '' : Number(seasonInfo.rainy_day).toFixed(2)}" placeholder="$" aria-label="Rainy-day fund balance">`
+        : `<strong>${money(seasonInfo.rainy_day) || '—'}</strong>`}</div>
+    </div>`;
+
+  box.addEventListener('change', async (e) => {
+    const t = e.target;
+    try {
+      if (t.dataset.fund) {
+        let value = t.value.trim();
+        if (['expected', 'received'].includes(t.dataset.k)) {
+          value = toAmount(value);
+          if (value === null) return showError(new Error(`"${t.value}" isn't a number.`));
+        }
+        await api.saveFund(t.dataset.fund, { [t.dataset.k]: value });
+        if (['expected', 'received'].includes(t.dataset.k)) await rerender();
+      } else if (t.id === 'rainy-day') {
+        const value = toAmount(t.value);
+        if (value === null) return showError(new Error(`"${t.value}" isn't a number.`));
+        await api.saveFinanceSeason(season, { rainy_day: value });
+        await rerender();
+      }
+    } catch (err) {
+      showError(err);
+    }
+  });
+  box.addEventListener('click', async (e) => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    try {
+      if (btn.id === 'fund-add') {
+        await api.saveFund(null, { season, name: 'New source' });
+        await rerender();
+        [...document.querySelectorAll('.funds-table [data-k="name"]')].pop()?.select();
+      } else if (btn.dataset.deleteFund) {
+        if (!confirm('Delete this funding source?')) return;
+        await api.deleteFund(btn.dataset.deleteFund);
+        await rerender();
+      }
+    } catch (err) {
+      showError(err);
+    }
+  });
+}
+
+// ---- Notes ----------------------------------------------------------------------------------
+
+function drawNotes(box, s) {
+  const { canEdit, seasonInfo, season, showError } = s;
+  box.innerHTML = canEdit
+    ? `<textarea id="fin-notes" rows="14" placeholder="Plans and reminders for this season, e.g. $13,970 minimum for competition; could get $5,400 from ECE…">${esc(seasonInfo.notes || '')}</textarea>
+       <p class="muted small" id="notes-status">Saves when you click away.</p>`
+    : `<section class="card rich">${seasonInfo.notes ? renderRichText(seasonInfo.notes) : '<p class="muted">No notes yet.</p>'}</section>`;
+  box.querySelector('#fin-notes')?.addEventListener('change', async (e) => {
+    try {
+      await api.saveFinanceSeason(season, { notes: e.target.value });
+      box.querySelector('#notes-status').textContent = 'Saved.';
+    } catch (err) {
+      showError(err);
+    }
+  });
+}
+
+// ---- Download: one workbook with the ledger (in the old legend colors), budget and funding ----
+
+const FILLS = { gray: 'FFEEF1F4', pink: 'FFFFAAA4', lightgreen: 'FFC6E0B4', green: 'FF00B050', teal: 'FFB3E2E8', red: 'FFFF8A80' };
+
+async function download({ season, lines, table, funds, funding, sponsorsIn, seasonInfo }) {
   const ExcelJS = await loadExcelJS();
   const wb = new ExcelJS.Workbook();
-  const ws = wb.addWorksheet(sheet.name.slice(0, 31).replace(/[\\/*?:[\]]/g, ' '), { views: [{ state: 'frozen', ySplit: 1 }] });
-  ws.columns = columns.map((c) => ({ header: c.label, key: c.key, width: c.type === 'text' ? 28 : c.type === 'request' ? 14 : 16 }));
-  for (const row of rows) {
-    ws.addRow(
-      Object.fromEntries(
-        columns.map((c) => {
-          const v = c.type === 'running' ? running.get(row.id)?.[c.key] : values.get(row.id)?.[c.key] ?? '';
-          if (isNumeric(c)) return [c.key, v === '' || v === undefined ? null : toNumber(v)];
-          if (c.type === 'date' && /^\d{4}-\d{2}-\d{2}$/.test(v)) return [c.key, new Date(`${v}T00:00:00Z`)];
-          return [c.key, v ?? ''];
-        })
-      )
-    );
+  const head = (ws) => {
+    ws.getRow(1).eachCell((c) => {
+      c.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0B2545' } };
+    });
+    ws.views = [{ state: 'frozen', ySplit: 1 }];
+  };
+  const money = '"$"#,##0.00';
+
+  const ws = wb.addWorksheet('Purchases');
+  ws.columns = [
+    { header: 'Status', key: 'status', width: 16 }, { header: 'Item Description', key: 'description', width: 48 },
+    { header: 'Cost', key: 'amount', width: 12 }, { header: 'M/E', key: 'dept', width: 6 }, { header: 'Category', key: 'category', width: 18 },
+    { header: 'Order #', key: 'order', width: 12 }, { header: 'Request', key: 'number', width: 10 }, { header: 'Date', key: 'date', width: 12 },
+    { header: 'Notes', key: 'notes', width: 48 },
+  ];
+  for (const l of [...lines].sort((a, b) => String(a.date).localeCompare(String(b.date)))) {
+    const row = ws.addRow({
+      status: stepOf(l.status).label, description: l.description, amount: l.amount, dept: l.dept, category: l.category,
+      order: l.orderNumber, number: l.number || '', date: l.date ? new Date(`${l.date}T00:00:00Z`) : null, notes: l.notes,
+    });
+    row.getCell('status').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: FILLS[stepOf(l.status).tone] } };
   }
-  columns.forEach((c, i) => {
-    const col = ws.getColumn(i + 1);
-    if (isMoney(c)) col.numFmt = '"$"#,##0.00';
-    if (c.type === 'date') col.numFmt = 'mm/dd/yyyy';
-  });
-  ws.getRow(1).eachCell((cell) => {
-    cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
-    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0B2545' } };
-  });
-  ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: Math.max(1, columns.length) } };
+  ws.getColumn('amount').numFmt = money;
+  ws.getColumn('date').numFmt = 'mm/dd/yyyy';
+  ws.autoFilter = { from: 'A1', to: 'I1' };
+  head(ws);
+
+  const wsB = wb.addWorksheet('Budget');
+  wsB.columns = [{ header: 'Category', key: 'c', width: 22 }, { header: 'Budget', key: 'b', width: 14 }, { header: 'Spent', key: 's', width: 14 },
+    { header: 'In the pipeline', key: 'p', width: 16 }, { header: 'Left', key: 'l', width: 14 }];
+  for (const r of table.rows) wsB.addRow({ c: r.category, b: r.budget, s: r.spent, p: r.pipeline, l: r.left });
+  const t = wsB.addRow({ c: 'Total', ...{ b: table.total.budget, s: table.total.spent, p: table.total.pipeline, l: table.total.left } });
+  t.font = { bold: true };
+  ['b', 's', 'p', 'l'].forEach((k) => (wsB.getColumn(k).numFmt = money));
+  head(wsB);
+
+  const wsF = wb.addWorksheet('Funding');
+  wsF.columns = [{ header: 'Source', key: 'n', width: 28 }, { header: 'Type', key: 'k', width: 20 }, { header: 'Expected', key: 'e', width: 14 },
+    { header: 'Received', key: 'r', width: 14 }, { header: 'Notes', key: 'x', width: 40 }];
+  for (const f of funds) wsF.addRow({ n: f.name, k: f.kind, e: f.expected === null ? null : Number(f.expected), r: f.received === null ? null : Number(f.received), x: f.notes });
+  if (sponsorsIn) wsF.addRow({ n: 'Sponsors board', k: 'Sponsorship', e: sponsorsIn, r: sponsorsIn });
+  wsF.addRow({ n: 'Total', e: funding.expected, r: funding.received }).font = { bold: true };
+  if (seasonInfo.rainy_day !== null) wsF.addRow({ n: 'Rainy-day fund', e: Number(seasonInfo.rainy_day) });
+  ['e', 'r'].forEach((k) => (wsF.getColumn(k).numFmt = money));
+  head(wsF);
+  if (seasonInfo.notes) {
+    const wsN = wb.addWorksheet('Notes');
+    wsN.getColumn(1).width = 100;
+    for (const line of seasonInfo.notes.split('\n')) wsN.addRow([line]);
+  }
+
   const blob = new Blob([await wb.xlsx.writeBuffer()], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `${sheet.name.replace(/[^A-Za-z0-9_-]+/g, '_') || 'Finances'}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+  a.download = `Solar_Gators_${season}_Financials.xlsx`;
   document.body.appendChild(a);
   a.click();
   a.remove();
 }
 
-/** Each worksheet with data becomes a new sheet: first row with 2+ filled cells is the header. Returns the new ids. */
-async function importWorkbook(file, startPosition) {
+// ---- Import: the Treasurer's old Financials spreadsheet --------------------------------------
+
+async function importSpreadsheet(file, { config, season, requests, purchases, budgets, canBudget, reloadConfig, rerender }) {
   const ExcelJS = await loadExcelJS();
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(await file.arrayBuffer());
-  const made = [];
-  const worksheets = [];
-  wb.eachSheet((ws) => (ws.state === 'visible' || !ws.state) && worksheets.push(ws));
-  for (const ws of worksheets) {
-    const width = ws.columnCount;
-    const read = (r) => Array.from({ length: width }, (_, c) => cellText(ws.getRow(r).getCell(c + 1).value));
-    let headerRow = 0;
-    for (let r = 1; r <= Math.min(15, ws.rowCount); r++) {
-      if (read(r).filter(Boolean).length >= 2) {
-        headerRow = r;
-        break;
-      }
-    }
-    if (!headerRow) continue;
-    const headers = read(headerRow);
-    const body = [];
-    for (let r = headerRow + 1; r <= ws.rowCount; r++) {
-      const cells = read(r);
-      if (cells.some(Boolean)) body.push(cells);
-    }
-    const used = headers.map((h, i) => (h || body.some((b) => b[i]) ? i : -1)).filter((i) => i >= 0);
-    if (!used.length) continue;
-    const seen = new Map();
-    const columns = used.map((i) => {
-      let label = (headers[i] || `Column ${i + 1}`).replace(/\s+/g, ' ').trim().slice(0, 60);
-      const n = (seen.get(label) || 0) + 1;
-      seen.set(label, n);
-      if (n > 1) label = `${label} (${n})`;
-      const values = body.map((b) => b[i]).filter(Boolean);
-      return { key: newKey(), label, type: guessType(label, values), _i: i };
-    });
-    for (const c of columns) if (c.type === 'money') c.sum = true;
-    const clean = columns.map(({ _i, ...c }) => c);
-    const id = await api.saveFinanceSheet(null, (ws.name || 'Imported').slice(0, 60), clean, startPosition + made.length);
-    const rows = body.map((cells) => ({
-      data: Object.fromEntries(
-        columns
-          .map((c) => {
-            let v = cells[c._i] || '';
-            if (PLAIN_NUMERIC.has(c.type) && v) v = c.type === 'money' ? toNumber(v).toFixed(2) : String(toNumber(v));
-            if (c.type === 'checkbox') v = /^(yes|y|true|x|✓|1)$/i.test(v) ? 'Yes' : '';
-            return [c.key, v];
-          })
-          .filter(([, v]) => v !== '')
-      ),
-    }));
-    for (let i = 0; i < rows.length; i += 1000) await api.addFinanceRows(id, rows.slice(i, i + 1000));
-    made.push(id);
-  }
-  return made;
-}
+  const ws = wb.worksheets.find((w) => w.state !== 'hidden') || wb.worksheets[0];
+  const data = readFinancialsSheet({
+    rows: ws.rowCount,
+    cols: ws.columnCount,
+    value: (r, c) => cellText(ws.getRow(r).getCell(c).value),
+    fill: (r, c) => ws.getRow(r).getCell(c).fill?.fgColor?.argb || '',
+  });
 
-/** A column's type from its name and values. */
-function guessType(label, values) {
-  if (!values.length) return 'text';
-  const all = (re) => values.every((v) => re.test(String(v).trim()));
-  if (all(/^\d{4}-\d{2}-\d{2}$/)) return 'date';
-  if (all(/^(yes|no|y|n|true|false|x|✓)$/i)) return 'checkbox';
-  if (all(/^-?\(?\$?\s?-?[\d,]*\.?\d+\)?$/)) {
-    return /amount|cost|price|total|balance|paid|debit|credit|charge|budget|spent|deposit|refund|\$/i.test(label) || values.some((v) => /\$/.test(v)) ? 'money' : 'number';
+  // Lines already here: requests with the same order #, or a purchase with the same description, cost and order #.
+  const byTicket = new Map(requests.filter((r) => r.order?.department_order_number).map((r) => [String(r.order.department_order_number).trim(), r]));
+  const own = purchases.filter((p) => !p.request_id && p.season === season);
+  const key = (p) => `${String(p.description).trim().toLowerCase()}|${Number(p.amount || 0).toFixed(2)}|${String(p.order_number || '').trim()}`;
+  const have = new Set(own.map(key));
+  const toLink = [];
+  const toAdd = [];
+  let skipped = 0;
+  for (const p of data.purchases) {
+    const match = p.order_number && byTicket.get(p.order_number);
+    if (match) toLink.push({ p, r: match });
+    else if (have.has(key(p))) skipped++;
+    else toAdd.push(p);
   }
-  if (all(/^https?:\/\//i)) return 'link';
-  return 'text';
+  const total = toAdd.reduce((s, p) => s + (p.dept_status === 'cancelled' ? 0 : Number(p.amount) || 0), 0);
+  const budgetNames = Object.keys(data.budgets);
+  const current = await api.getFinanceSeason(season);
+  const notesThere = !!data.notes && String(current.notes || '').includes(data.notes);
+
+  const dialog = document.createElement('dialog');
+  dialog.className = 'card sheet-dialog';
+  dialog.innerHTML = `<form method="dialog" novalidate>
+    <h2>Import ${esc(file.name)}</h2>
+    <p class="muted small">Into the ${esc(season)} season. Nothing is saved until you click Import.</p>
+    <label class="rule-toggle"><input type="checkbox" name="purchases" ${toAdd.length ? 'checked' : 'disabled'}>
+      <span><strong>${toAdd.length ? `${toAdd.length} new purchase${toAdd.length === 1 ? '' : 's'}` : 'No new purchases'}</strong>${toAdd.length ? ` (${fmtMoney(total)}, not counting cancelled)` : ''}
+        <span class="hint">${toAdd.length ? `${STEPS.map((x) => [x.label, toAdd.filter((p) => p.dept_status === x.key).length]).filter(([, n]) => n).map(([l, n]) => `${n} ${l.toLowerCase()}`).join(', ')}. Status comes from each row's color.` : ''}${toLink.length ? ` ${toLink.length} match a request already on the site by order # and add their M/E and notes to it instead.` : ''}${skipped ? ` ${skipped} were imported before and are skipped.` : ''}</span></span></label>
+    ${budgetNames.length ? `<label class="rule-toggle"><input type="checkbox" name="budgets" ${canBudget ? 'checked' : 'disabled'}>
+      <span><strong>Budgets for ${budgetNames.length} categories</strong> (${fmtMoney(Object.values(data.budgets).reduce((s, v) => s + Number(v), 0))})
+        <span class="hint">${esc(budgetNames.join(', '))}. Replaces these categories' budgets.${canBudget ? '' : ' Only the Treasurer can set budgets.'}</span></span></label>` : ''}
+    ${data.rainyDay ? `<label class="rule-toggle"><input type="checkbox" name="rainy" checked><span><strong>Rainy-day fund:</strong> ${fmtMoney(Number(data.rainyDay))}</span></label>` : ''}
+    ${data.notes ? `<label class="rule-toggle"><input type="checkbox" name="notes" ${notesThere ? '' : 'checked'}><span><strong>Notes</strong> (${data.notes.split('\n').length} lines), ${notesThere ? 'already in the season\'s notes' : 'added to the season\'s notes'}</span></label>` : ''}
+    <div id="import-errors"></div>
+    <div class="form-actions"><button type="button" class="btn btn-ghost" id="import-cancel">Cancel</button><button type="submit" class="btn btn-primary">Import</button></div>
+  </form>`;
+  document.body.appendChild(dialog);
+  const close = () => (dialog.close(), dialog.remove());
+  dialog.querySelector('#import-cancel').addEventListener('click', close);
+  dialog.addEventListener('cancel', close);
+  dialog.querySelector('form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const pick = (n) => dialog.querySelector(`[name="${n}"]`)?.checked;
+    const btn = dialog.querySelector('[type="submit"]');
+    btn.disabled = true;
+    try {
+      if (pick('purchases')) {
+        for (const [i, p] of toAdd.entries()) {
+          btn.textContent = `Importing ${i + 1} of ${toAdd.length}…`;
+          await api.savePurchase(null, { ...p, season });
+        }
+        for (const { p, r } of toLink) {
+          await api.savePurchase(null, { request_id: r.id, dept: p.dept, notes: p.notes, ...(['sent', 'dept_approved', 'cancelled'].includes(p.dept_status) && r.status === 'Approved' ? { dept_status: p.dept_status } : {}) });
+        }
+      }
+      if (pick('budgets')) {
+        let field = budgets.field;
+        if (!field) field = budgetFields(config).find((f) => /cost\s*cent|subteam|subsystem/i.test(f.label))?.key || '';
+        await api.setBudgets({ ...budgets, field, amounts: { ...(budgets.amounts || {}), ...data.budgets } });
+        await reloadConfig();
+      }
+      if (pick('rainy') || pick('notes')) {
+        await api.saveFinanceSeason(season, {
+          ...(pick('rainy') ? { rainy_day: data.rainyDay } : {}),
+          ...(pick('notes') ? { notes: [current.notes, data.notes].filter(Boolean).join('\n\n') } : {}),
+        });
+      }
+      close();
+      setFlash(`Imported ${file.name}.`);
+      view.tab = 'purchases';
+      rerender();
+    } catch (err) {
+      dialog.querySelector('#import-errors').innerHTML = errorBox(err);
+      btn.disabled = false;
+      btn.textContent = 'Import';
+    }
+  });
+  dialog.showModal();
 }

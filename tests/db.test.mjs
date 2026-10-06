@@ -293,7 +293,7 @@ await test('the website cannot change the schema version', async () => {
   const general = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
   await as(ce, () => rpc('update_settings', ['general', { ...general, schemaVersion: 99 }]));
   const after = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
-  assert.equal(after.schemaVersion, 17);
+  assert.equal(after.schemaVersion, 18);
 });
 
 console.log('Form fields');
@@ -1388,6 +1388,66 @@ await test('Files: renewing a card keeps its files; storage is freed only when t
   const quote = (await db.query(`select id from attachments where label = 'Quote'`)).rows[0].id;
   await as(other, () => rejects(rpc('delete_attachment', [quote]), /can't remove/));
   await as(member, () => rejects(db.query(`delete from attachments`), /permission denied/));
+});
+
+console.log("Treasurer's ledger (018)");
+
+await test('Ledger: purchases on their own and the department steps of a request; only the Treasurer edits', async () => {
+  const own = (await as(treasurer, () => rpc('save_purchase', [null, { description: 'CNC machining', amount: '3440', category: 'Extraneous', dept: 'M', dept_status: 'sent', order_number: '6369', notes: 'PayPal link' }]))).rows[0].result;
+  const row = (await db.query(`select * from finance_purchases where id = $1`, [own])).rows[0];
+  assert.deepEqual([row.amount, row.category, row.dept_status, row.season], ['3440.00', 'Extraneous', 'sent', thisSeason]);
+  await as(treasurer, () => rejects(rpc('save_purchase', [own, { amount: 'a lot' }]), /must be a number/));
+  await as(ce, () => rejects(rpc('save_purchase', [own, { notes: 'x' }]), /does not allow/));
+  assert.equal((await as(ce, () => db.query(`select * from finance_purchases`))).rows.length, 1); // CEs can look
+  assert.equal((await as(member, () => db.query(`select * from finance_purchases`))).rows.length, 0);
+
+  const number = numberOf(await submit(vendorRequest));
+  const req = (await db.query(`select id from requests where request_number = $1`, [number])).rows[0].id;
+  const linked = (await as(treasurer, () => rpc('save_purchase', [null, { request_id: req, dept: 'E', dept_status: 'sent', description: 'ignored', amount: '1' }]))).rows[0].result;
+  const again = (await as(treasurer, () => rpc('save_purchase', [null, { request_id: req, notes: 'PO# 2701564675' }]))).rows[0].result;
+  assert.equal(again, linked); // one row per request
+  const l = (await db.query(`select * from finance_purchases where id = $1`, [linked])).rows[0];
+  assert.deepEqual([l.dept, l.dept_status, l.notes, l.description, l.amount], ['E', 'sent', 'PO# 2701564675', '', null]);
+  await as(treasurer, () => rejects(rpc('save_purchase', [linked, { dept_status: 'ordered' }]), /from its own page/));
+  await as(treasurer, () => rejects(rpc('delete_purchase', [linked]), /comes from a request/));
+  await as(treasurer, () => rpc('delete_purchase', [own]));
+});
+
+await test('Ledger: purchases on their own count toward a budget when approving', async () => {
+  // What earlier tests already approved for Aero this season; the budget leaves room for 100 more.
+  const used = Number((await db.query(`select coalesce(sum(request_total(id)), 0) n from requests where subsystem = 'Aero' and season = $1 and status in ('Approved', 'Ordered', 'Received')`, [thisSeason])).rows[0].n);
+  await as(treasurer, () => rpc('set_budgets', [{ field: 'subsystem', amounts: { Aero: String(used + 100) }, block: true }]));
+  await as(treasurer, () => rpc('save_purchase', [null, { description: 'Primer', amount: '80', category: 'aero ', dept_status: 'ordered' }]));
+  const number = numberOf(await submit({ ...vendorRequest, subsystem: 'Aero' }, [{ ...oneItem[0], quantity: 1, unit_price: 30 }]));
+  const err = await rejects(review(ce, number, 'approve'), /over its budget/);
+  assert.ok(err.message.includes(`$${(used + 80).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} used + $30.00`), err.message);
+  const cancelled = (await db.query(`select id from finance_purchases where description = 'Primer'`)).rows[0].id;
+  await as(treasurer, () => rpc('save_purchase', [cancelled, { dept_status: 'cancelled' }]));
+  await review(ce, number, 'approve'); // cancelled purchases don't count
+  assert.equal(await statusOf(number), 'Approved');
+  await as(treasurer, () => rpc('set_budgets', [{ field: '', amounts: {}, block: false }]));
+});
+
+await test('Ledger: receipts can be attached to purchases logged on their own', async () => {
+  const own = (await as(treasurer, () => rpc('save_purchase', [null, { description: 'Gloves', amount: '55.99' }]))).rows[0].result;
+  await as(treasurer, () => rpc('add_attachment', ['purchase', own, `purchase/${own}/r-receipt.pdf`, null, 'receipt.pdf', 2000, 'application/pdf', 'Receipt']));
+  await as(member, () => rejects(rpc('add_attachment', ['purchase', own, null, 'https://x.com', '', null, '', '']), /can't add files/));
+  assert.equal((await as(ce, () => db.query(`select * from attachments where finance_purchase_id = $1`, [own]))).rows.length, 1); // CEs can look
+  assert.equal((await as(member, () => db.query(`select * from attachments where finance_purchase_id = $1`, [own]))).rows.length, 0);
+  assert.equal((await as(treasurer, () => rpc('attachment_counts', ['purchase']))).rows[0].result[own], 1);
+  await as(treasurer, () => rpc('delete_purchase', [own]));
+  assert.equal((await db.query(`select count(*)::int n from attachments where finance_purchase_id = $1`, [own])).rows[0].n, 0);
+});
+
+await test('Ledger: funding sources and the season notes', async () => {
+  const fund = (await as(treasurer, () => rpc('save_fund', [null, { name: 'Donations', kind: 'Donation', expected: '24000', received: '18500' }]))).rows[0].result;
+  await as(treasurer, () => rejects(rpc('save_fund', [fund, { expected: 'twenty' }]), /must be numbers/));
+  await as(treasurer, () => rpc('save_finance_season', [thisSeason, { rainy_day: '2128.75', notes: '$13,970 minimum for competition' }]));
+  await as(treasurer, () => rpc('save_finance_season', [thisSeason, { notes: 'Updated' }])); // the balance is kept
+  const s = (await db.query(`select rainy_day, notes from finance_seasons where season = $1`, [thisSeason])).rows[0];
+  assert.deepEqual([s.rainy_day, s.notes], ['2128.75', 'Updated']);
+  await as(ce, () => rejects(rpc('delete_fund', [fund]), /does not allow/));
+  await as(treasurer, () => rejects(db.query(`update finance_funds set received = 0`), /permission denied/));
 });
 
 console.log(`\n${passed} passed${process.exitCode ? ', some FAILED' : ''}`);
