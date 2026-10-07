@@ -75,7 +75,7 @@ export function adminHeader(active, intro = '', actions = '') {
     .join('')}</select></label>`;
   const canHistory = ADMIN_TABS.find((t) => t[0] === 'history')[2].some((p) => auth.can(p));
   const history = canHistory && HISTORY_KEYS[active]
-    ? `<a class="btn btn-sm btn-ghost" href="#/admin/history/${HISTORY_KEYS[active]}" title="Earlier versions of this page's settings">History</a>`
+    ? `<a class="btn btn-sm" href="#/admin/history/${HISTORY_KEYS[active]}" title="Earlier versions of this page's settings">History</a>`
     : '';
   return `<div class="admin-top">
     <div class="page-header admin-head"><div><h1>Admin</h1></div><div class="card-actions">${history}${actions}</div></div>

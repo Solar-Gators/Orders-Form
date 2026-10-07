@@ -38,9 +38,9 @@ export async function renderHome(el, { config }) {
           : 'Draft: not submitted yet',
         badge: statusBadge(r.status),
       })),
-    ...(reviews && waiting ? [{ href: '#/approvals', title: `${plural(waiting, 'request')} waiting for approval`, note: 'Queue', count: waiting }] : []),
-    ...(orders && toOrder ? [{ href: '#/treasurer', title: `${plural(toOrder, 'approved request')} to order`, note: 'Queue', count: toOrder }] : []),
-    ...(orders && onTheWay ? [{ href: '#/treasurer', title: `${plural(onTheWay, 'order')} awaiting delivery`, note: 'Queue', count: onTheWay }] : []),
+    ...(reviews && waiting ? [{ href: '#/approvals', title: `${plural(waiting, 'request')} waiting for approval`, note: 'Queue › To approve', count: waiting }] : []),
+    ...(orders && toOrder ? [{ href: '#/treasurer', title: `${plural(toOrder, 'approved request')} to order`, note: 'Queue › To order', count: toOrder }] : []),
+    ...(orders && onTheWay ? [{ href: '#/treasurer', title: `${plural(onTheWay, 'order')} awaiting delivery`, note: 'Queue › Awaiting delivery', count: onTheWay }] : []),
     ...followUps.map((c) => ({ href: `#/sponsors/${c.id}`, title: `Follow up with ${c.name}`, note: `Sponsors · due ${fmtDate(c.follow_up)}` })),
   ];
 

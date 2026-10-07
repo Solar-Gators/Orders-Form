@@ -214,8 +214,8 @@ export async function renderSponsors(el, { config, rerender, reloadConfig }) {
       if (before.stage !== stage && kind === 'received' && card.amount) {
         const label = stages.find((s) => s.key === stage).label;
         setFlash(sponsorSettings(config).income.sheet
-          ? `${card.name} moved to ${label}. Its ${fmtMoney(card.amount)} is now in the Finances income sheet (once per card).`
-          : `${card.name} moved to ${label}. To log money like this in Finances automatically, choose an income sheet in Board settings.`);
+          ? `${card.name} moved to ${label}. Its ${fmtMoney(card.amount)} counts on the Finances Funding tab and was added to your income sheet (once per card).`
+          : `${card.name} moved to ${label}. Its ${fmtMoney(card.amount)} now counts on the Finances Funding tab.`);
         rerender();
       }
     } catch (err) {
@@ -359,12 +359,14 @@ async function openSettings(box, { config, reloadConfig, rerender, onDone }) {
       <textarea id="kinds" rows="4" placeholder="One per line">${esc(state.kinds.join('\n'))}</textarea>
 
       <h3 class="sub-heading">When money is received</h3>
+      <p class="muted small">Cards in a "money received" stage count on the <a href="#/finances">Finances</a> Funding tab on their own.</p>
       ${sheets.length
-        ? `<div class="field"><label for="income-sheet">Add a row to this Finances sheet</label>
+        ? `<details class="about" ${state.income.sheet ? 'open' : ''}><summary>Also copy it into one of your own sheets</summary>
+            <div class="field"><label for="income-sheet">Add a row to this Finances sheet</label>
             <select id="income-sheet"><option value="">Don't add anything</option>${sheets.map((s) => `<option value="${esc(s.id)}" ${s.id === state.income.sheet ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select>
             ${sheet ? `<div class="hint">Fills in: ${Object.entries(state.income.columns || {}).map(([k, key]) => `${esc({ date: 'date', from: 'sponsor name', type: 'type', amount: 'amount', received: 'received ✓', notes: 'a note' }[k])} → ${esc(sheet.columns.find((c) => c.key === key)?.label || '?')}`).join(', ') || 'nothing (no matching columns)'}.
-              Matched by column names; rename columns in Finances to change it.</div>` : ''}</div>`
-        : '<p class="muted small">Someone with Finances access can choose a sheet (e.g. "Income") here, so money received is logged there automatically.</p>'}
+              Matched by column names; rename columns in Finances to change it.</div>` : ''}</div></details>`
+        : ''}
       <div id="set-errors"></div>
       <div class="form-actions">
         <button type="button" class="btn btn-ghost" id="set-cancel">Cancel</button>
