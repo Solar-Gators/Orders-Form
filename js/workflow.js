@@ -34,6 +34,8 @@ export const PLACEHOLDERS = [
   ['approver', 'Who approved / reviewed'],
   ['comment', "Reviewer's comment"],
   ['ticket', 'Order / ticket number'],
+  ['where', 'Received: where it is, or where it was picked up'],
+  ['received_by', 'Received: who marked it'],
   ['status', 'New status'],
   ['rule', 'Approval rule used'],
   ['link', 'Link to the request (or sponsor card)'],

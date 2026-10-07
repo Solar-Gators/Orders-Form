@@ -442,6 +442,9 @@ code { background: var(--surface-2); border: 1px solid var(--border); border-rad
 .change-list { margin: 4px 0 0; padding-left: 18px; font-size: 13px; }
 .change-list li { margin: 2px 0; }
 .timeline > .tl-cost::before { border-color: var(--orange); background: #fff1e8; }
+.timeline > .tl-edited::before { border-color: var(--blue); background: #e3edff; }
+.wording-item { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 0 12px; }
+@media (max-width: 640px) { .wording-item { grid-template-columns: minmax(0, 1fr); border-bottom: 1px solid var(--border-soft); margin-bottom: 8px; } }
 #cost-new-total { margin-right: auto; }
 @media (max-width: 640px) {
   .table.stack-form.cost-table tbody tr { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }

@@ -67,6 +67,10 @@ All of this can be changed in **Admin → Team → Roles & permissions**, and yo
 
 If the Chief Engineer requests changes, the request appears at the top of **Requests** under **Needs your action** (the Requests tab shows a count), with their comment. Click **Edit request**, fix it, and resubmit; the History then lists exactly what you changed.
 
+**Typo after submitting?** Open the request and click **Fix wording** (next to Details). You can fix the title, the justification, other text answers, and item names and notes, at any point after submitting. Nothing that changes the order can be changed this way (vendor, links, part numbers, quantities, prices, dropdowns, dates), and neither can a field an approval rule or budget looks at. Every fix is listed in the request's History. Chief Engineers and the Treasurer can fix wording too.
+
+**Picked it up yourself?** If you collect your package from the receiving room, open the request and use **Picked it up?** to mark it received. Say where you got it (e.g. "MAE receiving room"); the note is required.
+
 **Order again:** buying the same things as an earlier request (yours or anyone's)? Open it and click **Order again** above its items. A new request opens with the same vendor, subsystem, items, prices and shipping; add the needed-by date and why, check the prices and quantities, and submit. The original isn't changed.
 
 Changed your mind? Open a submitted request and click **Withdraw request** to turn it back into a draft. Drafts and requests sent back for changes can be deleted.
@@ -86,7 +90,7 @@ Changed your mind? Open a submitted request and click **Withdraw request** to tu
 - **Mark as Ordered:** record the order date, ticket / department order number (required unless turned off in Admin → Request form → Dropdowns & rules), and any notes.
 - **Order several at once:** bought a few approved requests in one checkout? Open **Order several at once** there, tick them (grouped by vendor), and enter the date and ticket number once.
 - **Late deliveries:** Awaiting delivery shows how long each order has been out, and highlights anything over 14 days.
-- **Mark as Received:** record when it arrived, e.g. "in office".
+- **Mark as Received:** record when it arrived and **where it is now** (required, e.g. "in our office"). The requester gets a message that says where. Requesters who pick up their own package can mark it received themselves, with a note saying where they got it.
 - **Budgets:** the Treasurer sets them on the **Budget** tab of **Finances**: pick the dropdown budgets go by (e.g. Cost center) under **Budget settings**, then type an amount for each category. The tab shows each budget, what's spent, what's in the pipeline, and what's left. Optionally, approving over budget needs a written reason, which is kept in the request's History. The Queue warns when a budget is over.
 - **Copy buttons:** every value on a request has a small copy icon (item name, vendor, link, part #, quantity, prices, request ID, total), for pasting into purchasing forms. **Copy all items** copies the whole item list as a table that pastes straight into Excel or Google Sheets.
 - **Edit costs:** if a price or shipping cost turns out different from what was requested, open the request and click **Edit costs**. This works on Approved, Ordered, and Received requests. Change any item's unit price or the order's shipping, and add a reason. The new total is previewed before saving. Every change is logged in the request's History (who, when, old → new, and why), and the item list is tagged **Costs adjusted**.

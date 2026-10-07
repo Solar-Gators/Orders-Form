@@ -13,7 +13,7 @@ import {
   STATUS, DECISION_LABELS, esc, fmtMoney, fmtDate, fmtDateTime, todayISO,
   statusBadge, priorityTag, isOverdue, errorBox, setFlash, takeFlash, copyButton, bindCopyButtons,
 } from '../ui.js';
-import { getValue, displayValue, isVisible, MONEY_FIELDS, shippingPerRequest } from '../formFields.js';
+import { getValue, displayValue, isVisible, MONEY_FIELDS, shippingPerRequest, requestFields, itemFields } from '../formFields.js';
 import { pageLayout, copyAllowed, detailFieldList, itemColumnList } from '../pageLayout.js';
 import { approvalState, canReview, workflowSettings, budgetSummary, budgetFor } from '../workflow.js';
 
@@ -159,6 +159,52 @@ function costEvents(r) {
   }));
 }
 
+/**
+ * After submitting, wording can still be fixed (019): shown text answers that no approval
+ * rule, budget or "show only when" looks at, plus item names and notes. The database checks the same.
+ */
+function wordingFields(config) {
+  const wf = workflowSettings(config);
+  const all = [...requestFields(config), ...itemFields(config)];
+  const used = new Set([...wf.rules.map((x) => x.when?.field), wf.budgets.field, ...all.map((f) => f.showIf?.field)].filter(Boolean));
+  return requestFields(config).filter((f) => ['text', 'textarea'].includes(f.type) && f.key !== 'requester' && !f.hidden && !used.has(f.key));
+}
+const canFixWording = (r, config) =>
+  Number(config.schemaVersion) >= 19 && !config.editableStatuses.includes(r.status) &&
+  (r.created_by === auth.user.id || auth.can('request.review') || auth.can('request.order'));
+
+function wordingEditor(r, config) {
+  const notesField = itemFields(config).find((f) => f.key === 'notes' && !f.hidden);
+  const nameLabel = itemFields(config).find((f) => f.key === 'item_name')?.label || 'Item name';
+  const field = (f) => {
+    const v = esc(getValue(r, f) ?? '');
+    const max = f.maxLength ? ` maxlength="${Number(f.maxLength)}"` : '';
+    return `<div class="field"><label for="w-${esc(f.key)}">${esc(f.label)}</label>${
+      f.type === 'textarea'
+        ? `<textarea id="w-${esc(f.key)}" data-wkey="${esc(f.key)}" rows="3"${max}>${v}</textarea>`
+        : `<input id="w-${esc(f.key)}" data-wkey="${esc(f.key)}" type="text" value="${v}"${max}>`
+    }</div>`;
+  };
+  return `<form id="wording-form" novalidate>
+    <p class="muted small">Fix typos without changing the order: vendor, links, part numbers, quantities and prices stay as they are.
+      Every change is kept in the History.</p>
+    ${wordingFields(config).map(field).join('')}
+    ${r.items.length ? `<h3 class="sub-heading">Items</h3>${r.items
+      .map((i, n) => `<div class="wording-item">
+        <div class="field"><label for="wi-${esc(i.id)}">${n + 1}. ${esc(nameLabel)}</label>
+          <input id="wi-${esc(i.id)}" data-item="${esc(i.id)}" data-k="item_name" type="text" value="${esc(i.item_name || '')}"></div>
+        ${notesField ? `<div class="field"><label for="wn-${esc(i.id)}">${esc(notesField.label)}</label>
+          <input id="wn-${esc(i.id)}" data-item="${esc(i.id)}" data-k="notes" type="text" value="${esc(i.notes || '')}"></div>` : ''}
+      </div>`)
+      .join('')}` : ''}
+    <div id="wording-errors"></div>
+    <div class="form-actions">
+      <button type="button" class="btn btn-ghost" id="wording-cancel">Cancel</button>
+      <button type="submit" class="btn btn-primary">Save fixes</button>
+    </div>
+  </form>`;
+}
+
 /** Request fields except the title/priority (shown in the header). Long text goes full width. */
 function detailsGrid(r, config) {
   // Fields and order from Admin → Request page; sections become headings; fields whose
@@ -181,6 +227,7 @@ function detailsGrid(r, config) {
       `<div><dt>Ticket #</dt><dd><span class="copy-wrap">${esc(o.department_order_number)}${showCopy() ? copyButton(o.department_order_number, 'ticket number', { keep: true }) : ''}</span></dd></div>`,
     o.order_date && `<div><dt>Ordered</dt><dd>${fmtDate(o.order_date)}</dd></div>`,
     o.received_date && `<div><dt>Received</dt><dd>${fmtDate(o.received_date)}</dd></div>`,
+    o.received_notes && `<div><dt>Where</dt><dd>${esc(o.received_notes)}</dd></div>`,
   ].filter(Boolean);
   const html = fields.map(cell);
   html.splice(firstBig < 0 ? html.length : firstBig, 0, vendors, ...ordered);
@@ -192,6 +239,15 @@ function historyCard(r) {
   const by = (kind) => [...logged].reverse().find((e) => e.kind === kind)?.actor_name;
   const events = [{ when: r.created_at, text: `Created by ${esc(r.requester || 'unknown')}` }];
   for (const e of logged) {
+    if (e.kind === 'edited') {
+      // Typos fixed after submitting (019): what changed, old → new.
+      events.push({
+        when: e.created_at,
+        text: `<strong>Wording fixed</strong> by ${esc(e.actor_name || 'unknown')}<ul class="change-list">${(e.changes || []).map((c) => `<li>${esc(c)}</li>`).join('')}</ul>`,
+        kind: e.kind,
+      });
+      continue;
+    }
     if (!['submitted', 'resubmitted', 'withdrawn'].includes(e.kind)) continue;
     const label = { submitted: 'Submitted', resubmitted: 'Resubmitted', withdrawn: 'Withdrawn' }[e.kind];
     events.push({
@@ -370,17 +426,24 @@ function actionPanel(r, config, { names = {}, budget = null } = {}) {
   }
 
   if (r.status === STATUS.ORDERED) {
-    if (!auth.can('request.order')) return waitingCard('Ordered', isLead() ? 'View only — only the <strong>Treasurer</strong> can mark this as Received.' : 'Waiting for delivery.');
+    // The Treasurer, or the requester who picked it up from the receiving room (019).
+    const treasurer = auth.can('request.order');
+    const pickup = !treasurer && r.created_by === auth.user.id && Number(config.schemaVersion) >= 19;
+    if (!treasurer && !pickup) {
+      return waitingCard('Ordered', isLead() ? 'View only — only the <strong>Treasurer</strong> or the requester can mark this as Received.' : 'Waiting for delivery.');
+    }
     return `<section class="card action-card">
-      <h2>Delivery</h2>
+      <h2>${treasurer ? 'Delivery' : 'Picked it up?'}</h2>
+      ${pickup ? '<p class="muted small">Got it from the receiving room yourself? Mark it received so the Treasurer knows it arrived.</p>' : ''}
       <form id="receive-form" novalidate>
         <div class="field">
           <label for="d-date">Received date</label>
-          <input id="d-date" name="received_date" type="date" value="${todayISO()}">
+          <input id="d-date" name="received_date" type="date" value="${todayISO()}" max="${todayISO()}">
         </div>
         <div class="field">
-          <label for="d-notes">Notes <span class="muted">(optional, e.g. "in office")</span></label>
-          <textarea id="d-notes" name="received_notes" rows="2"></textarea>
+          <label for="d-notes">${treasurer ? 'Where is it now?' : 'Where did you pick it up?'} <span class="req">*</span></label>
+          <textarea id="d-notes" name="received_notes" rows="2" required
+            placeholder="${treasurer ? 'e.g. In our office, on the shelf by the door' : 'e.g. MAE receiving room'}"></textarea>
         </div>
         <div id="action-errors"></div>
         <button type="submit" class="btn btn-primary btn-block">Mark as Received</button>
@@ -465,7 +528,9 @@ export async function renderRequestDetail(el, { config, params, rerender }) {
   ]);
   const budget = budgetFor(config, r, summary);
   const names = Object.fromEntries(people.map((p) => [p.id, p.full_name || p.email]));
-  const detailsCard = `<section class="card"><h2>Details</h2>${detailsGrid(r, config)}</section>`;
+  const detailsCard = `<section class="card" id="details-card"><div class="card-head"><h2>Details</h2>${
+    canFixWording(r, config) ? '<button type="button" class="btn btn-sm" id="fix-wording" title="Fix a typo in the title, description or item names">Fix wording</button>' : ''
+  }</div><div id="details-body">${detailsGrid(r, config)}</div></section>`;
 
   el.innerHTML = `
     ${takeFlash()}
@@ -620,7 +685,41 @@ export async function renderRequestDetail(el, { config, params, rerender }) {
 
   el.querySelector('#receive-form')?.addEventListener('submit', (e) => {
     e.preventDefault();
+    const where = e.target.received_notes;
+    if (!where.value.trim()) {
+      errors.innerHTML = errorBox(new Error('Say where it is: where you picked it up, or where you left it (e.g. "in our office").'));
+      where.classList.add('is-invalid');
+      where.addEventListener('input', () => where.classList.remove('is-invalid'), { once: true });
+      where.focus();
+      return;
+    }
     run(e.target, () => api.markReceived(r.id, Object.fromEntries(new FormData(e.target))), `${r.request_number} marked as received.`);
+  });
+
+  // ---- Fix wording after submitting (019) -------------------------------------------
+  el.querySelector('#fix-wording')?.addEventListener('click', (e) => {
+    e.target.hidden = true;
+    const body = el.querySelector('#details-body');
+    body.innerHTML = wordingEditor(r, config);
+    body.querySelector('input, textarea')?.focus();
+    const form = body.querySelector('#wording-form');
+    body.querySelector('#wording-cancel').addEventListener('click', () => rerender());
+    form.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const request = Object.fromEntries([...form.querySelectorAll('[data-wkey]')].map((x) => [x.dataset.wkey, x.value]));
+      const byItem = new Map();
+      for (const x of form.querySelectorAll('[data-item]')) byItem.set(x.dataset.item, { ...(byItem.get(x.dataset.item) || { id: x.dataset.item }), [x.dataset.k]: x.value });
+      const btn = form.querySelector('[type=submit]');
+      btn.disabled = true;
+      try {
+        const n = await api.fixRequestWording(r.id, request, [...byItem.values()]);
+        setFlash(n ? `Saved ${n} fix${n === 1 ? '' : 'es'} to ${r.request_number}.` : 'Nothing was changed.');
+        rerender();
+      } catch (err) {
+        form.querySelector('#wording-errors').innerHTML = errorBox(err);
+        btn.disabled = false;
+      }
+    });
   });
 
   // ---- Treasurer: edit costs ------------------------------------------------------

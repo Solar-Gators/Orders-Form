@@ -293,7 +293,7 @@ await test('the website cannot change the schema version', async () => {
   const general = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
   await as(ce, () => rpc('update_settings', ['general', { ...general, schemaVersion: 99 }]));
   const after = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
-  assert.equal(after.schemaVersion, 18);
+  assert.equal(after.schemaVersion, 19);
 });
 
 console.log('Form fields');
@@ -501,7 +501,7 @@ await test('costs can still be changed after Ordered and Received; bad values ar
   const [cells] = await itemsOf(costReq);
   await as(treasurer, () => rpc('mark_ordered', [costReq, null, '7001', '']));
   await as(treasurer, () => rpc('update_item_costs', [costReq, [{ id: cells.id, shipping_cost: '0' }], 'Free shipping applied']));
-  await as(treasurer, () => rpc('mark_received', [costReq, null, '']));
+  await as(treasurer, () => rpc('mark_received', [costReq, null, 'In office']));
   await as(treasurer, () => rpc('update_item_costs', [costReq, [{ id: cells.id, unit_price: '5.25' }], 'Refund']));
   assert.deepEqual((await itemsOf(costReq))[0], { ...cells, price: 5.25, ship: 0 });
   await as(treasurer, () => rejects(rpc('update_item_costs', [costReq, [{ id: cells.id, unit_price: '-1' }], '']), /number of 0 or more/));
@@ -984,7 +984,7 @@ await test('each step queues email / Teams messages for the right people', async
   await review(ce, number, 'approve', 'Go for it');
   const { rows } = await db.query(`select id from requests where request_number = $1`, [number]);
   await as(treasurer, () => rpc('mark_ordered', [rows[0].id, '2026-09-30', 'PO-77', '']));
-  await as(treasurer, () => rpc('mark_received', [rows[0].id, '2026-10-03', '']));
+  await as(treasurer, () => rpc('mark_received', [rows[0].id, '2026-10-03', 'In office']));
   // Admins have every permission, so they hear about approvals and orders too.
   assert.deepEqual((await outbox()).map((m) => `${m.event} ${m.email} ${m.channel}`).sort(), [
     'submitted admin@ufl.edu email', 'submitted admin@ufl.edu teams',
@@ -997,6 +997,8 @@ await test('each step queues email / Teams messages for the right people', async
   const { rows: [msg] } = await db.query(`select payload from notification_outbox where event = 'ordered'`);
   assert.equal(msg.payload.request_number, number);
   assert.equal(msg.payload.ticket, 'PO-77');
+  const { rows: [arrived] } = await db.query(`select payload from notification_outbox where event = 'received'`);
+  assert.deepEqual([arrived.payload.where, arrived.payload.received_by], ['In office', 'Tess Treasurer']); // where it is now
   assert.equal(Number(msg.payload.total), 20);
   assert.match(msg.payload.recipient_name, /^Mia/);
   await db.exec(`insert into profile_roles (user_id, role) values ('${ce2}', 'ce')`);
@@ -1057,7 +1059,7 @@ await test('each person can mute single events per channel (011)', async () => {
   await review(ce, number, 'approve');
   const { rows } = await db.query(`select id from requests where request_number = $1`, [number]);
   await as(treasurer, () => rpc('mark_ordered', [rows[0].id, '2026-09-30', 'PO-78', '']));
-  await as(treasurer, () => rpc('mark_received', [rows[0].id, '2026-10-03', '']));
+  await as(treasurer, () => rpc('mark_received', [rows[0].id, '2026-10-03', 'In office']));
   const mine = (await outbox()).filter((m) => m.email === 'member@ufl.edu').map((m) => `${m.event} ${m.channel}`).sort();
   assert.deepEqual(mine, ['approved teams', 'ordered email', 'ordered teams']);
   await as(member, () => rejects(rpc('update_my_notification_events', [[]]), /JSON object/));
@@ -1154,7 +1156,7 @@ await test('marking Ordered needs a ticket number unless Settings says otherwise
   await as(treasurer, () => rejects(rpc('mark_ordered', [id, '2026-10-01', '  ', '']), /Enter the ticket/));
   await as(ce, async () => rpc('update_settings', ['form', { ...(await currentForm()), requireOrderNumber: false }]));
   await as(treasurer, () => rpc('mark_ordered', [id, '2026-10-01', '', '']));
-  await as(treasurer, () => rpc('mark_received', [id, '2026-10-03', '']));
+  await as(treasurer, () => rpc('mark_received', [id, '2026-10-03', 'In office']));
   const log = await events(number);
   assert.deepEqual(log.map((e) => e.kind), ['submitted', 'ordered', 'received']);
   assert.deepEqual(log.slice(1).map((e) => e.actor_name), ['Tess Treasurer', 'Tess Treasurer']);
@@ -1448,6 +1450,65 @@ await test('Ledger: funding sources and the season notes', async () => {
   assert.deepEqual([s.rainy_day, s.notes], ['2128.75', 'Updated']);
   await as(ce, () => rejects(rpc('delete_fund', [fund]), /does not allow/));
   await as(treasurer, () => rejects(db.query(`update finance_funds set received = 0`), /permission denied/));
+});
+
+console.log('Fixing wording; picking up deliveries (019)');
+
+await test('Wording: typos can be fixed after submitting; nothing about the order changes', async () => {
+  const number = numberOf(await submit({ ...vendorRequest, title: 'Stearing hardware', justification: 'Steering cam assembyl' }));
+  const id = await idOf(number);
+  const before = (await db.query(`select status, subsystem from requests where id = $1`, [id])).rows[0];
+  const item = (await db.query(`select id, unit_price, quantity from request_items where request_id = $1`, [id])).rows[0];
+  const n = (await as(member, () => rpc('fix_request_wording', [id,
+    { title: 'Steering hardware', justification: 'Steering cam assembly', subsystem: 'Aero' }, // not wording: ignored
+    [{ id: item.id, item_name: 'M5 bolts', notes: 'Black oxide', unit_price: '0', quantity: '99' }]]))).rows[0].result;
+  assert.equal(n, 3); // title, item name, notes (Justification is hidden on this form, so it stays)
+  const r = (await db.query(`select title, justification, subsystem, status from requests where id = $1`, [id])).rows[0];
+  assert.deepEqual([r.title, r.subsystem, r.status], ['Steering hardware', before.subsystem, before.status]);
+  const it = (await db.query(`select item_name, notes, unit_price, quantity from request_items where id = $1`, [item.id])).rows[0];
+  assert.deepEqual([it.item_name, it.notes, it.unit_price, it.quantity], ['M5 bolts', 'Black oxide', item.unit_price, item.quantity]);
+  const log = (await events(number)).filter((e) => e.kind === 'edited');
+  assert.equal(log.length, 1);
+  assert.match(log[0].changes[0], /Stearing hardware" → "Steering hardware/);
+  assert.equal((await as(member, () => rpc('fix_request_wording', [id, { title: 'Steering hardware' }, []]))).rows[0].result, 0); // nothing new
+  await as(other, () => rejects(rpc('fix_request_wording', [id, { title: 'Mine now' }, []]), /Only the person who made/));
+  await as(member, () => rejects(rpc('fix_request_wording', [id, { title: '  ' }, []]), /can't be empty/));
+  await as(ce, () => rpc('fix_request_wording', [id, { title: 'Steering hardware (front)' }, []])); // leads can fix it too
+  const draft = (await as(member, () => rpc('save_request', [null, vendorRequest, oneItem, 'draft']))).rows[0].result;
+  const draftId = await idOf(draft);
+  await as(member, () => rejects(rpc('fix_request_wording', [draftId, { title: 'x' }, []]), /use Edit request/));
+});
+
+await test('Wording: fields an approval rule or budget looks at stay locked', async () => {
+  const form = await currentForm();
+  await as(ce, () => rpc('update_settings', ['form', { ...form, requestFields: [...form.requestFields, { key: 'c_project', label: 'Project', type: 'text' }] }]));
+  const keys = async () => (await as(member, () => rpc('wording_field_keys', []))).rows[0].result;
+  assert.ok((await keys()).includes('c_project'));
+  assert.ok(!(await keys()).includes('requester'));
+  await setWorkflow({ rules: [{ name: 'Projects', when: { field: 'c_project', op: 'equals', value: 'Aero' }, then: { type: 'auto' } }] });
+  assert.ok(!(await keys()).includes('c_project'));
+  await setWorkflow({ rules: [] });
+  await as(ce, () => rpc('update_settings', ['form', form]));
+});
+
+await test('Received: the requester can mark their own pickup; everyone has to say where', async () => {
+  const number = numberOf(await submit(vendorRequest));
+  await review(ce, number, 'approve');
+  const id = await idOf(number);
+  await as(treasurer, () => rpc('mark_ordered', [id, '2026-10-01', 'PO-9', '']));
+  await as(other, () => rejects(rpc('mark_received', [id, null, 'Front desk']), /Only the Treasurer or the person who requested/));
+  await as(member, () => rejects(rpc('mark_received', [id, null, '   ']), /Say where it is/));
+  await as(member, () => rejects(rpc('mark_received', [id, '2099-01-01', 'Front desk']), /future/));
+  await as(member, () => rpc('mark_received', [id, null, 'Picked up from the MAE receiving room']));
+  const o = (await db.query(`select received_notes, received_by from order_information where request_id = $1`, [id])).rows[0];
+  assert.deepEqual([await statusOf(number), o.received_notes, o.received_by], ['Received', 'Picked up from the MAE receiving room', member]);
+  const second = numberOf(await submit(vendorRequest));
+  await review(ce, second, 'approve');
+  const id2 = await idOf(second);
+  await as(treasurer, () => rpc('mark_ordered', [id2, '2026-10-01', 'PO-10', '']));
+  await as(treasurer, () => rejects(rpc('mark_received', [id2, null, '']), /Say where it is/)); // the Treasurer too
+  await as(treasurer, () => rpc('mark_received', [id2, null, 'In our office']));
+  assert.equal(await statusOf(second), 'Received');
 });
 
 console.log(`\n${passed} passed${process.exitCode ? ', some FAILED' : ''}`);

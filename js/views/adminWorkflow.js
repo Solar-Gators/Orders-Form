@@ -264,6 +264,7 @@ function fill(template, values) {
 const SAMPLE = {
   request_number: 'SG26-014', title: 'Steering hardware', requester: 'Austin Stang', first_name: 'Austin',
   total: '$123.45', vendor: 'McMaster-Carr', approver: 'Griffin York', comment: 'Looks good', ticket: 'PO-1234',
+  where: 'In our office', received_by: 'Cara Lopez',
   status: 'Approved', rule: 'Battery orders', link: '…/#/requests/SG26-014',
 };
 

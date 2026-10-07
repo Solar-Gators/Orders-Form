@@ -382,6 +382,11 @@ export const api = {
     return unwrap(await supabase.rpc('update_item_costs', { p_request_id: id, p_items: items, p_reason: reason }));
   },
 
+  /** Typos after submitting (019): request: { key: text }, items: [{ id, item_name, notes }]. Returns how many changed. */
+  async fixRequestWording(id, request, items) {
+    return unwrap(await supabase.rpc('fix_request_wording', { p_id: id, p_request: request, p_items: items }));
+  },
+
   async markReceived(id, { received_date, received_notes }) {
     unwrap(await supabase.rpc('mark_received', { p_id: id, p_received_date: received_date || null, p_notes: received_notes }));
     deliver();

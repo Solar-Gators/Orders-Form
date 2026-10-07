@@ -37,7 +37,7 @@ const FALLBACK: Record<string, Template> = {
   changes_requested: { subject: '{request_number}: changes requested', body: '{approver} asked for changes to "{title}":\n{comment}' },
   rejected: { subject: '{request_number} was rejected', body: '{approver} rejected "{title}":\n{comment}' },
   ordered: { subject: '{request_number} has been ordered', body: '"{title}" has been ordered.\nOrder / ticket number: {ticket}' },
-  received: { subject: '{request_number} has arrived', body: '"{title}" was marked received.' },
+  received: { subject: '{request_number} has arrived', body: '"{title}" was marked received by {received_by}.\nWhere: {where}' },
   request_update: { subject: '{request_number} is now {status}', body: '"{title}" ({requester}) is now {status}. You\'re getting this because you watch it.' },
   sponsor_update: { subject: '{sponsor}: {what}', body: '{actor} updated {sponsor} on the Sponsors board: {what}.' },
   test: {
@@ -64,6 +64,8 @@ export function placeholders(payload: Record<string, unknown>, siteUrl: string):
     comment: s('comment'),
     approver: s('approver'),
     ticket: s('ticket'),
+    where: s('where'),
+    received_by: s('received_by'),
     rule: s('rule'),
     recipient_name: s('recipient_name'),
     first_name: s('recipient_name').split(/\s+/)[0] || 'there',
