@@ -201,7 +201,7 @@ export function requestTable(rows, columns, emptyMessage = 'Nothing here yet.', 
       </tr>`
     )
     .join('');
-  return `${sortBar}<div class="table-wrap"><table class="table stack-mobile request-cards"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+  return `${sortBar}<div class="table-wrap"><table class="table stack-mobile request-cards" data-fit><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
 }
 
 // ---- Sorting ----------------------------------------------------------------
@@ -375,13 +375,15 @@ export function setFlash(message, type = 'success') {
 export function takeFlash() {
   const f = flash;
   flash = null;
-  return f ? `<div class="alert alert-${f.type}" role="status">${esc(f.message)}</div>` : '';
+  return f ? `<div class="alert alert-${f.type} flash" role="status">${esc(f.message)}</div>` : '';
 }
 
 // ---- Copy to clipboard (Treasurer: paste into purchasing forms) ------------
 
-/** A small copy button for `value`. Nothing is rendered for empty values. */
-/** keep: also shown on phones (where the rest are hidden to cut clutter). */
+/**
+ * A small copy button for `value`. Nothing is rendered for empty values.
+ * keep: also shown on phones (where the rest are hidden to cut clutter).
+ */
 export function copyButton(value, label = 'value', { keep = false } = {}) {
   if (value === null || value === undefined || String(value).trim() === '') return '';
   return `<button type="button" class="copy-btn${keep ? ' copy-keep' : ''}" data-copy="${esc(value)}" title="Copy ${esc(label)}" aria-label="Copy ${esc(label)}">

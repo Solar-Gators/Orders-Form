@@ -230,6 +230,10 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--o
 
 .alert { padding: 12px 14px; border-radius: 8px; margin-bottom: 16px; border: 1px solid; }
 .alert ul { margin: 6px 0 0; padding-left: 20px; }
+/* "Saved." and similar: stays in view while you're scrolled down, then tidies itself away */
+.alert.flash { position: sticky; top: 8px; z-index: 20; box-shadow: 0 4px 14px rgba(11, 37, 69, .12); animation: flash-out .5s ease 6s forwards; }
+@keyframes flash-out { to { opacity: 0; visibility: hidden; max-height: 0; padding-top: 0; padding-bottom: 0; margin: 0; border-width: 0; } }
+@media (prefers-reduced-motion: reduce) { .alert.flash { animation-duration: 0s; } }
 .alert-error { background: #fdecea; border-color: #f5c2bd; color: #7a1a12; }
 .alert-success { background: #e6f6ec; border-color: #b8e2c7; color: #145c2e; }
 .alert-info { background: #eef4ff; border-color: #cbdcfb; color: #1e3a78; }
@@ -534,8 +538,9 @@ th.sorted { color: var(--navy); }
 th.sorted .sort-ind { opacity: 1; color: var(--orange-dark); }
 .sort-bar { display: none; margin-bottom: 10px; }
 .sort-bar label { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--muted); }
-.sort-bar select { flex: 1; }
+.sort-bar select { flex: 1; max-width: 320px; }
 @media (max-width: 640px) { .sort-bar { display: block; } }
+.sort-bar:has(+ .table-wrap > .is-stacked) { display: block; } /* cards have no headers to click */
 
 /* ---- Color tones: statuses, priorities (Admin → Appearance) ------------------ */
 /* Soft tones: tinted background + dark text. "-strong": solid color + white text. */
@@ -900,6 +905,18 @@ body.nav-open .menu-icon::after { top: 0; transform: rotate(-45deg); }
   .table.fields-table td > input[type="text"], .table.fields-table td > select, .table.fields-table td > textarea { width: 100%; max-width: none; }
   .table.fields-table td.move .icon-btn { width: 36px; height: 32px; }
   .table.fields-table td.field-end { align-self: end; text-align: right; }
+  /* Shorter cards: label and arrows on one row; type, required and shown on the next; no empty Options row */
+  .table.fields-table tbody tr:not(.rules-row) { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .table.fields-table td.cell-primary { grid-column: 1 / 3; order: -2; }
+  .table.fields-table td.move { order: -1; align-self: end; text-align: right; white-space: nowrap; }
+  .table.fields-table td.move::before { content: none; }
+  .table.fields-table td[data-label="Options"], .table.fields-table td[data-label="Help text"] { grid-column: 1 / -1; }
+  .table.fields-table td[data-label="Options"]:has(.opt-none) { display: none; }
+  .table.fields-table td.rules-cell { grid-column: 1 / 3; }
+  .table.fields-table td.rules-cell::before { content: none; }
+  /* Save bars: the buttons share one row; the enabled Save button already says there are changes */
+  .sticky-actions { flex-wrap: nowrap; }
+  .sticky-actions > .muted.small { display: none; }
 }
 
 @media (max-width: 640px) {
@@ -969,7 +986,7 @@ body.nav-open .menu-icon::after { top: 0; transform: rotate(-45deg); }
 .sheet-table th.is-calc-head .sort-btn::after { content: "ƒ"; margin-left: 4px; font-style: italic; text-transform: none; color: var(--blue); opacity: .7; }
 .sheet-table td.is-budget { background: #fff8f1; }
 .sheet-table .is-negative, .sheet-table .is-negative input { color: var(--red); }
-.calc-dialog, .sheet-dialog { width: min(560px, calc(100vw - 32px)); max-height: 80vh; overflow: auto; border: 1px solid var(--border); padding: 20px; }
+.calc-dialog, .sheet-dialog { width: min(560px, calc(100vw - 32px)); max-height: 80vh; overflow: auto; border: 1px solid var(--border); padding: 20px; margin: auto; /* not .card's bottom margin: that pushes it off center */ }
 .calc-dialog::backdrop, .sheet-dialog::backdrop { background: rgba(11, 37, 69, .35); }
 .calc-items { list-style: none; margin: 8px 0; padding: 0; border: 1px solid var(--border-soft); border-radius: 8px; max-height: 50vh; overflow: auto; }
 .calc-items li { display: flex; justify-content: space-between; gap: 12px; padding: 7px 10px; border-bottom: 1px solid var(--border-soft); font-size: 13.5px; }
@@ -1164,12 +1181,12 @@ nav.segmented a[aria-current="page"] { background: none; color: var(--text); bor
 .ledger-table input:hover { border-color: var(--border); }
 .ledger-table input:focus { background: #fff; }
 .ledger-table td.num input { text-align: right; width: 92px; }
-.ledger-desc { min-width: 240px; }
-.ledger-desc input { min-width: 240px; font-weight: 600; }
+.ledger-desc { min-width: 220px; }
+.ledger-desc input { min-width: 220px; font-weight: 600; }
 .ledger-desc a { text-decoration: none; color: var(--text); font-weight: 600; }
 .ledger-desc a:hover { color: var(--blue); }
 .ledger-dept input { width: 52px; text-align: center; }
-.ledger-notes input { min-width: 160px; }
+.ledger-notes input { min-width: 140px; }
 .ledger-cat input { min-width: 140px; }
 .ledger-order input { min-width: 100px; }
 .ledger-table td.nowrap input[type="date"] { width: 132px; }
@@ -1231,6 +1248,8 @@ nav.segmented a[aria-current="page"] { background: none; color: var(--text); bor
 
 /* Short answers get short boxes */
 #s-prefix { max-width: 160px; }
+#cost-shipping { max-width: 180px; }
+#add-watcher { max-width: 320px; }
 
 /* Finances purchases: one card per purchase (phones, or whenever the ledger doesn't fit) */
 @media (max-width: 640px) {
@@ -1265,6 +1284,10 @@ nav.segmented a[aria-current="page"] { background: none; color: var(--text); bor
   .table.stack-mobile.is-stacked.detail-items td::before { display: block; font-size: 10.5px; }
   .table.stack-mobile.is-stacked.detail-items td.cell-primary { grid-column: 1 / -1; }
   .table.stack-mobile.is-stacked.ledger-table tbody tr[data-line] { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .table.request-cards.is-stacked tbody tr[data-href] { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .table.stack-mobile.is-stacked.perm-table tbody tr { display: grid; grid-template-columns: repeat(auto-fit, minmax(105px, 1fr)); gap: 4px 12px; }
+  .table.stack-mobile.is-stacked.perm-table td { width: auto; flex-direction: column; align-items: flex-start; gap: 4px; text-align: left; }
+  .table.stack-mobile.is-stacked.perm-table td.cell-primary { grid-column: 1 / -1; }
   .table.stack-mobile.is-stacked.ledger-table td.ledger-notes[data-label] { grid-column: span 2; }
 }
 
@@ -1277,6 +1300,12 @@ nav.segmented a[aria-current="page"] { background: none; color: var(--text); bor
   :is(#to-order, #in-transit) th[data-col="vendors"] { width: 140px; }
   :is(#to-order, #in-transit) th[data-col="orderNumber"] { width: 110px; }
   :is(#to-order, #in-transit) th[data-col="title"] { width: 30%; } /* the last column takes what is left */
+}
+
+/* Phones: notification checkboxes big enough to tap */
+@media (max-width: 640px) {
+  .events-table input[type="checkbox"] { width: 24px; height: 24px; }
+  .link-btn.attach-open, .link-btn.attach-close { padding-top: 8px; padding-bottom: 8px; }
 }
 
 /* ---- GENERATED: stacked tables (node tools/gen-stacked-css.mjs) ---- */
@@ -1341,11 +1370,39 @@ nav.segmented a[aria-current="page"] { background: none; color: var(--text); bor
 .table.stack-mobile.is-stacked .role-chips { justify-content: flex-end; }
 .table.stack-mobile.is-stacked tr.rules-row td::before { content: none; }
 .table.stack-mobile.is-stacked.fields-table td.field-end:empty { display: none; }
+.table.request-cards.is-stacked tbody tr { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 6px 16px; }
+.table.request-cards.is-stacked td { display: block; padding: 0; text-align: left; }
+.table.request-cards.is-stacked td::before { display: block; font-size: 10.5px; }
+.table.request-cards.is-stacked td.cell-primary { grid-column: 1 / -1; padding-bottom: 2px; }
+.table.request-cards.is-stacked td.num { text-align: left; }
+.table.request-cards.is-stacked tbody tr { position: relative; }
+.table.request-cards.is-stacked tbody tr:has(td[data-col="status"]) td.cell-primary { padding-right: 130px; }
+.table.request-cards.is-stacked td[data-col="status"] { position: absolute; top: 12px; right: 14px; width: auto; max-width: 125px; text-align: right; }
+.table.request-cards.is-stacked td[data-col="status"]::before { content: none; }
 .table.stack-form.is-stacked tfoot tr.shipping-row { flex-wrap: wrap; gap: 6px; align-items: center; }
 .table.stack-form.is-stacked tfoot tr.shipping-row #ship-label { flex: 1 1 100%; text-align: left; }
 .table.stack-form.is-stacked tfoot td.ship-input { flex: 1 1 auto; }
 .table.stack-form.is-stacked tfoot td.ship-input input { width: 100%; text-align: left; }
 .table.stack-form.is-stacked tfoot td:empty { display: none; }
+.table.fields-table.is-stacked tbody tr:not(.rules-row) { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px 14px; }
+.table.fields-table.is-stacked td { display: block; padding: 0; text-align: left; }
+.table.fields-table.is-stacked td::before { display: block; margin-bottom: 2px; }
+.table.fields-table.is-stacked td.cell-primary,
+.table.fields-table.is-stacked td[data-label="Help text"] { grid-column: 1 / -1; }
+.table.fields-table.is-stacked td > input[type="text"],
+.table.fields-table.is-stacked td > select,
+.table.fields-table.is-stacked td > textarea { width: 100%; max-width: none; }
+.table.fields-table.is-stacked td.move .icon-btn { width: 36px; height: 32px; }
+.table.fields-table.is-stacked td.field-end { align-self: end; text-align: right; }
+.table.fields-table.is-stacked tbody tr:not(.rules-row) { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.table.fields-table.is-stacked td.cell-primary { grid-column: 1 / 3; order: -2; }
+.table.fields-table.is-stacked td.move { order: -1; align-self: end; text-align: right; white-space: nowrap; }
+.table.fields-table.is-stacked td.move::before { content: none; }
+.table.fields-table.is-stacked td[data-label="Options"],
+.table.fields-table.is-stacked td[data-label="Help text"] { grid-column: 1 / -1; }
+.table.fields-table.is-stacked td[data-label="Options"]:has(.opt-none) { display: none; }
+.table.fields-table.is-stacked td.rules-cell { grid-column: 1 / 3; }
+.table.fields-table.is-stacked td.rules-cell::before { content: none; }
 .table.detail-items.is-stacked tfoot tr { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
 .table.stack-mobile.is-stacked.ledger-table tbody tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; position: relative; border-left: 4px solid transparent; }
 .table.stack-mobile.is-stacked.ledger-table tbody tr.step-row-pink { border-left-color: #ffaaa4; }

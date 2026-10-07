@@ -64,6 +64,18 @@ export async function renderFinances(el, ctx) {
     api.attachmentCounts('request'),
     sponsorIncome(config, season),
   ]);
+  // "+ Add a purchase" saves a blank row right away; one left untouched for an hour was
+  // abandoned, so tidy it away instead of showing an empty line forever.
+  if (canEdit) {
+    const abandoned = purchases.filter(
+      (p) => !p.request_id && !String(p.description || '').trim() && (p.amount === null || p.amount === '') && !p.notes && !p.order_number &&
+        !p.dept && p.dept_status === 'to_submit' && !purchaseFiles[p.id] && Date.now() - new Date(p.created_at).getTime() > 3600e3
+    );
+    for (const p of abandoned) {
+      purchases.splice(purchases.indexOf(p), 1);
+      api.deletePurchase(p.id).catch(() => {});
+    }
+  }
   const lines = ledgerLines({ requests, purchases, field: budgets.field, season });
   const table = budgetTable(lines, budgets.amounts);
   const funding = fundingTotals(funds, sponsorsIn);

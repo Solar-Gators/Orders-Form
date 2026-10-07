@@ -444,6 +444,8 @@ export async function renderSponsorCard(el, { config, params, rerender }) {
   const [{ all: people, viewers }, cards] = await Promise.all([boardPeople(), api.listSponsorCards()]);
   const nameOf = (id) => people.find((p) => p.id === id)?.full_name || 'Someone';
   const stageLabel = (k) => stages.find((s) => s.key === k)?.label || k;
+  // Renewing makes sense once this season's ask is over (received, thanked, or not this year).
+  const finished = ['received', 'done', 'lost'].includes(stages.find((s) => s.key === card.stage)?.kind);
   const editable = canEdit();
   const me = auth.user.id;
   const watching = card.watchers.includes(me);
@@ -479,7 +481,7 @@ export async function renderSponsorCard(el, { config, params, rerender }) {
       </div>
       <div class="card-actions">
         <button type="button" class="btn" id="watch">${watching ? '👁 Watching · Stop' : '👁 Watch'}</button>
-        ${editable && nextSeason && !renewals.some((r) => r.season === nextSeason) ? `<button type="button" class="btn" id="renew">Renew for ${esc(nextSeason)}</button>` : ''}
+        ${editable && nextSeason && finished && !renewals.some((r) => r.season === nextSeason) ? `<button type="button" class="btn" id="renew">Renew for ${esc(nextSeason)}</button>` : ''}
       </div>
     </div>
     <div id="card-errors"></div>

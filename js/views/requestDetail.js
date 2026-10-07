@@ -174,8 +174,16 @@ function detailsGrid(r, config) {
   // Vendors go before the first long-text field or section after the short ones.
   const firstBig = fields.findIndex((f) => f.type === 'textarea' || f.type === 'section');
   const vendors = `<div><dt>Vendor</dt><dd>${esc(r.vendors.join(', ') || '—')}</dd></div>`;
+  // Once ordered, the ticket and dates belong up here too, not only in the History.
+  const o = r.order || {};
+  const ordered = [
+    o.department_order_number &&
+      `<div><dt>Ticket #</dt><dd><span class="copy-wrap">${esc(o.department_order_number)}${showCopy() ? copyButton(o.department_order_number, 'ticket number', { keep: true }) : ''}</span></dd></div>`,
+    o.order_date && `<div><dt>Ordered</dt><dd>${fmtDate(o.order_date)}</dd></div>`,
+    o.received_date && `<div><dt>Received</dt><dd>${fmtDate(o.received_date)}</dd></div>`,
+  ].filter(Boolean);
   const html = fields.map(cell);
-  html.splice(firstBig < 0 ? html.length : firstBig, 0, vendors);
+  html.splice(firstBig < 0 ? html.length : firstBig, 0, vendors, ...ordered);
   return `<dl class="meta-grid">${html.join('')}</dl>`;
 }
 
@@ -581,6 +589,10 @@ export async function renderRequestDetail(el, { config, params, rerender }) {
     const comment = e.target.comment.value.trim();
     if (decision !== 'approve' && !comment) {
       errors.innerHTML = errorBox(new Error('Please add a comment explaining what needs to change.'));
+      const box = e.target.comment;
+      box.classList.add('is-invalid');
+      box.addEventListener('input', () => box.classList.remove('is-invalid'), { once: true });
+      box.focus();
       return;
     }
     run(e.target, () => api.review(r.id, decision, comment), async () => {

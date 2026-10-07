@@ -16,7 +16,7 @@ const ITEM_PLACEHOLDERS = {
   item_name: 'e.g. M5 socket head screw',
   vendor: 'McMaster-Carr',
   part_number: '91292A113',
-  quantity: '1',
+  quantity: 'e.g. 2',
   unit_price: '0.00',
 };
 
@@ -403,7 +403,18 @@ export async function renderRequestForm(el, { config, params }) {
         continue;
       }
       if (/^Add at least one item/.test(line)) {
-        out.push({ order: 950, text: 'Fill in item 1: its name, quantity and unit price.', el: tbody.querySelector('[data-ifield="item_name"]') });
+        // Every required box at once, so nobody has to submit twice to find the rest.
+        if (oneVendor && !vendorSaid && !form.querySelector('#f-vendor').value.trim()) {
+          out.push({ order: 900, text: `${vendorField.label} is required.`, el: form.querySelector('#f-vendor') });
+          vendorSaid = true;
+        }
+        const row = tbody.querySelector('tr[data-index]');
+        const needed = iFields.filter((x) => x.required && x.type !== 'section' && !(oneVendor && x === vendorField) && !(oneShipping && x === shipField));
+        for (const x of needed) {
+          const el = shared.has(x.key) ? sharedBox?.querySelector(`[data-shared="${x.key}"]`) : row?.querySelector(`[data-ifield="${x.key}"]`);
+          if (el && String(el.value ?? '').trim() !== '') continue;
+          out.push({ order: 1100 + iFields.indexOf(x), text: `Item 1: ${x.label} is required.`, el });
+        }
         continue;
       }
       const f = fieldStarting(rFields, line);

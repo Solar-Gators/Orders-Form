@@ -317,7 +317,7 @@ async function renderPermissions(box, { rerender }) {
         search the Archive, and export. Changes apply to everyone with that role as soon as you save.</p>
       <div id="perm-errors"></div>
       <div class="table-wrap flat">
-        <table class="table perm-table stack-mobile">
+        <table class="table perm-table stack-mobile" data-fit>
           <thead><tr><th>Permission</th>${roles.map((r) => `<th class="center">${esc(r.label)}${myRoles.includes(r.key) ? '<div class="muted small">(yours)</div>' : ''}</th>`).join('')}</tr></thead>
           <tbody>${perms
             .map(
@@ -719,7 +719,7 @@ export async function renderFormFields(el, { rerender, reloadConfig }) {
         (f.options || []).join('\n')
       )}</textarea>`;
     }
-    return '<span class="muted small">—</span>';
+    return '<span class="muted small opt-none">—</span>';
   };
 
   const row = (kind, f, idx, count) => {
@@ -755,7 +755,7 @@ export async function renderFormFields(el, { rerender, reloadConfig }) {
         <button type="button" class="btn btn-sm" data-add="${kind}">+ Add field</button>
       </div>
       <div class="table-wrap flat">
-        <table class="table fields-table stack-mobile">
+        <table class="table fields-table stack-mobile" data-fit>
           <thead><tr>
             <th class="move">Order</th><th>Label</th><th>Type</th><th class="center">Required</th><th class="center">Shown</th>
             <th>Options</th><th>Help text</th><th>Rules</th><th></th>
