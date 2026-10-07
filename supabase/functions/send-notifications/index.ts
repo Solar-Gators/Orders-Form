@@ -28,7 +28,10 @@ type Row = {
   payload: Record<string, unknown>;
 };
 type Template = { subject: string; body: string };
-export type Message = { subject: string; lines: string[]; link: string; linkLabel: string; facts: [string, string][] };
+export type Message = { subject: string; lines: string[]; link: string; linkLabel: string; facts: [string, string][]; logo?: string };
+
+/** The team logo under every message: the copy the website itself serves (needs Website address in Admin). */
+export const logoUrl = (siteUrl: string) => (siteUrl ? `${siteUrl.replace(/#.*$/, '').replace(/\/?$/, '/')}assets/solar-gators-logo.png` : '');
 
 const FALLBACK: Record<string, Template> = {
   submitted: { subject: '{request_number} needs your approval', body: '{requester} submitted "{title}": {total} from {vendor}.' },
@@ -117,6 +120,7 @@ export function render(row: Pick<Row, 'event' | 'payload'>, settings: Record<str
     link: values.link,
     linkLabel: sponsor ? 'Open on the Sponsors board' : values.request_number ? `Open ${values.request_number}` : 'Open the order form',
     facts: row.event === 'test' ? [] : facts,
+    logo: logoUrl(settings?.siteUrl || ''),
   };
 }
 
@@ -131,7 +135,8 @@ export function emailHtml(m: Message, teamName = 'Solar Gators'): string {
 ${m.lines.map((l) => `<p style="margin:0 0 10px">${escapeHtml(l)}</p>`).join('\n')}
 ${facts ? `<table style="border-collapse:collapse;margin:12px 0;font-size:14px">${facts}</table>` : ''}
 ${m.link ? `<p style="margin:18px 0"><a href="${escapeHtml(m.link)}" style="background:#f26b1d;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none;font-weight:600">${escapeHtml(m.linkLabel)}</a></p>` : ''}
-<p style="margin:24px 0 0;font-size:12px;color:#9ca3af">${escapeHtml(teamName)} order form. You can turn these messages off on your Account page.</p>
+${m.logo ? `<img src="${escapeHtml(m.logo)}" alt="${escapeHtml(teamName)}" width="140" style="display:block;width:140px;height:auto;border:0;margin:28px 0 0">` : ''}
+<p style="margin:${m.logo ? '10px' : '24px'} 0 0;font-size:12px;color:#9ca3af">${escapeHtml(teamName)} order form. You can turn these messages off on your Account page.</p>
 </div>`;
 }
 
@@ -151,6 +156,7 @@ export function teamsCard(m: Message) {
       { type: 'TextBlock', text: m.subject, weight: 'Bolder', size: 'Medium', wrap: true },
       ...m.lines.map((text) => ({ type: 'TextBlock', text, wrap: true, spacing: 'Small' })),
       ...(m.facts.length ? [{ type: 'FactSet', facts: m.facts.map(([title, value]) => ({ title, value })) }] : []),
+      ...(m.logo ? [{ type: 'Image', url: m.logo, altText: 'Solar Gators', width: '120px', spacing: 'Large' }] : []),
     ],
     actions: m.link ? [{ type: 'Action.OpenUrl', title: m.linkLabel, url: m.link }] : [],
   };

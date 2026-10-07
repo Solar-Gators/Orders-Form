@@ -85,4 +85,16 @@ test('Sponsors board messages link to the card and list sponsor facts', () => {
   assert.deepEqual(m.facts, [['Sponsor', 'Acme Aerospace'], ['Stage', 'Committed'], ['Type', 'Sponsorship'], ['Amount', '$2,500.00']]);
 });
 
+test('the team logo sits under the email and the Teams card (when the website address is set)', () => {
+  const m = render({ event: 'approved', payload }, settings);
+  const logo = 'https://solar-gators.github.io/Orders-Form/assets/solar-gators-logo.png';
+  assert.equal(m.logo, logo);
+  assert.match(emailHtml(m), new RegExp(`<img src="${logo}"`));
+  const card = flowPayload({ email: 'member@ufl.edu', channel: 'teams' }, m).attachments[0].content;
+  assert.deepEqual(card.body.at(-1), { type: 'Image', url: logo, altText: 'Solar Gators', width: '120px', spacing: 'Large' });
+  const bare = render({ event: 'approved', payload }, { templates: settings.templates }); // no website address yet
+  assert.equal(bare.logo, '');
+  assert.doesNotMatch(emailHtml(bare), /<img/);
+});
+
 console.log(`\n${passed} passed${process.exitCode ? ', some FAILED' : ''}`);
