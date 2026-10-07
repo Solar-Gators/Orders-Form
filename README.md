@@ -67,6 +67,8 @@ All of this can be changed in **Admin → Team → Roles & permissions**, and yo
 
 If the Chief Engineer requests changes, the request appears at the top of **Requests** under **Needs your action** (the Requests tab shows a count), with their comment. Click **Edit request**, fix it, and resubmit; the History then lists exactly what you changed.
 
+**Order again:** buying the same things as an earlier request (yours or anyone's)? Open it and click **Order again** above its items. A new request opens with the same vendor, subsystem, items, prices and shipping; add the needed-by date and why, check the prices and quantities, and submit. The original isn't changed.
+
 Changed your mind? Open a submitted request and click **Withdraw request** to turn it back into a draft. Drafts and requests sent back for changes can be deleted.
 
 **Watchers:** anyone can click **Watch** on a request to get an email / Teams message whenever its status changes (submitted, approved, sent back, rejected, ordered, received). The requester and leads can also add other people, e.g. a subsystem lead or a teammate waiting on the part. On **Requests**, the "Requests I watch" filter lists them.
@@ -85,7 +87,7 @@ Changed your mind? Open a submitted request and click **Withdraw request** to tu
 - **Order several at once:** bought a few approved requests in one checkout? Open **Order several at once** there, tick them (grouped by vendor), and enter the date and ticket number once.
 - **Late deliveries:** Awaiting delivery shows how long each order has been out, and highlights anything over 14 days.
 - **Mark as Received:** record when it arrived, e.g. "in office".
-- **Budgets:** the Treasurer sets them in the **Budgets** card at the top of **Finances** (**Set budgets** / **Edit budgets**): pick a dropdown such as Cost center and enter an amount for each option. The card shows each budget, how much is used this season, what's left, and what's waiting for approval. Optionally, approving over budget needs a written reason, which is kept in the request's History. The Queue warns when a budget is over.
+- **Budgets:** the Treasurer sets them on the **Budget** tab of **Finances**: pick the dropdown budgets go by (e.g. Cost center) under **Budget settings**, then type an amount for each category. The tab shows each budget, what's spent, what's in the pipeline, and what's left. Optionally, approving over budget needs a written reason, which is kept in the request's History. The Queue warns when a budget is over.
 - **Copy buttons:** every value on a request has a small copy icon (item name, vendor, link, part #, quantity, prices, request ID, total), for pasting into purchasing forms. **Copy all items** copies the whole item list as a table that pastes straight into Excel or Google Sheets.
 - **Edit costs:** if a price or shipping cost turns out different from what was requested, open the request and click **Edit costs**. This works on Approved, Ordered, and Received requests. Change any item's unit price or the order's shipping, and add a reason. The new total is previewed before saving. Every change is logged in the request's History (who, when, old → new, and why), and the item list is tagged **Costs adjusted**.
 

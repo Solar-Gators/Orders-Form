@@ -39,6 +39,8 @@ const ROUTES = [
   { pattern: /^\/new$/, nav: 'new', view: renderRequestForm },
   { pattern: /^\/requests$/, nav: 'requests', view: renderRequestList },
   { pattern: /^\/requests\/([^/]+)\/edit$/, nav: 'requests', view: renderRequestForm },
+  // "Order again": a new request pre-filled from this one.
+  { pattern: /^\/requests\/([^/]+)\/again$/, nav: 'new', view: renderRequestForm, copy: true },
   { pattern: /^\/requests\/([^/]+)$/, nav: 'requests', view: renderRequestDetail },
   { pattern: /^\/approvals$/, nav: 'queue', view: renderApprovals, perm: LEADS },
   { pattern: /^\/treasurer$/, nav: 'queue', view: renderTreasurer, perm: LEADS },
@@ -95,7 +97,7 @@ export function startRouter(ctx, { onRender } = {}) {
     document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === route.nav));
 
     const match = route.pattern ? path.match(route.pattern) : [];
-    const params = { id: match?.[1] ? decodeURIComponent(match[1]) : null };
+    const params = { id: match?.[1] ? decodeURIComponent(match[1]) : null, copy: !!route.copy };
 
     // Render into a detached element so a slow, stale view can't overwrite a newer one.
     const el = document.createElement('div');

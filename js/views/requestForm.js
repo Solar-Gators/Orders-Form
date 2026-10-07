@@ -7,7 +7,7 @@
  */
 import { api } from '../api.js';
 import { auth } from '../auth.js';
-import { esc, fmtMoney, itemTotal, round2, statusBadge, errorBox, setFlash, introText } from '../ui.js';
+import { esc, fmtMoney, fmtDate, itemTotal, round2, statusBadge, errorBox, setFlash, introText } from '../ui.js';
 import { requestFields, itemFields, shown, getValue, setValue, renderInput, isVisible, shippingPerRequest } from '../formFields.js';
 import { guardLeaving, releaseGuard } from '../leaveGuard.js';
 
@@ -36,7 +36,10 @@ const fitBox = (ta) => {
 
 export async function renderRequestForm(el, { config, params }) {
   let existing = null;
-  if (params.id) {
+  let source = null; // "Order again": the request being copied (this form makes a new one)
+  if (params.id && params.copy) {
+    source = await api.getRequest(params.id);
+  } else if (params.id) {
     existing = await api.getRequest(params.id);
     if (existing.created_by !== auth.user.id) {
       el.innerHTML = `
@@ -68,6 +71,21 @@ export async function renderRequestForm(el, { config, params }) {
   const req = existing
     ? { ...existing, data: { ...existing.data } }
     : withDefaults({ requester: auth.user.full_name, priority: config.defaultPriority, data: {} }, rFields);
+  // Order again: the same answers, except who's asking, when it's needed and why (written fresh).
+  const NOT_COPIED = new Set(['requester', 'needed_by', 'justification']);
+  if (source) {
+    for (const f of rFields) {
+      if (f.type === 'section' || NOT_COPIED.has(f.key)) continue;
+      const v = getValue(source, f);
+      if (v !== null && v !== undefined && v !== '') setValue(req, f, v);
+    }
+  }
+  /** A copied item: its answers only (not its id or which request it belonged to). */
+  const copyItem = (i) => {
+    const item = { data: {} };
+    for (const f of iFields) if (f.type !== 'section') setValue(item, f, getValue(i, f) ?? '');
+    return item;
+  };
   const shared = new Set(); // keys of item fields filled in once for every item (below)
   // New rows start with the defaults, and with any "same for every item" values.
   const blankItem = () => {
@@ -75,7 +93,11 @@ export async function renderRequestForm(el, { config, params }) {
     for (const f of iFields) if (shared.has(f.key)) setValue(item, f, getValue(items[0], f));
     return item;
   };
-  const items = existing?.items.length ? existing.items.map((i) => ({ ...i, data: { ...i.data } })) : [blankItem()];
+  const items = existing?.items.length
+    ? existing.items.map((i) => ({ ...i, data: { ...i.data } }))
+    : source?.items.length
+      ? source.items.map(copyItem)
+      : [blankItem()];
 
   // One vendor per request (Settings, on by default): the vendor is entered once,
   // above the items, instead of in every row. The database enforces the same rule.
@@ -117,6 +139,12 @@ export async function renderRequestForm(el, { config, params }) {
       ? `<div class="alert alert-warning"><strong>Changes requested by ${esc(latest.approver)}:</strong> ${esc(latest.comment)}</div>`
       : '';
 
+  const copiedOn = source && (source.order?.order_date ? `ordered ${fmtDate(source.order.order_date)}` : `requested ${fmtDate(source.created_at)}`);
+  const copyNote = source
+    ? `<div class="alert alert-info">Copied from <a href="#/requests/${esc(source.request_number)}">${esc(source.request_number)}</a>
+        (${esc(source.title || 'untitled')}, ${copiedOn}). <strong>Check prices and quantities before submitting</strong>, and add when you need it and why.</div>`
+    : '';
+
   const star = (f) => (f.required ? ' <span class="req">*</span>' : '');
   const span = (f) => (f.type === 'textarea' ? 'span-full' : f.key === 'title' ? 'span-2' : '');
 
@@ -127,7 +155,7 @@ export async function renderRequestForm(el, { config, params }) {
         <p class="subtitle">${existing ? statusBadge(existing.status) : introText('new', 'Fill in the request, add one row per item, then submit for Chief Engineer approval.')}</p>
       </div>
     </div>
-    ${changesNote}
+    ${changesNote}${copyNote}
     <div id="form-errors"></div>
 
     <form id="request-form" novalidate>
@@ -184,7 +212,7 @@ export async function renderRequestForm(el, { config, params }) {
       </section>
 
       <div class="form-actions">
-        <a class="btn btn-ghost" href="${existing ? `#/requests/${esc(existing.request_number)}` : '#/requests'}">Cancel</a>
+        <a class="btn btn-ghost" href="${existing || source ? `#/requests/${esc((existing || source).request_number)}` : '#/requests'}">Cancel</a>
         <button type="submit" class="btn" data-submit="draft">Save Draft</button>
         <button type="submit" class="btn btn-primary" data-submit="submit">Submit Request</button>
       </div>
@@ -493,7 +521,7 @@ export async function renderRequestForm(el, { config, params }) {
   });
 
   // ---- Unsaved changes: switching pages or closing the tab asks first ----
-  let dirty = false;
+  let dirty = !!source; // a copy hasn't been saved yet
   form.addEventListener('input', () => (dirty = true));
   form.addEventListener('change', () => (dirty = true));
   guardLeaving(el, () => dirty);

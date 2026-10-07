@@ -489,6 +489,7 @@ export async function renderRequestDetail(el, { config, params, rerender }) {
               ${showCopy() && r.items.length ? `<button type="button" class="btn btn-sm" data-copy="${esc(itemsAsTable(r, config))}" data-copied-label="Copied ✓"
                 title="Copies every item as a table — paste into Excel, Sheets, or a form">Copy all items</button>` : ''}
               ${canEditCosts(r) && r.items.length ? '<button type="button" class="btn btn-sm" id="edit-costs">Edit costs</button>' : ''}
+              ${r.items.length ? `<a class="btn btn-sm" href="#/requests/${esc(r.request_number)}/again" title="Start a new request with these items. You can change anything before submitting.">Order again</a>` : ''}
             </div>
           </div>
           <div id="items-body">${itemsTable(r, config)}</div>
