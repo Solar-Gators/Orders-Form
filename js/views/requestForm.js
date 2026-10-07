@@ -141,7 +141,7 @@ export async function renderRequestForm(el, { config, params }) {
         ${vendorBox}
         ${sharable.length ? '<div id="shared-box" class="shared-fields"></div>' : ''}
         <div class="table-wrap flat">
-          <table class="table items-table stack-form">
+          <table class="table items-table stack-form" data-fit>
             <thead id="items-head"></thead>
             <tbody id="items-body"></tbody>
             <tfoot>

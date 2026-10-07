@@ -32,7 +32,8 @@ export const LISTS = {
   treasurerOrdered: {
     label: 'Treasurer — Awaiting delivery',
     help: 'Ordered requests waiting to arrive.',
-    columns: ['requested', 'title', 'requester', 'total', 'vendors', 'orderNumber', 'orderedOn'],
+    // Same first columns as To order, so the two tables on the page line up.
+    columns: ['requested', 'title', 'requester', 'subsystem', 'total', 'vendors', 'orderNumber', 'orderedOn'],
     sort: { key: 'orderedOn', dir: 'asc' },
   },
 };

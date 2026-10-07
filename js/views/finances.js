@@ -189,17 +189,17 @@ function drawPurchases(box, s) {
     const own = l.kind === 'own';
     const files = s.fileCount(l);
     return `<tr data-line="${esc(l.key)}" class="step-row-${esc(stepOf(l.status).tone)} ${l.status === 'cancelled' ? 'is-cancelled' : ''}">
-      <td class="ledger-status">${statusCell(l)}</td>
-      <td class="ledger-desc">${own && canEdit
+      <td class="ledger-status" data-label="Status">${statusCell(l)}</td>
+      <td class="ledger-desc cell-primary" data-label="">${own && canEdit
         ? input(l, 'description', l.description, 'placeholder="What was bought" aria-label="Description"')
         : own ? esc(l.description) : `<a href="#/requests/${esc(l.number)}"><span class="mono small">${esc(l.number)}</span> ${esc(l.description)}</a>`}</td>
-      <td class="num">${own && canEdit ? input(l, 'amount', l.amount === null ? '' : l.amount.toFixed(2), 'inputmode="decimal" placeholder="$" aria-label="Cost"') : money(l.amount)}</td>
-      <td class="ledger-dept">${canEdit ? input(l, 'dept', l.dept, 'list="fin-depts" maxlength="20" aria-label="M/E"') : esc(l.dept)}</td>
-      <td class="ledger-cat">${own && canEdit ? input(l, 'category', l.category, 'list="fin-categories" aria-label="Category"') : esc(l.category || '—')}</td>
-      <td class="ledger-order">${own && canEdit ? input(l, 'order_number', l.orderNumber, 'aria-label="Order #"') : esc(l.orderNumber || '—')}</td>
-      <td class="nowrap">${own && canEdit ? input(l, 'purchased_on', l.date, 'type="date" class="date-quiet" required aria-label="Date"') : l.date ? fmtDate(l.date) : '—'}</td>
-      <td class="ledger-notes">${canEdit ? input(l, 'notes', l.notes, 'aria-label="Notes"') : esc(l.notes)}</td>
-      <td class="ledger-actions">
+      <td class="num ledger-cost" data-label="Cost">${own && canEdit ? input(l, 'amount', l.amount === null ? '' : fmtMoney(l.amount), 'inputmode="decimal" placeholder="$" aria-label="Cost"') : money(l.amount)}</td>
+      <td class="ledger-dept" data-label="M/E">${canEdit ? input(l, 'dept', l.dept, 'list="fin-depts" maxlength="20" aria-label="M/E"') : esc(l.dept)}</td>
+      <td class="ledger-cat" data-label="Category">${own && canEdit ? input(l, 'category', l.category, 'list="fin-categories" aria-label="Category"') : esc(l.category || '—')}</td>
+      <td class="ledger-order" data-label="Order #">${own && canEdit ? input(l, 'order_number', l.orderNumber, 'aria-label="Order #"') : esc(l.orderNumber || '—')}</td>
+      <td class="nowrap ledger-date" data-label="Date">${own && canEdit ? input(l, 'purchased_on', l.date, 'type="date" class="date-quiet" required aria-label="Date"') : l.date ? fmtDate(l.date) : '—'}</td>
+      <td class="ledger-notes" data-label="Notes">${canEdit ? input(l, 'notes', l.notes, 'aria-label="Notes"') : esc(l.notes)}</td>
+      <td class="ledger-actions" data-label="">
         <button type="button" class="row-files ${files ? 'has-files' : ''}" data-files title="${files ? `${files} file(s)` : 'Attach a receipt or file'}" aria-label="Files">📎${files ? `<span>${files}</span>` : ''}</button>
         ${own && canEdit ? '<button type="button" class="icon-btn" data-delete title="Delete" aria-label="Delete purchase">&times;</button>' : ''}
       </td>
@@ -227,7 +227,7 @@ function drawPurchases(box, s) {
       ${canEdit ? '<button type="button" class="btn btn-sm btn-primary toolbar-end" id="ledger-add">+ Add a purchase</button>' : ''}
     </div>
     <div class="table-wrap sheet-wrap">
-      <table class="table ledger-table">
+      <table class="table ledger-table stack-mobile" data-fit>
         <thead><tr><th>Status</th><th>Description</th><th class="num">Cost</th><th>M/E</th><th>Category</th><th>Order #</th><th>Date</th><th>Notes</th><th></th></tr></thead>
         <tbody id="ledger-body"></tbody>
       </table>

@@ -28,7 +28,9 @@ function copyText(field, value) {
   if (MONEY_FIELDS.has(field.key)) return Number(value).toFixed(2);
   return String(value);
 }
-const copyFor = (field, value) => (showCopy() ? copyButton(copyText(field, value), field.label) : '');
+// On phones only the ones people paste into purchasing forms stay (see .copy-keep).
+const KEEP_COPY = ['part_number', 'product_link'];
+const copyFor = (field, value) => (showCopy() ? copyButton(copyText(field, value), field.label, { keep: KEEP_COPY.includes(field.key) }) : '');
 
 /** All items as tab-separated text (with a header row) — pastes into Excel or Sheets as a table. */
 function itemsAsTable(r, config) {
@@ -73,7 +75,7 @@ function itemsTable(r, config) {
       </tr>`
     )
     .join('');
-  return `<div class="table-wrap flat"><table class="table detail-items stack-mobile">
+  return `<div class="table-wrap flat"><table class="table detail-items stack-mobile" data-fit>
     <thead><tr><th>#</th><th>${esc(nameField?.label || 'Item')}</th>${cols
       .map((f) => `<th class="${isNum(f) ? 'num' : ''}">${esc(f.label)}</th>`)
       .join('')}<th class="num">Total</th></tr></thead>
@@ -462,11 +464,11 @@ export async function renderRequestDetail(el, { config, params, rerender }) {
     <a class="back-link" href="#/requests">← All requests</a>
     <div class="page-header">
       <div>
-        <div class="eyebrow mono"><span class="copy-wrap">${esc(r.request_number)}${showCopy() ? copyButton(r.request_number, 'request ID') : ''}</span>${r.season ? ` <span class="muted">· ${esc(r.season)} season</span>` : ''}</div>
+        <div class="eyebrow mono"><span class="copy-wrap">${esc(r.request_number)}${showCopy() ? copyButton(r.request_number, 'request ID', { keep: true }) : ''}</span>${r.season ? ` <span class="muted">· ${esc(r.season)} season</span>` : ''}</div>
         <h1>${esc(r.title || 'Untitled request')}</h1>
         <p class="subtitle">${statusBadge(r.status)} ${priorityTag(r.priority)}</p>
       </div>
-      <div class="big-total"><span class="muted small">Request total</span><span class="copy-wrap">${fmtMoney(r.total)}${showCopy() ? copyButton(r.total.toFixed(2), 'request total') : ''}</span></div>
+      <div class="big-total"><span class="muted small">Request total</span><span class="copy-wrap">${fmtMoney(r.total)}${showCopy() ? copyButton(r.total.toFixed(2), 'request total', { keep: true }) : ''}</span></div>
     </div>
 
     <div class="detail-layout">

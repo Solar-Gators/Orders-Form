@@ -149,7 +149,7 @@ export async function renderSponsors(el, { config, rerender, reloadConfig }) {
       .map((s) => {
         const list = shown.filter((c) => c.stage === s.key).sort((a, b) => a.position - b.position);
         const total = list.reduce((sum, c) => sum + (Number(c.amount) || 0), 0);
-        return `<section class="kanban-col kind-${esc(s.kind || 'open')}" data-stage="${esc(s.key)}" aria-label="${esc(s.label)}">
+        return `<section class="kanban-col kind-${esc(s.kind || 'open')}${list.length ? '' : ' is-empty'}" data-stage="${esc(s.key)}" aria-label="${esc(s.label)}">
           <header><h2>${esc(s.label)}</h2><span class="muted small">${list.length}${total ? ` · ${fmtMoney(total)}` : ''}</span></header>
           <div class="kanban-cards" data-drop="${esc(s.key)}">${list.map(cardHtml).join('') || '<p class="kanban-empty muted small">Nothing here.</p>'}</div>
           ${canEdit() ? `<form class="kanban-add" data-add="${esc(s.key)}"><input type="text" placeholder="+ Add a sponsor" aria-label="Add a sponsor to ${esc(s.label)}" maxlength="120"></form>` : ''}

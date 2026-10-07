@@ -238,7 +238,7 @@ export async function renderAppearance(el, { config, rerender, reloadConfig }) {
           </div>
         </div>
       </section>
-      <div class="two-col">
+      <div class="two-col tone-cols">
         <section class="card">
           <h2>Statuses</h2>
           <div class="table-wrap flat"><table class="table tone-table">

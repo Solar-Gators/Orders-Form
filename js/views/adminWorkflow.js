@@ -133,7 +133,7 @@ export async function renderWorkflow(el, { config, rerender, reloadConfig }) {
 
   el.innerHTML = `
     ${takeFlash()}
-    ${adminHeader('workflow', "Who approves which requests. Budgets are set by the Treasurer on the Finances page.")}
+    ${adminHeader('workflow', 'Who approves which requests. Budgets are set by the Treasurer on the <a href="#/finances">Finances page</a>.')}
     <div id="wf-errors"></div>
     <section class="card">
       <div class="card-head"><h2>Approval rules</h2><button type="button" class="btn btn-sm" id="add-rule">+ Add rule</button></div>
@@ -141,8 +141,6 @@ export async function renderWorkflow(el, { config, rerender, reloadConfig }) {
         If none match, any Chief Engineer can approve. Examples: small orders approved automatically, Battery orders go to the Battery lead, anything over $1,000 needs two CEs.</p>
       <div id="rules"></div>
     </section>
-    <section class="card"><h2>Budgets</h2>
-      <p class="muted small">Budgets (per Cost center, Subsystem, …) are set by the Treasurer on the <a href="#/finances">Finances page</a>.</p></section>
     <div class="form-actions sticky-actions">
       <span class="muted small" id="wf-dirty" hidden>Unsaved changes</span>
       <button type="button" class="btn btn-primary" id="wf-save" disabled>Save workflow</button>

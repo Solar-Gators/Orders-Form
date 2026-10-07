@@ -4,7 +4,7 @@ import { api, setNotificationsOn } from './api.js';
 import { auth } from './auth.js';
 import { startRouter } from './router.js';
 import { hasHelp } from './views/help.js';
-import { STATUS, STATUSES, EDITABLE_STATUSES, esc, errorBox, setCurrentSeason, setAppearance, renderRichText } from './ui.js';
+import { STATUS, STATUSES, EDITABLE_STATUSES, esc, errorBox, setCurrentSeason, setAppearance, renderRichText, fitTables } from './ui.js';
 
 const app = document.getElementById('app');
 
@@ -113,6 +113,11 @@ async function refreshNavCounts() {
       auth.can('request.order') ? await api.countByStatus(STATUS.APPROVED) : 0,
     ];
     set('count-queue', queue[0] + queue[1]);
+    // The Queue page's own tabs say which side is waiting.
+    for (const [key, n] of [['approvals', queue[0]], ['treasurer', queue[1]]]) {
+      const badge = document.querySelector(`[data-tab-count="${key}"]`);
+      if (badge) (badge.textContent = n), (badge.hidden = !n);
+    }
     set('count-requests', await api.countMyChangesRequested(auth.user.id)); // yours to fix
     set('count-menu', total); // the folded menu on phones shows the sum
   } catch {
@@ -175,6 +180,7 @@ async function main() {
 
   bindMenu();
   updateChrome();
+  fitTables(app);
   const render = startRouter({ config, reloadConfig }, { onRender: () => (closeMenus(), updateChrome(), refreshNavCounts()) });
 }
 

@@ -171,10 +171,10 @@ export function requestTable(rows, columns, emptyMessage = 'Nothing here yet.', 
   if (sort) rows = sortRows(rows, columns, sort);
   const head = columns
     .map((c) => {
-      if (!sort || !c.sort) return `<th class="${c.className || ''}">${esc(c.label)}</th>`;
+      if (!sort || !c.sort) return `<th class="${c.className || ''}" data-col="${esc(c.key)}">${esc(c.label)}</th>`;
       const active = sort.key === c.key;
       const aria = active ? (sort.dir === 'desc' ? 'descending' : 'ascending') : 'none';
-      return `<th class="${c.className || ''} sortable${active ? ' sorted' : ''}" aria-sort="${aria}">
+      return `<th class="${c.className || ''} sortable${active ? ' sorted' : ''}" data-col="${esc(c.key)}" aria-sort="${aria}">
         <button type="button" class="sort-btn" data-sort="${esc(c.key)}" title="Sort by ${esc(c.label)}">${esc(c.label)}<span class="sort-ind" aria-hidden="true">${
           active ? (sort.dir === 'desc' ? '▼' : '▲') : '↕'
         }</span></button></th>`;
@@ -197,7 +197,7 @@ export function requestTable(rows, columns, emptyMessage = 'Nothing here yet.', 
   const body = rows
     .map(
       (r) => `<tr class="clickable" data-href="#/requests/${esc(r.request_number)}">
-        ${columns.map((c) => `<td class="${c.className || ''}${c.primary ? ' cell-primary' : ''}" data-label="${c.primary ? '' : esc(c.label)}">${c.cell(r)}</td>`).join('')}
+        ${columns.map((c) => `<td class="${c.className || ''}${c.primary ? ' cell-primary' : ''}" data-col="${esc(c.key)}" data-label="${c.primary ? '' : esc(c.label)}">${c.cell(r)}</td>`).join('')}
       </tr>`
     )
     .join('');
@@ -347,7 +347,7 @@ const PAGE_GROUPS = {
 };
 export function pageTabs(group, active) {
   return `<nav class="page-tabs" aria-label="${group === 'queue' ? 'Queue' : 'Requests'}">${PAGE_GROUPS[group]
-    .map(([key, label]) => `<a href="#/${key}" ${key === active ? 'class="active" aria-current="page"' : ''}>${esc(label)}</a>`)
+    .map(([key, label]) => `<a href="#/${key}" ${key === active ? 'class="active" aria-current="page"' : ''}>${esc(label)}${group === 'queue' ? ` <span class="nav-count" data-tab-count="${key}" hidden></span>` : ''}</a>`)
     .join('')}</nav>`;
 }
 
@@ -381,9 +381,10 @@ export function takeFlash() {
 // ---- Copy to clipboard (Treasurer: paste into purchasing forms) ------------
 
 /** A small copy button for `value`. Nothing is rendered for empty values. */
-export function copyButton(value, label = 'value') {
+/** keep: also shown on phones (where the rest are hidden to cut clutter). */
+export function copyButton(value, label = 'value', { keep = false } = {}) {
   if (value === null || value === undefined || String(value).trim() === '') return '';
-  return `<button type="button" class="copy-btn" data-copy="${esc(value)}" title="Copy ${esc(label)}" aria-label="Copy ${esc(label)}">
+  return `<button type="button" class="copy-btn${keep ? ' copy-keep' : ''}" data-copy="${esc(value)}" title="Copy ${esc(label)}" aria-label="Copy ${esc(label)}">
     <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5" y="5" width="9" height="9" rx="1.5"/><path d="M11 5V3.5A1.5 1.5 0 0 0 9.5 2h-6A1.5 1.5 0 0 0 2 3.5v6A1.5 1.5 0 0 0 3.5 11H5"/></svg>
   </button>`;
 }
@@ -418,4 +419,40 @@ export function bindCopyButtons(el) {
       if (label) btn.textContent = btn.dataset.text;
     }, 1200);
   });
+}
+
+/**
+ * Tables marked data-fit become cards (the phone layout) whenever they're wider than
+ * their box, e.g. a request with many item columns on a laptop. Phones always get the
+ * cards from the CSS. Call once with the page container; it follows re-renders.
+ */
+export function fitTables(root) {
+  const watched = new WeakSet();
+  const later = () => setTimeout(checkAll, 0); // after the current render
+  const resize = new ResizeObserver(later);
+  function check(table) {
+    const wrap = table.parentElement;
+    if (!wrap || window.innerWidth <= 640) return table.classList.remove('is-stacked');
+    table.classList.remove('is-stacked'); // measure the table as a table
+    const over = wrap.scrollWidth > wrap.clientWidth + 1 || table.offsetWidth > wrap.clientWidth + 1;
+    table.classList.toggle('is-stacked', over);
+  }
+  function checkAll() {
+    for (const table of root.querySelectorAll('table[data-fit]')) {
+      if (!watched.has(table)) {
+        watched.add(table);
+        resize.observe(table.parentElement);
+      }
+      check(table);
+    }
+  }
+  let queued = false;
+  new MutationObserver((records) => {
+    // Our own class changes don't count; new rows, columns or pages do.
+    if (queued || records.every((r) => r.type === 'attributes')) return;
+    queued = true;
+    setTimeout(() => ((queued = false), checkAll()), 0);
+  }).observe(root, { childList: true, subtree: true });
+  window.addEventListener('resize', later);
+  checkAll();
 }
