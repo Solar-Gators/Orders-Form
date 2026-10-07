@@ -93,7 +93,7 @@ function updateChrome() {
 
   const account = document.getElementById('account-btn');
   account.innerHTML = auth.signedIn
-    ? `<span class="account-name">${esc(auth.displayName)}</span><span class="account-role">${esc(auth.roleLabel)}</span>`
+    ? `<span class="account-name">${esc(auth.displayName)}</span><span class="account-role" title="${esc(auth.roleLabel)}">${esc(auth.roleLabel)}</span>`
     : '';
 }
 

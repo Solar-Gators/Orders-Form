@@ -289,7 +289,7 @@ export async function renderRequestForm(el, { config, params }) {
         on.length
           ? `<div class="form-grid shared-inputs">${on
               .map(
-                (f) => `<div class="field">
+                (f) => `<div class="field w-${esc(f.type)}">
                   <label for="s-${esc(f.key)}">${esc(f.label)}${star(f)} <span class="muted small">(every item)</span></label>
                   ${renderInput({ ...f, placeholder: f.key === 'product_link' ? 'e.g. a shared Digi-Key or McMaster-Carr cart link' : f.placeholder }, getValue(items[0], f), config, `id="s-${esc(f.key)}" data-shared="${esc(f.key)}"`)}
                 </div>`

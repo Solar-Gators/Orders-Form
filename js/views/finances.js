@@ -195,8 +195,8 @@ function drawPurchases(box, s) {
         : own ? esc(l.description) : `<a href="#/requests/${esc(l.number)}"><span class="mono small">${esc(l.number)}</span> ${esc(l.description)}</a>`}</td>
       <td class="num">${own && canEdit ? input(l, 'amount', l.amount === null ? '' : l.amount.toFixed(2), 'inputmode="decimal" placeholder="$" aria-label="Cost"') : money(l.amount)}</td>
       <td class="ledger-dept">${canEdit ? input(l, 'dept', l.dept, 'list="fin-depts" maxlength="20" aria-label="M/E"') : esc(l.dept)}</td>
-      <td>${own && canEdit ? input(l, 'category', l.category, 'list="fin-categories" aria-label="Category"') : esc(l.category || '—')}</td>
-      <td>${own && canEdit ? input(l, 'order_number', l.orderNumber, 'aria-label="Order #"') : esc(l.orderNumber || '—')}</td>
+      <td class="ledger-cat">${own && canEdit ? input(l, 'category', l.category, 'list="fin-categories" aria-label="Category"') : esc(l.category || '—')}</td>
+      <td class="ledger-order">${own && canEdit ? input(l, 'order_number', l.orderNumber, 'aria-label="Order #"') : esc(l.orderNumber || '—')}</td>
       <td class="nowrap">${own && canEdit ? input(l, 'purchased_on', l.date, 'type="date" class="date-quiet" required aria-label="Date"') : l.date ? fmtDate(l.date) : '—'}</td>
       <td class="ledger-notes">${canEdit ? input(l, 'notes', l.notes, 'aria-label="Notes"') : esc(l.notes)}</td>
       <td class="ledger-actions">
@@ -354,7 +354,7 @@ function drawBudget(box, s) {
           )
           .join('') || '<tr><td colspan="6" class="muted sheet-empty">No budgets yet.</td></tr>'}</tbody>
         <tfoot><tr><td><strong>Total</strong></td><td class="num"><strong>${fmtMoney(table.total.budget)}</strong></td><td class="num"><strong>${fmtMoney(table.total.spent)}</strong></td>
-          <td class="num"><strong>${fmtMoney(table.total.pipeline)}</strong></td><td class="num"><strong>${table.total.left < 0 ? `${fmtMoney(-table.total.left)} over` : fmtMoney(table.total.left)}</strong></td><td></td></tr></tfoot>
+          <td class="num"><strong>${fmtMoney(table.total.pipeline)}</strong></td><td class="num"><strong>${!table.rows.some((r) => r.budget !== null) ? '—' : table.total.left < 0 ? `${fmtMoney(-table.total.left)} over` : fmtMoney(table.total.left)}</strong></td><td></td></tr></tfoot>
       </table>
     </div>
     ${canBudget ? `<form class="budget-add" id="budget-add" novalidate>
@@ -447,7 +447,9 @@ function drawFunding(box, s) {
     <div class="fund-compare card">
       <div><span class="muted small">Expected funds</span><strong>${fmtMoney(funding.expected)}</strong></div>
       <div><span class="muted small">Total budget</span><strong>${fmtMoney(table.total.budget)}</strong></div>
-      <div class="${gap < 0 ? 'is-bad' : ''}"><span class="muted small">${gap < 0 ? 'Short by' : 'To spare'}</span><strong>${fmtMoney(Math.abs(gap))}</strong></div>
+      ${table.total.budget
+        ? `<div class="${gap < 0 ? 'is-bad' : ''}"><span class="muted small">${gap < 0 ? 'Short by' : 'To spare'}</span><strong>${fmtMoney(Math.abs(gap))}</strong></div>`
+        : '<div><span class="muted small">To spare</span><strong>—</strong></div>'}
       <div><span class="muted small">Rainy-day fund</span>${canEdit
         ? `<input id="rainy-day" inputmode="decimal" value="${seasonInfo.rainy_day === null ? '' : Number(seasonInfo.rainy_day).toFixed(2)}" placeholder="$" aria-label="Rainy-day fund balance">`
         : `<strong>${money(seasonInfo.rainy_day) || '—'}</strong>`}</div>
