@@ -176,17 +176,8 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--o
 .items-table .w-yesno select { min-width: 76px; }
 .items-table .w-textarea textarea { min-width: 200px; }
 .items-table .w-total { min-width: 90px; }
-/* Room goes where people type the most: the name, then notes and links. Short values
-   (quantity, price, yes/no, dates, the total) only take what they need. */
-.items-table th.k-item_name { width: 32%; }
-.items-table th.w-url { width: 16%; }
-.items-table th.k-notes { width: 18%; }
-.items-table th.k-part_number { width: 11%; }
-.items-table th.w-number, .items-table th.w-select, .items-table th.w-yesno, .items-table th.w-date,
-.items-table th.w-total, .items-table th.w-idx, .items-table th.w-remove { width: 1%; }
-.items-table th.w-total { white-space: nowrap; }
-.items-table td.w-total { white-space: nowrap; }
-.items-table .k-part_number input { min-width: 100px; }
+/* Item text and links wrap onto more lines (the box grows) instead of scrolling sideways */
+.items-table textarea.grow { resize: none; overflow: hidden; display: block; line-height: 1.45; min-height: 0; overflow-wrap: anywhere; }
 .shared-inputs.form-grid { display: flex; flex-wrap: wrap; align-items: flex-end; }
 .shared-inputs .field { flex: 1 1 260px; max-width: 520px; }
 .shared-inputs .field.w-number, .shared-inputs .field.w-date { flex: 0 0 160px; }

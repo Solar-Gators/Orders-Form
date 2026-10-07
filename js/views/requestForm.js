@@ -20,6 +20,20 @@ const ITEM_PLACEHOLDERS = {
   unit_price: '0.00',
 };
 
+/** Item text and links: a box that wraps onto more lines as you type instead of hiding the end. */
+const itemInput = (f, value, config, attrs) => {
+  if (!['text', 'url'].includes(f.type)) return renderInput(f, value, config, attrs);
+  const ph = f.placeholder || (f.type === 'url' ? 'https://…' : '');
+  const max = f.maxLength ? ` maxlength="${Number(f.maxLength)}"` : '';
+  return `<textarea rows="1" class="grow"${max} ${attrs}${ph ? ` placeholder="${esc(ph)}"` : ''}>${esc(value ?? '')}</textarea>`;
+};
+/** Fit a growing box to its text (one line when short). */
+const fitBox = (ta) => {
+  if (!ta.offsetParent) return void (ta.style.height = ''); // hidden: back to one line
+  ta.style.height = 'auto';
+  ta.style.height = `${ta.scrollHeight + 2}px`;
+};
+
 export async function renderRequestForm(el, { config, params }) {
   let existing = null;
   if (params.id) {
@@ -141,7 +155,7 @@ export async function renderRequestForm(el, { config, params }) {
         ${vendorBox}
         ${sharable.length ? '<div id="shared-box" class="shared-fields"></div>' : ''}
         <div class="table-wrap flat">
-          <table class="table items-table stack-form" data-fit>
+          <table class="table items-table stack-form is-stacked">
             <thead id="items-head"></thead>
             <tbody id="items-body"></tbody>
             <tfoot>
@@ -236,7 +250,7 @@ export async function renderRequestForm(el, { config, params }) {
           <td class="w-idx muted"><span class="only-mobile">Item </span>${idx + 1}</td>
           ${cols
             .map(
-              (f) => `<td class="w-${esc(f.type)} k-${esc(f.key)}" data-label="${esc(f.label)}${f.required ? ' *' : ''}">${renderInput(
+              (f) => `<td class="w-${esc(f.type)} k-${esc(f.key)}" data-label="${esc(f.label)}${f.required ? ' *' : ''}">${itemInput(
                 f,
                 getValue(item, f),
                 config,
@@ -254,11 +268,17 @@ export async function renderRequestForm(el, { config, params }) {
       .join('');
     updateTotals();
     applyConditions();
+    tbody.querySelectorAll('textarea.grow').forEach(fitBox);
   };
 
   const onItemInput = (e) => {
     const key = e.target.dataset.ifield;
     if (!key) return;
+    if (e.target.matches('textarea.grow')) {
+      // One line of text (a pasted line break becomes a space); the box just wraps it.
+      if (/\n/.test(e.target.value)) e.target.value = e.target.value.replace(/\s*\n+\s*/g, ' ');
+      fitBox(e.target);
+    }
     const row = e.target.closest('tr');
     const item = items[Number(row.dataset.index)];
     setValue(item, iFields.find((f) => f.key === key), e.target.value);
@@ -266,6 +286,9 @@ export async function renderRequestForm(el, { config, params }) {
     if (key === 'quantity' || key === 'unit_price' || key === 'shipping_cost') updateTotals();
   };
   tbody.addEventListener('input', onItemInput);
+  // A wider or narrower window wraps the text differently.
+  const refit = () => (el.isConnected ? tbody.querySelectorAll('textarea.grow').forEach(fitBox) : window.removeEventListener('resize', refit));
+  window.addEventListener('resize', refit);
   tbody.addEventListener('change', onItemInput); // selects
 
   el.querySelector('#f-shipping')?.addEventListener('input', (e) => {
@@ -454,7 +477,7 @@ export async function renderRequestForm(el, { config, params }) {
 
   // ---- Enter moves to the next box (and adds a row from the last one); it never submits ----
   form.addEventListener('keydown', (e) => {
-    if (e.key !== 'Enter' || e.isComposing || !e.target.matches('input, select')) return;
+    if (e.key !== 'Enter' || e.isComposing || !e.target.matches('input, select, textarea.grow')) return;
     e.preventDefault();
     const row = e.target.closest('#items-body tr');
     const rowFields = row ? [...row.querySelectorAll('input, select, textarea')].filter((x) => !x.disabled) : [];
