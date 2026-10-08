@@ -378,7 +378,8 @@ function drawBudget(box, s) {
               <td class="num" data-label="Spent">${fmtMoney(r.spent)}</td>
               <td class="num" data-label="In the pipeline">${fmtMoney(r.pipeline)}</td>
               <td class="num" data-label="Left"><strong>${r.left === null ? '—' : r.left < 0 ? `${fmtMoney(-r.left)} over` : fmtMoney(r.left)}</strong></td>
-              <td class="budget-bar-cell" data-label="">${bar(r)}</td>
+              <td class="budget-bar-cell" data-label=""><div class="budget-bar-row">${bar(r)}${canBudget && r.category !== '(no category)'
+                ? `<button type="button" class="icon-btn" data-delete-category="${esc(r.category)}" title="Delete this category" aria-label="Delete ${esc(r.category)}">&times;</button>` : ''}</div></td>
             </tr>`
           )
           .join('') || '<tr><td colspan="6" class="muted sheet-empty">No budgets yet.</td></tr>'}</tbody>
@@ -431,6 +432,8 @@ function drawBudget(box, s) {
     saveBudgets({ amounts: { ...(budgets.amounts || {}), [name]: value } });
   });
   box.addEventListener('click', (e) => {
+    const del = e.target.closest('[data-delete-category]');
+    if (del) return deleteCategory(del.dataset.deleteCategory, s);
     const a = e.target.closest('[data-category]');
     if (!a) return;
     e.preventDefault();
@@ -608,6 +611,64 @@ async function download({ season, lines, table, funds, funding, sponsorsIn, seas
   document.body.appendChild(a);
   a.click();
   a.remove();
+}
+
+/**
+ * Delete a category: drop its budget and move every purchase in it (requests too) to
+ * another category, so the row really goes away.
+ */
+function deleteCategory(name, { lines, categories, budgets, season, reloadConfig, rerender, showError }) {
+  const key = (c) => String(c || '').trim().toLowerCase();
+  const using = lines.filter((l) => key(l.category) === key(name));
+  const amounts = Object.fromEntries(Object.entries(budgets.amounts || {}).filter(([k]) => key(k) !== key(name)));
+  const others = categories.filter((c) => key(c) !== key(name));
+  if (!using.length) {
+    if (!confirm(`Delete the "${name}" category and its budget?`)) return;
+    return api.setBudgets({ ...budgets, amounts }).then(reloadConfig).then(rerender).catch(showError);
+  }
+  const dialog = document.createElement('dialog');
+  dialog.className = 'card sheet-dialog';
+  dialog.innerHTML = `<form method="dialog" novalidate>
+    <h2>Delete "${esc(name)}"</h2>
+    <p>${using.length} purchase${using.length === 1 ? '' : 's'} in ${esc(season)} ${using.length === 1 ? 'is' : 'are'} in this category. Move ${using.length === 1 ? 'it' : 'them'} to:</p>
+    <div class="field"><input id="move-to" list="move-categories" placeholder="e.g. Cost center 1" aria-label="Move to category" required>
+      <datalist id="move-categories">${others.map((c) => `<option value="${esc(c)}">`).join('')}</datalist></div>
+    <p class="hint">Requests keep their own answer; only the category they count toward on Finances changes. Its budget is removed too.</p>
+    <div id="delete-errors"></div>
+    <div class="form-actions"><button type="button" class="btn btn-ghost" id="delete-cancel">Cancel</button><button type="submit" class="btn btn-danger">Move and delete</button></div>
+  </form>`;
+  document.body.appendChild(dialog);
+  const close = () => (dialog.close(), dialog.remove());
+  dialog.querySelector('#delete-cancel').addEventListener('click', close);
+  dialog.addEventListener('cancel', close);
+  dialog.querySelector('form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const to = dialog.querySelector('#move-to').value.trim();
+    const errors = dialog.querySelector('#delete-errors');
+    if (!to || key(to) === key(name)) return (errors.innerHTML = errorBox(new Error('Pick another category to move them to.')));
+    const btn = dialog.querySelector('[type="submit"]');
+    btn.disabled = true;
+    try {
+      for (const [i, l] of using.entries()) {
+        btn.textContent = `Moving ${i + 1} of ${using.length}…`;
+        // Moving a request back to its own answer means following the request again.
+        const category = l.kind === 'request' && key(to) === key(l.answer) ? '' : to;
+        if (l.purchaseId) await api.savePurchase(l.purchaseId, { category });
+        else await api.savePurchase(null, { request_id: l.request.id, category });
+      }
+      await api.setBudgets({ ...budgets, amounts });
+      close();
+      setFlash(`Deleted "${name}"; moved ${using.length} purchase${using.length === 1 ? '' : 's'} to "${to}".`);
+      await reloadConfig();
+      rerender();
+    } catch (err) {
+      errors.innerHTML = errorBox(err);
+      btn.disabled = false;
+      btn.textContent = 'Move and delete';
+    }
+  });
+  dialog.showModal();
+  dialog.querySelector('#move-to').focus();
 }
 
 // ---- Import: the Treasurer's old Financials spreadsheet --------------------------------------

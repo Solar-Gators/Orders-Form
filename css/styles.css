@@ -1201,6 +1201,9 @@ a.step-link:hover { text-decoration: underline; }
 .budget-ledger tr.is-over td { color: var(--red); }
 .budget-input { width: 120px; text-align: right; padding: 5px 7px; }
 .budget-bar.two-part { display: flex; }
+.budget-bar-row { display: flex; align-items: center; gap: 8px; }
+.budget-bar-row .budget-bar { flex: 1; }
+.budget-bar-row .icon-btn { margin-left: auto; }
 .budget-bar .bar-spent { background: var(--navy); }
 .budget-bar .bar-pipe { background: #b9c9e4; }
 .budget-ledger tr.is-over .bar-spent { background: var(--red); }
