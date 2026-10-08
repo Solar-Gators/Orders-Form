@@ -174,6 +174,10 @@ export const api = {
   async setBudgets(budgets) {
     unwrap(await supabase.rpc('set_budgets', { p_budgets: budgets }));
   },
+  /** Move every purchase in a category to another (combining them); returns how many moved. */
+  async renameCategory(from, to, dropBudget = false) {
+    return unwrap(await supabase.rpc('rename_category', { p_from: from, p_to: to, p_drop_budget: dropBudget }));
+  },
 
   // ---- The Treasurer's ledger (migration 018) -----------------------------------------
 

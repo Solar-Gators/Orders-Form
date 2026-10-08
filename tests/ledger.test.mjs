@@ -53,6 +53,12 @@ test('lines: the Treasurer can move a request to another category; blank follows
   assert.equal(budgetTable(lines, { Competition: '500' }).rows.find((r) => r.category === 'Competition').spent, 50);
 });
 
+test("budget table: the Treasurer's order first, then budgeted, then the rest", () => {
+  const lines = ledgerLines({ requests, purchases, field: 'c_cc', season: '2026-2027' });
+  const { rows } = budgetTable(lines, { Aero: '1000', Powertrain: '40' }, ['extraneous', 'Powertrain']);
+  assert.deepEqual(rows.map((r) => r.category), ['Extraneous', 'Powertrain', 'Aero']);
+});
+
 test('budget table: spent, in the pipeline, left; cancelled lines and other seasons don\'t count', () => {
   const lines = ledgerLines({ requests, purchases, field: 'c_cc', season: '2026-2027' });
   const { rows, total } = budgetTable(lines, { Aero: '1000', Powertrain: '40', Competition: '14000' });

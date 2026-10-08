@@ -77,7 +77,7 @@ export async function renderFinances(el, ctx) {
     }
   }
   const lines = ledgerLines({ requests, purchases, field: budgets.field, season });
-  const table = budgetTable(lines, budgets.amounts);
+  const table = budgetTable(lines, budgets.amounts, budgets.order);
   const funding = fundingTotals(funds, sponsorsIn);
   const seasonList = [...new Set([config.season, ...seasons, ...purchases.map((p) => p.season)])].filter(Boolean).sort().reverse();
   const field = budgetFields(config).find((f) => f.key === budgets.field);
@@ -364,13 +364,21 @@ function drawBudget(box, s) {
     const pipe = Math.min(100 - spent, (r.pipeline / r.budget) * 100);
     return `<span class="budget-bar two-part" title="${Math.round(((r.spent + r.pipeline) / r.budget) * 100)}% used"><span class="bar-spent" style="width:${spent}%"></span><span class="bar-pipe" style="width:${pipe}%"></span></span>`;
   };
+  // Reordering and renaming / combining need migration 021.
+  const organize = Number(config.schemaVersion) >= 21;
+  const named = table.rows.filter((r) => r.category !== '(no category)');
+  const actions = (r, i) => `<span class="category-actions">${organize
+    ? `<button type="button" class="icon-btn" data-move-category="${i}" data-dir="-1" title="Move up" aria-label="Move ${esc(r.category)} up" ${i === 0 ? 'disabled' : ''}>↑</button>
+       <button type="button" class="icon-btn" data-move-category="${i}" data-dir="1" title="Move down" aria-label="Move ${esc(r.category)} down" ${i >= named.length - 1 ? 'disabled' : ''}>↓</button>
+       <button type="button" class="icon-btn" data-rename-category="${esc(r.category)}" title="Rename, or combine with another category" aria-label="Rename ${esc(r.category)}">✎</button>`
+    : ''}<button type="button" class="icon-btn" data-delete-category="${esc(r.category)}" title="Delete this category" aria-label="Delete ${esc(r.category)}">&times;</button></span>`;
   box.innerHTML = `
     <div class="table-wrap">
       <table class="table stack-mobile budget-ledger">
         <thead><tr><th>Category</th><th class="num">Budget</th><th class="num">Spent</th><th class="num">In the pipeline</th><th class="num">Left</th><th></th></tr></thead>
         <tbody>${table.rows
           .map(
-            (r) => `<tr class="${r.left !== null && r.left < 0 ? 'is-over' : ''}">
+            (r, i) => `<tr class="${r.left !== null && r.left < 0 ? 'is-over' : ''}">
               <td class="cell-primary" data-label=""><a href="#/finances" data-category="${esc(r.category)}" title="See its purchases">${esc(r.category)}</a></td>
               <td class="num" data-label="Budget">${canBudget && r.category !== '(no category)'
                 ? `<input class="budget-input" data-budget="${esc(r.category)}" value="${r.budget === null ? '' : r.budget.toFixed(2)}" inputmode="decimal" placeholder="Set" aria-label="Budget for ${esc(r.category)}">`
@@ -378,8 +386,7 @@ function drawBudget(box, s) {
               <td class="num" data-label="Spent">${fmtMoney(r.spent)}</td>
               <td class="num" data-label="In the pipeline">${fmtMoney(r.pipeline)}</td>
               <td class="num" data-label="Left"><strong>${r.left === null ? '—' : r.left < 0 ? `${fmtMoney(-r.left)} over` : fmtMoney(r.left)}</strong></td>
-              <td class="budget-bar-cell" data-label=""><div class="budget-bar-row">${bar(r)}${canBudget && r.category !== '(no category)'
-                ? `<button type="button" class="icon-btn" data-delete-category="${esc(r.category)}" title="Delete this category" aria-label="Delete ${esc(r.category)}">&times;</button>` : ''}</div></td>
+              <td class="budget-bar-cell" data-label=""><div class="budget-bar-row">${bar(r)}${canBudget && r.category !== '(no category)' ? actions(r, i) : ''}</div></td>
             </tr>`
           )
           .join('') || '<tr><td colspan="6" class="muted sheet-empty">No budgets yet.</td></tr>'}</tbody>
@@ -433,7 +440,18 @@ function drawBudget(box, s) {
   });
   box.addEventListener('click', (e) => {
     const del = e.target.closest('[data-delete-category]');
-    if (del) return deleteCategory(del.dataset.deleteCategory, s);
+    if (del) return moveCategory(del.dataset.deleteCategory, 'delete', s);
+    const ren = e.target.closest('[data-rename-category]');
+    if (ren) return moveCategory(ren.dataset.renameCategory, 'rename', s);
+    const mv = e.target.closest('[data-move-category]');
+    if (mv) {
+      const names = named.map((r) => r.category);
+      const i = Number(mv.dataset.moveCategory);
+      const j = i + Number(mv.dataset.dir);
+      if (j < 0 || j >= names.length) return;
+      [names[i], names[j]] = [names[j], names[i]];
+      return saveBudgets({ order: names });
+    }
     const a = e.target.closest('[data-category]');
     if (!a) return;
     e.preventDefault();
@@ -614,61 +632,94 @@ async function download({ season, lines, table, funds, funding, sponsorsIn, seas
 }
 
 /**
- * Delete a category: drop its budget and move every purchase in it (requests too) to
- * another category, so the row really goes away.
+ * Rename a category, combine it with another (mode 'rename'), or delete it ('delete'):
+ * every purchase in it (requests too) moves to the other category. Renaming carries
+ * the budget over (added to the other's when combining); deleting drops it.
  */
-function deleteCategory(name, { lines, categories, budgets, season, reloadConfig, rerender, showError }) {
+function moveCategory(name, mode, { lines, categories, budgets, season, config, reloadConfig, rerender, showError }) {
   const key = (c) => String(c || '').trim().toLowerCase();
+  const all = Number(config.schemaVersion) >= 21; // one step, every season (migration 021)
   const using = lines.filter((l) => key(l.category) === key(name));
-  const amounts = Object.fromEntries(Object.entries(budgets.amounts || {}).filter(([k]) => key(k) !== key(name)));
   const others = categories.filter((c) => key(c) !== key(name));
-  if (!using.length) {
+  const deleting = mode === 'delete';
+  if (deleting && !using.length) {
     if (!confirm(`Delete the "${name}" category and its budget?`)) return;
-    return api.setBudgets({ ...budgets, amounts }).then(reloadConfig).then(rerender).catch(showError);
+    const amounts = Object.fromEntries(Object.entries(budgets.amounts || {}).filter(([k]) => key(k) !== key(name)));
+    const order = (budgets.order || []).filter((c) => key(c) !== key(name));
+    return api.setBudgets({ ...budgets, amounts, order }).then(reloadConfig).then(rerender).catch(showError);
   }
+  const count = `${using.length} purchase${using.length === 1 ? '' : 's'}`;
   const dialog = document.createElement('dialog');
   dialog.className = 'card sheet-dialog';
   dialog.innerHTML = `<form method="dialog" novalidate>
-    <h2>Delete "${esc(name)}"</h2>
-    <p>${using.length} purchase${using.length === 1 ? '' : 's'} in ${esc(season)} ${using.length === 1 ? 'is' : 'are'} in this category. Move ${using.length === 1 ? 'it' : 'them'} to:</p>
-    <div class="field"><input id="move-to" list="move-categories" placeholder="e.g. Cost center 1" aria-label="Move to category" required>
+    <h2>${deleting ? 'Delete' : 'Rename or combine'} "${esc(name)}"</h2>
+    <p>${deleting
+      ? `${count} in ${esc(season)} ${using.length === 1 ? 'is' : 'are'} in this category. Move ${using.length === 1 ? 'it' : 'them'} to:`
+      : 'New name, or an existing category to combine it with:'}</p>
+    <div class="field"><input id="move-to" list="move-categories" value="${deleting ? '' : esc(name)}" placeholder="e.g. Cost center 1" aria-label="Category" required>
       <datalist id="move-categories">${others.map((c) => `<option value="${esc(c)}">`).join('')}</datalist></div>
-    <p class="hint">Requests keep their own answer; only the category they count toward on Finances changes. Its budget is removed too.</p>
-    <div id="delete-errors"></div>
-    <div class="form-actions"><button type="button" class="btn btn-ghost" id="delete-cancel">Cancel</button><button type="submit" class="btn btn-danger">Move and delete</button></div>
+    <p class="hint" id="move-hint"></p>
+    <div id="move-errors"></div>
+    <div class="form-actions"><button type="button" class="btn btn-ghost" id="move-cancel">Cancel</button>
+      <button type="submit" class="btn ${deleting ? 'btn-danger' : 'btn-primary'}">${deleting ? 'Move and delete' : 'Save'}</button></div>
   </form>`;
   document.body.appendChild(dialog);
+  const box = dialog.querySelector('#move-to');
+  const hint = () => {
+    const to = box.value.trim();
+    const into = others.find((c) => key(c) === key(to));
+    dialog.querySelector('#move-hint').textContent = [
+      into && !deleting ? `Combines "${name}" into "${into}"${budgets.amounts && Object.keys(budgets.amounts).some((k) => key(k) === key(name)) ? '; their budgets are added up' : ''}.` : '',
+      deleting ? `Its budget is removed.` : '',
+      all ? `Purchases in every season move, not just ${season}.` : '',
+      'Requests keep their own answer; only the category they count toward on Finances changes.',
+    ].filter(Boolean).join(' ');
+  };
+  box.addEventListener('input', hint);
+  hint();
   const close = () => (dialog.close(), dialog.remove());
-  dialog.querySelector('#delete-cancel').addEventListener('click', close);
+  dialog.querySelector('#move-cancel').addEventListener('click', close);
   dialog.addEventListener('cancel', close);
   dialog.querySelector('form').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const to = dialog.querySelector('#move-to').value.trim();
-    const errors = dialog.querySelector('#delete-errors');
-    if (!to || key(to) === key(name)) return (errors.innerHTML = errorBox(new Error('Pick another category to move them to.')));
+    const to = box.value.trim();
+    const errors = dialog.querySelector('#move-errors');
+    if (!to) return (errors.innerHTML = errorBox(new Error('Type a category.')));
+    if (to === name) return close();
+    if (deleting && key(to) === key(name)) return (errors.innerHTML = errorBox(new Error('Pick another category to move them to.')));
     const btn = dialog.querySelector('[type="submit"]');
     btn.disabled = true;
     try {
-      for (const [i, l] of using.entries()) {
-        btn.textContent = `Moving ${i + 1} of ${using.length}…`;
-        // Moving a request back to its own answer means following the request again.
-        const category = l.kind === 'request' && key(to) === key(l.answer) ? '' : to;
-        if (l.purchaseId) await api.savePurchase(l.purchaseId, { category });
-        else await api.savePurchase(null, { request_id: l.request.id, category });
+      let moved = using.length;
+      if (all) {
+        btn.textContent = 'Moving…';
+        moved = await api.renameCategory(name, to, deleting);
+      } else {
+        for (const [i, l] of using.entries()) {
+          btn.textContent = `Moving ${i + 1} of ${using.length}…`;
+          // Moving a request back to its own answer means following the request again.
+          const category = l.kind === 'request' && key(to) === key(l.answer) ? '' : to;
+          if (l.purchaseId) await api.savePurchase(l.purchaseId, { category });
+          else await api.savePurchase(null, { request_id: l.request.id, category });
+        }
+        await api.setBudgets({ ...budgets, amounts: Object.fromEntries(Object.entries(budgets.amounts || {}).filter(([k]) => key(k) !== key(name))) });
       }
-      await api.setBudgets({ ...budgets, amounts });
       close();
-      setFlash(`Deleted "${name}"; moved ${using.length} purchase${using.length === 1 ? '' : 's'} to "${to}".`);
+      const what = `${moved} purchase${moved === 1 ? '' : 's'}`;
+      setFlash(deleting ? `Deleted "${name}"; moved ${what} to "${to}".`
+        : others.some((c) => key(c) === key(to)) ? `Combined "${name}" into "${to}" (${what} moved).` : `Renamed "${name}" to "${to}" (${what}).`);
+      if (view.category && key(view.category) === key(name)) view.category = to;
       await reloadConfig();
       rerender();
     } catch (err) {
       errors.innerHTML = errorBox(err);
       btn.disabled = false;
-      btn.textContent = 'Move and delete';
+      btn.textContent = deleting ? 'Move and delete' : 'Save';
     }
   });
   dialog.showModal();
-  dialog.querySelector('#move-to').focus();
+  box.focus();
+  box.select();
 }
 
 // ---- Import: the Treasurer's old Financials spreadsheet --------------------------------------

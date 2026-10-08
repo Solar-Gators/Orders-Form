@@ -293,7 +293,7 @@ await test('the website cannot change the schema version', async () => {
   const general = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
   await as(ce, () => rpc('update_settings', ['general', { ...general, schemaVersion: 99 }]));
   const after = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
-  assert.equal(after.schemaVersion, 20);
+  assert.equal(after.schemaVersion, 21);
 });
 
 console.log('Form fields');
@@ -1169,7 +1169,7 @@ await test('the Treasurer sets budgets; approving over budget needs a note', asy
   await as(treasurer, () => rejects(rpc('set_budgets', [{ ...budgets, amounts: { Aero: 'lots' } }]), /must be a dollar amount/));
   await as(treasurer, () => rpc('set_budgets', [budgets]));
   const wf = (await db.query(`select value from app_settings where key = 'workflow'`)).rows[0].value;
-  assert.deepEqual(wf.budgets, budgets);
+  assert.deepEqual(wf.budgets, { ...budgets, order: [] });
   assert.ok(Array.isArray(wf.rules)); // the rules are left alone
   const number = numberOf(await submit({ ...vendorRequest, subsystem: 'Aero' }, [{ ...oneItem[0], unit_price: 400 }]));
   await rejects(review(ce, number, 'approve'), /over its budget.*add a note saying why/);
@@ -1444,6 +1444,43 @@ await test('Ledger: the Treasurer can move a request to another budget category 
   await as(treasurer, () => rpc('save_purchase', [line, { category: '' }])); // back to what the request says
   await review(ce, second, 'approve');
   assert.equal(await statusOf(second), 'Approved');
+  await as(treasurer, () => rpc('set_budgets', [{ field: '', amounts: {}, block: false }]));
+});
+
+await test('Budget categories: rename, combine (budgets add up), delete, and keep an order (021)', async () => {
+  const budgetsNow = async () => (await db.query(`select value -> 'budgets' b from app_settings where key = 'workflow'`)).rows[0].b;
+  const cat = async (description) => (await db.query(`select category from finance_purchases where description = $1`, [description])).rows[0].category;
+  await as(treasurer, () => rpc('set_budgets', [{ field: 'subsystem', amounts: { 'Old A': '100', 'Old B': '50', Suspension: '10' }, block: false, order: ['Suspension', 'Old A', 'Old B', ' '] }]));
+  assert.deepEqual((await budgetsNow()).order, ['Suspension', 'Old A', 'Old B']);
+  for (const [description, category, season] of [['Seat foam', 'old a', thisSeason], ['Old harness', 'Old A', '2020-2021'], ['Visor', 'Old B', thisSeason]]) {
+    await as(treasurer, () => rpc('save_purchase', [null, { description, amount: '5', category, season }]));
+  }
+  // A request answering Suspension, moved to Old A by the Treasurer.
+  const number = numberOf(await submit({ ...vendorRequest, subsystem: 'Suspension' }));
+  await review(ce, number, 'approve');
+  const reqId = await idOf(number);
+  await as(treasurer, () => rpc('save_purchase', [null, { request_id: reqId, category: 'Old A' }]));
+  const linked = async () => (await db.query(`select category from finance_purchases where request_id = $1`, [reqId])).rows[0].category;
+
+  await as(member, () => rejects(rpc('rename_category', ['Old A', 'X', false]), /Only the Treasurer/));
+  await as(treasurer, () => rejects(rpc('rename_category', ['Old A', '  ', false]), /Give the category a name/));
+  // Rename: every season, the request's line too; the budget and its place go along.
+  assert.equal((await as(treasurer, () => rpc('rename_category', ['Old A', 'Cost center 1', false]))).rows[0].result, 3);
+  assert.deepEqual([await cat('Seat foam'), await cat('Old harness'), await linked()], ['Cost center 1', 'Cost center 1', 'Cost center 1']);
+  let b = await budgetsNow();
+  assert.deepEqual([b.amounts, b.order], [{ Suspension: '10', 'Old B': '50', 'Cost center 1': '100.00' }, ['Suspension', 'Cost center 1', 'Old B']]);
+  // Combine: budgets add up.
+  await as(treasurer, () => rpc('rename_category', ['Old B', 'cost center 1', false]));
+  b = await budgetsNow();
+  assert.equal(await cat('Visor'), 'cost center 1');
+  assert.deepEqual([b.amounts, b.order], [{ Suspension: '10', 'cost center 1': '150.00' }, ['Suspension', 'cost center 1']]);
+  // Delete into Suspension: its budget goes; the request follows its own answer again.
+  await as(treasurer, () => rpc('rename_category', ['Cost center 1', 'Suspension', true]));
+  b = await budgetsNow();
+  assert.deepEqual([await linked(), await cat('Seat foam'), b.amounts], ['', 'Suspension', { Suspension: '10.00' }]);
+  // Case-only rename doesn't double the budget.
+  await as(treasurer, () => rpc('rename_category', ['Suspension', 'SUSPENSION', false]));
+  assert.deepEqual((await budgetsNow()).amounts, { SUSPENSION: '10.00' });
   await as(treasurer, () => rpc('set_budgets', [{ field: '', amounts: {}, block: false }]));
 });
 

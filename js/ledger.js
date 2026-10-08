@@ -92,9 +92,10 @@ const counts = (l) => l.status !== 'cancelled' && l.amount !== null;
  * The budget table: one row per category (every budgeted one, plus any category a
  * line uses), with budget, spent (ordered + received), in the pipeline (to submit /
  * sent / approved by the department) and left = budget − both. Matching ignores
- * case and spaces. Lines with no category show as "(no category)".
+ * case and spaces. Lines with no category show as "(no category)". `order` is the
+ * Treasurer's order of the categories (migration 021).
  */
-export function budgetTable(lines, amounts = {}) {
+export function budgetTable(lines, amounts = {}, order = []) {
   const rows = new Map();
   const row = (name) => {
     const k = norm(name);
@@ -122,8 +123,10 @@ export function budgetTable(lines, amounts = {}) {
     pipeline: round(list.reduce((s, r) => s + r.pipeline, 0)),
   };
   total.left = round(total.budget - total.spent - total.pipeline);
-  // Budgeted categories first (in the order they were set), then the rest.
-  return { rows: [...list.filter((r) => r.budget !== null), ...list.filter((r) => r.budget === null)], total };
+  // The Treasurer's order; then budgeted categories (in the order they were set), then the rest.
+  const place = new Map((order || []).map((name, i) => [norm(name), i]));
+  const rank = (r) => (place.has(norm(r.category)) ? place.get(norm(r.category)) : r.budget !== null ? 1e6 : 2e6);
+  return { rows: list.map((r, i) => [r, i]).sort((a, b) => rank(a[0]) - rank(b[0]) || a[1] - b[1]).map(([r]) => r), total };
 }
 
 const round = (n) => Math.round(n * 100) / 100;
