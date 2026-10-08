@@ -2,9 +2,9 @@
  * The Treasurer's ledger (migration 018), as plain functions (tested in Node:
  * tests/ledger.test.mjs).
  *
- * A ledger line is either a request approved on this site (its description, cost,
- * category and order # come from the request; the Treasurer adds the department
- * steps, M / E and notes) or a purchase logged on its own (bought outside the site).
+ * A ledger line is either a request approved on this site (its description, cost
+ * and order # come from the request; the Treasurer adds the department steps, M / E
+ * and notes, and can change the budget category it counts toward) or a purchase logged on its own (bought outside the site).
  */
 
 /** The purchasing steps, in order, with the colors of the Treasurer's old spreadsheet legend. */
@@ -33,7 +33,8 @@ const answer = (r, key) => String(r?.[key] ?? r?.data?.[key] ?? '').trim();
 /**
  * Ledger lines for a season: requests that are Approved / Ordered / Received, plus
  * purchases logged on their own. `field` is the request field budgets go by (e.g.
- * the Cost center), so a request's category is its answer.
+ * the Cost center), so a request's category is its answer, unless the Treasurer
+ * picked another one for its line (migration 020; `answer` keeps the request's own).
  */
 export function ledgerLines({ requests = [], purchases = [], field = '', season = '' }) {
   const byRequest = new Map(purchases.filter((p) => p.request_id).map((p) => [p.request_id, p]));
@@ -53,7 +54,8 @@ export function ledgerLines({ requests = [], purchases = [], field = '', season 
       description: r.title || 'Untitled request',
       number: r.request_number,
       amount: num(r.total),
-      category: field ? answer(r, field) : '',
+      category: String(p?.category || '').trim() || (field ? answer(r, field) : ''),
+      answer: field ? answer(r, field) : '',
       dept: p?.dept || '',
       status,
       orderNumber: r.order?.department_order_number || '',

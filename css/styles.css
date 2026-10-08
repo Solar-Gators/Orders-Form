@@ -1157,6 +1157,8 @@ nav.segmented a[aria-current="page"] { background: none; color: var(--text); bor
 /* Steps, in the old spreadsheet's legend colors */
 .step-chip, .step-pill, .step-select { border-radius: 999px; font-size: 12px; font-weight: 700; border: 1px solid transparent; white-space: nowrap; }
 .step-chip { display: inline-block; padding: 2px 9px; }
+a.step-link { text-decoration: none; }
+a.step-link:hover { text-decoration: underline; }
 .step-gray { background: #eef1f4; color: #4b5563; border-color: #dfe3e8; }
 .step-pink { background: #ffe1df; color: #a1281e; border-color: #ffc2bd; }
 .step-lightgreen { background: #e4f1d9; color: #3d6b1f; border-color: #c6e0b4; }
@@ -1182,6 +1184,7 @@ nav.segmented a[aria-current="page"] { background: none; color: var(--text); bor
 .ledger-dept input { width: 52px; text-align: center; }
 .ledger-notes input { min-width: 140px; }
 .ledger-cat input { min-width: 140px; }
+.ledger-cat input.is-moved { color: var(--blue); font-weight: 600; }
 .ledger-order input { min-width: 100px; }
 .ledger-table td.nowrap input[type="date"] { width: 132px; }
 .ledger-actions { white-space: nowrap; text-align: right; }

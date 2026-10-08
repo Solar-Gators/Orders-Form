@@ -190,13 +190,27 @@ function drawPurchases(box, s) {
   };
 
   const statusCell = (l) => {
-    if (!canEdit || (l.kind === 'request' && ['ordered', 'received'].includes(l.status))) return stepChip(l.status);
+    if (!canEdit) return stepChip(l.status);
+    // Ordered / Received are marked on the request (date, ticket #, tells the requester).
+    if (l.kind === 'request' && ['ordered', 'received'].includes(l.status)) {
+      return `<a href="#/requests/${esc(l.number)}" class="step-chip step-${esc(stepOf(l.status).tone)} step-link" title="Set on the request itself (it records the date and ticket number). Open ${esc(l.number)} to change it.">${esc(stepOf(l.status).label)} ↗</a>`;
+    }
     const options = l.kind === 'request' ? STEPS.filter((x) => !['ordered', 'received'].includes(x.key)) : STEPS;
     return `<select data-f="dept_status" class="step-select step-${esc(stepOf(l.status).tone)}" aria-label="Status">${options
       .map((x) => `<option value="${x.key}" ${x.key === l.status ? 'selected' : ''}>${esc(x.label)}</option>`)
       .join('')}${l.kind === 'request' ? '<option value="goto">Ordered… (on the request)</option>' : ''}</select>`;
   };
   const input = (l, f, value, attrs = '') => `<input data-f="${f}" value="${esc(value ?? '')}" ${attrs}>`;
+  // Requests count toward their answer to the budgets dropdown; the Treasurer can move one
+  // to another category (e.g. after switching budgets from Subsystem to Cost center).
+  const recategorize = canEdit && Number(s.config.schemaVersion) >= 20;
+  const categoryCell = (l) => {
+    if (l.kind === 'own' ? !canEdit : !recategorize) return esc(l.category || '—');
+    if (l.kind === 'own') return input(l, 'category', l.category, 'list="fin-categories" aria-label="Category"');
+    const moved = l.category !== l.answer;
+    return input(l, 'category', l.category, `list="fin-categories" placeholder="${esc(l.answer || 'Category')}" aria-label="Category" ${moved ? 'class="is-moved"' : ''}
+      title="${esc(moved ? `Moved here by the Treasurer. The request says ${l.answer ? `"${l.answer}"` : 'nothing'}; clear this box to go back to it.` : 'From the request. Type another category to count it there instead.')}"`);
+  };
   const row = (l) => {
     const own = l.kind === 'own';
     const files = s.fileCount(l);
@@ -207,7 +221,7 @@ function drawPurchases(box, s) {
         : own ? esc(l.description) : `<a href="#/requests/${esc(l.number)}"><span class="mono small">${esc(l.number)}</span> ${esc(l.description)}</a>`}</td>
       <td class="num ledger-cost" data-label="Cost">${own && canEdit ? input(l, 'amount', l.amount === null ? '' : fmtMoney(l.amount), 'inputmode="decimal" placeholder="$" aria-label="Cost"') : money(l.amount)}</td>
       <td class="ledger-dept" data-label="M/E">${canEdit ? input(l, 'dept', l.dept, 'list="fin-depts" maxlength="20" aria-label="M/E"') : esc(l.dept)}</td>
-      <td class="ledger-cat" data-label="Category">${own && canEdit ? input(l, 'category', l.category, 'list="fin-categories" aria-label="Category"') : esc(l.category || '—')}</td>
+      <td class="ledger-cat" data-label="Category">${categoryCell(l)}</td>
       <td class="ledger-order" data-label="Order #">${own && canEdit ? input(l, 'order_number', l.orderNumber, 'aria-label="Order #"') : esc(l.orderNumber || '—')}</td>
       <td class="nowrap ledger-date" data-label="Date">${own && canEdit ? input(l, 'purchased_on', l.date, 'type="date" class="date-quiet" required aria-label="Date"') : l.date ? fmtDate(l.date) : '—'}</td>
       <td class="ledger-notes" data-label="Notes">${canEdit ? input(l, 'notes', l.notes, 'aria-label="Notes"') : esc(l.notes)}</td>
@@ -245,6 +259,7 @@ function drawPurchases(box, s) {
       </table>
     </div>
     <p class="hint">Requests show up here once they're approved. Add a purchase for anything bought outside the site (a PayPal invoice, a quote over the phone).
+      ${s.canEdit && Number(s.config.schemaVersion) >= 20 ? "Change a request's Category to count it toward another budget; clear it to go back to what the request says." : ''}
       M/E is who orders it: <strong>M</strong> MAE, <strong>E</strong> ECE, <strong>A</strong> other.</p>
     <datalist id="fin-depts">${DEPTS.map(([k, l]) => `<option value="${k}">${esc(l)}</option>`).join('')}</datalist>
     <datalist id="fin-categories">${categories.map((c) => `<option value="${esc(c)}">`).join('')}</datalist>`;
@@ -274,6 +289,8 @@ function drawPurchases(box, s) {
       return;
     }
     let value = t.value.trim();
+    // Typing the request's own answer again (or nothing) goes back to following it.
+    if (f === 'category' && l.kind === 'request' && value.toLowerCase() === l.answer.toLowerCase()) value = '';
     if (f === 'amount') {
       value = toAmount(value);
       if (value === null) return showError(new Error(`"${t.value}" isn't a number.`));

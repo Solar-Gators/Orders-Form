@@ -293,7 +293,7 @@ await test('the website cannot change the schema version', async () => {
   const general = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
   await as(ce, () => rpc('update_settings', ['general', { ...general, schemaVersion: 99 }]));
   const after = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
-  assert.equal(after.schemaVersion, 19);
+  assert.equal(after.schemaVersion, 20);
 });
 
 console.log('Form fields');
@@ -1427,6 +1427,23 @@ await test('Ledger: purchases on their own count toward a budget when approving'
   await as(treasurer, () => rpc('save_purchase', [cancelled, { dept_status: 'cancelled' }]));
   await review(ce, number, 'approve'); // cancelled purchases don't count
   assert.equal(await statusOf(number), 'Approved');
+  await as(treasurer, () => rpc('set_budgets', [{ field: '', amounts: {}, block: false }]));
+});
+
+await test('Ledger: the Treasurer can move a request to another budget category (020)', async () => {
+  const used = Number((await db.query(`select coalesce(sum(request_total(id)), 0) n from requests where subsystem = 'Suspension' and season = $1 and status in ('Approved', 'Ordered', 'Received')`, [thisSeason])).rows[0].n);
+  await as(treasurer, () => rpc('set_budgets', [{ field: 'subsystem', amounts: { Suspension: String(used + 40) }, block: true }]));
+  const first = numberOf(await submit({ ...vendorRequest, subsystem: 'Aero' }, [{ ...oneItem[0], quantity: 1, unit_price: 30 }]));
+  await review(ce, first, 'approve'); // Aero has no budget
+  const firstId = await idOf(first);
+  const line = (await as(treasurer, () => rpc('save_purchase', [null, { request_id: firstId, category: ' suspension ' }]))).rows[0].result;
+  assert.equal((await db.query(`select category from finance_purchases where id = $1`, [line])).rows[0].category, 'suspension');
+  const second = numberOf(await submit({ ...vendorRequest, subsystem: 'Suspension' }, [{ ...oneItem[0], quantity: 1, unit_price: 20 }]));
+  const err = await rejects(review(ce, second, 'approve'), /over its budget/); // the moved one counts there now
+  assert.ok(err.message.includes(`$${(used + 30).toFixed(2)} used + $20.00`), err.message);
+  await as(treasurer, () => rpc('save_purchase', [line, { category: '' }])); // back to what the request says
+  await review(ce, second, 'approve');
+  assert.equal(await statusOf(second), 'Approved');
   await as(treasurer, () => rpc('set_budgets', [{ field: '', amounts: {}, block: false }]));
 });
 

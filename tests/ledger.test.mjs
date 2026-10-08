@@ -44,6 +44,15 @@ test('lines: approved / ordered / received requests plus purchases on their own,
   assert.equal(lines.find((l) => l.key === 'r:2').orderNumber, '6046');
 });
 
+test('lines: the Treasurer can move a request to another category; blank follows the request', () => {
+  const moved = [{ id: 'm', request_id: 3, category: 'Competition' }, { id: 'n', request_id: 1, category: '' }];
+  const lines = ledgerLines({ requests, purchases: moved, field: 'c_cc', season: '2026-2027' });
+  const three = lines.find((l) => l.key === 'r:3');
+  assert.deepEqual([three.category, three.answer], ['Competition', 'Powertrain']);
+  assert.equal(lines.find((l) => l.key === 'r:1').category, 'Aero');
+  assert.equal(budgetTable(lines, { Competition: '500' }).rows.find((r) => r.category === 'Competition').spent, 50);
+});
+
 test('budget table: spent, in the pipeline, left; cancelled lines and other seasons don\'t count', () => {
   const lines = ledgerLines({ requests, purchases, field: 'c_cc', season: '2026-2027' });
   const { rows, total } = budgetTable(lines, { Aero: '1000', Powertrain: '40', Competition: '14000' });
