@@ -293,7 +293,7 @@ await test('the website cannot change the schema version', async () => {
   const general = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
   await as(ce, () => rpc('update_settings', ['general', { ...general, schemaVersion: 99 }]));
   const after = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
-  assert.equal(after.schemaVersion, 21);
+  assert.equal(after.schemaVersion, 22);
 });
 
 console.log('Form fields');
@@ -1482,6 +1482,17 @@ await test('Budget categories: rename, combine (budgets add up), delete, and kee
   await as(treasurer, () => rpc('rename_category', ['Suspension', 'SUSPENSION', false]));
   assert.deepEqual((await budgetsNow()).amounts, { SUSPENSION: '10.00' });
   await as(treasurer, () => rpc('set_budgets', [{ field: '', amounts: {}, block: false }]));
+});
+
+await test('Ledger: purchases added on Finances can be Paid; requests cannot (022)', async () => {
+  const debt = (await as(treasurer, () => rpc('save_purchase', [null, { description: 'Debt to the machine shop', amount: '200', dept_status: 'dept_approved' }]))).rows[0].result;
+  await as(treasurer, () => rpc('save_purchase', [debt, { dept_status: 'paid' }]));
+  assert.equal((await db.query(`select dept_status from finance_purchases where id = $1`, [debt])).rows[0].dept_status, 'paid');
+  const number = numberOf(await submit(vendorRequest));
+  await review(ce, number, 'approve');
+  const reqId = await idOf(number);
+  await as(treasurer, () => rejects(rpc('save_purchase', [null, { request_id: reqId, dept_status: 'paid' }]), /Paid is for purchases added on Finances/));
+  await as(treasurer, () => rpc('delete_purchase', [debt]));
 });
 
 await test('Ledger: receipts can be attached to purchases logged on their own', async () => {

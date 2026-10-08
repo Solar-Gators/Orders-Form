@@ -59,6 +59,12 @@ test("budget table: the Treasurer's order first, then budgeted, then the rest", 
   assert.deepEqual(rows.map((r) => r.category), ['Extraneous', 'Powertrain', 'Aero']);
 });
 
+test('budget table: Paid counts as spent', () => {
+  const lines = ledgerLines({ purchases: [{ id: 'x', season: '2026-2027', description: 'Debt', amount: '200', category: 'Aero', dept_status: 'paid' }], season: '2026-2027' });
+  const aero = budgetTable(lines, { Aero: '500' }).rows[0];
+  assert.deepEqual([aero.spent, aero.pipeline, aero.left], [200, 0, 300]);
+});
+
 test('budget table: spent, in the pipeline, left; cancelled lines and other seasons don\'t count', () => {
   const lines = ledgerLines({ requests, purchases, field: 'c_cc', season: '2026-2027' });
   const { rows, total } = budgetTable(lines, { Aero: '1000', Powertrain: '40', Competition: '14000' });

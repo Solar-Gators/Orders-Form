@@ -14,10 +14,11 @@ export const STEPS = [
   { key: 'dept_approved', label: 'Dept approved', tone: 'lightgreen', hint: 'The department approved it' },
   { key: 'ordered', label: 'Ordered', tone: 'green', hint: 'Ordered by the department' },
   { key: 'received', label: 'Received', tone: 'teal', hint: 'Arrived' },
+  { key: 'paid', label: 'Paid', tone: 'teal', hint: 'Paid with nothing to order (a debt, a reimbursement); counts as spent, like Received' },
   { key: 'cancelled', label: 'Cancelled', tone: 'red', hint: "Not happening; doesn't count toward budgets" },
 ];
 export const stepOf = (key) => STEPS.find((s) => s.key === key) || STEPS[0];
-export const SPENT = new Set(['ordered', 'received']);
+export const SPENT = new Set(['ordered', 'received', 'paid']);
 export const COMMITTED = new Set(['to_submit', 'sent', 'dept_approved']);
 
 /** Who places the order (the old sheet's M/E column). */

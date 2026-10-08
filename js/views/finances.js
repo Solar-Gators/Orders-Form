@@ -105,7 +105,7 @@ export async function renderFinances(el, ctx) {
 
     <div class="fin-tiles">
       ${tile('Budget', fmtMoney(table.total.budget), table.rows.filter((r) => r.budget !== null).length ? `${table.rows.filter((r) => r.budget !== null).length} categories` : 'Not set yet')}
-      ${tile('Spent', fmtMoney(table.total.spent), 'Ordered + received')}
+      ${tile('Spent', fmtMoney(table.total.spent), 'Ordered, received or paid')}
       ${tile('In the pipeline', fmtMoney(table.total.pipeline), 'Approved, not ordered yet')}
       ${table.total.budget
         ? tile('Left', fmtMoney(table.total.left), `${Math.round(((table.total.spent + table.total.pipeline) / table.total.budget) * 100)}% used`, table.total.left < 0)
@@ -189,13 +189,15 @@ function drawPurchases(box, s) {
     return [...list].sort(by);
   };
 
+  const paidOk = Number(s.config.schemaVersion) >= 22;
   const statusCell = (l) => {
     if (!canEdit) return stepChip(l.status);
     // Ordered / Received are marked on the request (date, ticket #, tells the requester).
     if (l.kind === 'request' && ['ordered', 'received'].includes(l.status)) {
       return `<a href="#/requests/${esc(l.number)}" class="step-chip step-${esc(stepOf(l.status).tone)} step-link" title="Set on the request itself (it records the date and ticket number). Open ${esc(l.number)} to change it.">${esc(stepOf(l.status).label)} ↗</a>`;
     }
-    const options = l.kind === 'request' ? STEPS.filter((x) => !['ordered', 'received'].includes(x.key)) : STEPS;
+    // Paid (migration 022) is for purchases added here; requests are ordered from their own page.
+    const options = STEPS.filter((x) => (l.kind === 'request' ? !['ordered', 'received', 'paid'].includes(x.key) : x.key !== 'paid' || paidOk || l.status === 'paid'));
     return `<select data-f="dept_status" class="step-select step-${esc(stepOf(l.status).tone)}" aria-label="Status">${options
       .map((x) => `<option value="${x.key}" ${x.key === l.status ? 'selected' : ''}>${esc(x.label)}</option>`)
       .join('')}${l.kind === 'request' ? '<option value="goto">Ordered… (on the request)</option>' : ''}</select>`;
@@ -406,7 +408,7 @@ function drawBudget(box, s) {
         <label class="rule-toggle"><input type="checkbox" id="budget-block" ${budgets.block ? 'checked' : ''}>
           <span>Approving over budget needs a written reason <span class="hint">The approver has to say why; it's kept in the request's History.</span></span></label>
       </div></details>` : ''}
-    <p class="hint">Spent = ordered + received. In the pipeline = approved but not ordered yet (to submit, sent, or approved by the department).
+    <p class="hint">Spent = ordered, received or paid. In the pipeline = approved but not ordered yet (to submit, sent, or approved by the department).
       Purchases added by hand count too; cancelled ones don't. The same budgets warn approvers before a request goes over.</p>`;
 
   const saveBudgets = async (next) => {
