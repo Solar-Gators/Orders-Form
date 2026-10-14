@@ -6,6 +6,12 @@
   <title>Solar Gators Orders</title>
   <link rel="icon" type="image/png" href="assets/favicon.png">
   <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+  <!-- Installable as an app (PWA): manifest.webmanifest + sw.js. -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#ffffff">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="SG Orders">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <!-- Relative paths so the site works under a GitHub Pages sub-path (/<repo>/). -->
   <link rel="stylesheet" href="css/styles.css">
 </head>
@@ -40,6 +46,7 @@
         <div class="account-pop" id="account-pop" hidden>
           <a href="#/account" data-nav="account">My account &amp; notifications</a>
           <a href="#/help" data-nav="help" id="nav-help" hidden>Help</a>
+          <button type="button" id="menu-install" hidden>Install the app</button>
           <button type="button" id="menu-sign-out">Sign out</button>
         </div>
       </div>

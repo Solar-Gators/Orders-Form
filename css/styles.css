@@ -1082,6 +1082,7 @@ button.account-link::after { content: "▾"; font-size: 10px; color: var(--muted
 }
 .account-pop a:hover, .account-pop button:hover { background: var(--surface-2); }
 .account-pop button { color: var(--red); }
+.account-pop #menu-install { color: inherit; }
 .page-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
 .page-tabs a {
   padding: 5px 12px; border: 1px solid var(--border); border-radius: 999px; background: #fff;

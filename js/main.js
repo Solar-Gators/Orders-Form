@@ -143,11 +143,43 @@ function bindMenu() {
   document.getElementById('menu-btn').addEventListener('click', () => setMenu(!document.body.classList.contains('nav-open')));
   document.getElementById('account-btn').addEventListener('click', () => setAccountMenu(document.getElementById('account-pop').hidden));
   document.getElementById('menu-sign-out').addEventListener('click', () => (closeMenus(), auth.signOut()));
+  bindInstall();
   document.addEventListener('click', (e) => {
     if (!e.target.closest('#menu-btn, #main-nav')) setMenu(false);
     if (!e.target.closest('.account-menu') || e.target.closest('#account-pop a')) setAccountMenu(false);
   });
   document.addEventListener('keydown', (e) => e.key === 'Escape' && closeMenus());
+}
+
+/**
+ * The installable app (PWA). Chrome / Edge (Android, Windows, Mac) offer to install
+ * it, so "Install the app" in the account menu opens their prompt. iPhones and iPads
+ * have no prompt: the button explains Share → Add to Home Screen instead.
+ */
+function bindInstall() {
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+  const btn = document.getElementById('menu-install');
+  const installed = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+  const ios = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  let prompt = null;
+  if (installed) return;
+  if (ios) btn.hidden = false;
+  addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    prompt = e;
+    btn.hidden = false;
+  });
+  addEventListener('appinstalled', () => (btn.hidden = true));
+  btn.addEventListener('click', async () => {
+    closeMenus();
+    if (prompt) {
+      prompt.prompt();
+      if ((await prompt.userChoice).outcome === 'accepted') btn.hidden = true;
+      prompt = null;
+    } else {
+      alert('To install it on an iPhone or iPad: open this site in Safari, tap Share (the square with the arrow), then "Add to Home Screen".');
+    }
+  });
 }
 
 async function main() {

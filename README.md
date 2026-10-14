@@ -192,6 +192,14 @@ Admin has four tabs, each with a few pages (on a phone, one menu lists them all)
 
 ---
 
+## Installing it as an app
+
+The site can be installed like an app, with its own icon, opening in its own window without the browser bar. It's the same site, so it updates by itself.
+- **Android, or Chrome / Edge on a computer:** account menu (your name, top right) → **Install the app**, or the install icon in the address bar.
+- **iPhone / iPad:** open the site in Safari → Share (the square with the arrow) → **Add to Home Screen**.
+
+It needs a connection to load requests; offline it opens the last copy of the pages. (Files: `manifest.webmanifest`, `sw.js`, icons from `python tools/make-icons.py`.)
+
 ## Email and Teams notifications
 
 Once your leads turn them on (**Admin → Approvals & alerts → Notifications**), the site messages people when something needs them:
