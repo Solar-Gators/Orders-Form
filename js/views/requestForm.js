@@ -10,6 +10,7 @@ import { auth } from '../auth.js';
 import { esc, fmtMoney, fmtDate, itemTotal, round2, statusBadge, errorBox, setFlash, introText } from '../ui.js';
 import { requestFields, itemFields, shown, getValue, setValue, renderInput, isVisible, shippingPerRequest } from '../formFields.js';
 import { guardLeaving, releaseGuard } from '../leaveGuard.js';
+import { openItemImport } from './itemImportDialog.js';
 
 // Example placeholders for built-in item columns (custom fields use their help text).
 const ITEM_PLACEHOLDERS = {
@@ -27,6 +28,9 @@ const itemInput = (f, value, config, attrs) => {
   const max = f.maxLength ? ` maxlength="${Number(f.maxLength)}"` : '';
   return `<textarea rows="1" class="grow"${max} ${attrs}${ph ? ` placeholder="${esc(ph)}"` : ''}>${esc(value ?? '')}</textarea>`;
 };
+// Longer lists start as one line per item (click one to fill it in).
+const COMPACT_AT = 15;
+
 /** Fit a growing box to its text (one line when short). */
 const fitBox = (ta) => {
   if (!ta.offsetParent) return void (ta.style.height = ''); // hidden: back to one line
@@ -182,6 +186,8 @@ export async function renderRequestForm(el, { config, params }) {
         <h2>Items</h2>
         ${vendorBox}
         ${sharable.length ? '<div id="shared-box" class="shared-fields"></div>' : ''}
+        <div id="import-note"></div>
+        <div id="compact-bar" class="compact-bar" hidden></div>
         <div class="table-wrap flat">
           <table class="table items-table stack-form is-stacked">
             <thead id="items-head"></thead>
@@ -207,6 +213,7 @@ export async function renderRequestForm(el, { config, params }) {
         </div>
         <div class="add-row">
           <button type="button" class="btn btn-sm" data-action="add-item">+ Add another item</button>
+          <button type="button" class="btn btn-sm" data-action="import-items">Import items from Excel…</button>
           <span class="hint hide-touch">Tip: pressing Enter moves to the next box, and adds a new item from the last one.</span>
         </div>
       </section>
@@ -241,7 +248,7 @@ export async function renderRequestForm(el, { config, params }) {
       const wrap = form.querySelector(`[data-wrap="${f.key}"]`);
       if (wrap) wrap.hidden = !isVisible(f, r);
     }
-    tbody.querySelectorAll('tr[data-index]').forEach((tr) => {
+    tbody.querySelectorAll('tr[data-index]:not(.item-summary)').forEach((tr) => {
       const item = itemForRules(items[Number(tr.dataset.index)]);
       for (const f of tableFields()) {
         if (!f.showIf) continue;
@@ -261,6 +268,42 @@ export async function renderRequestForm(el, { config, params }) {
     grandTotal.textContent = fmtMoney(round2(items.reduce((s, i) => s + itemTotal(i), 0) + shipping));
   };
 
+  // ---- Long lists: one line per item until it's opened ----
+  let compact = items.length > COMPACT_AT;
+  let open = new Set(); // items shown in full while compact
+  const missing = (item) => {
+    const r = currentRequest();
+    return tableFields().filter(
+      (f) => f.required && f.type !== 'section' && isVisible(f, r, itemForRules(item)) && String(getValue(item, f) ?? '').trim() === ''
+    );
+  };
+  const summaryRow = (item, idx, colspan) => {
+    const need = missing(item);
+    const bits = [
+      String(item.quantity ?? '') !== '' && String(item.unit_price ?? '') !== '' ? `${esc(item.quantity)} × ${fmtMoney(Number(item.unit_price) || 0)}` : '',
+      ...tableFields().filter((f) => ['part_number', 'vendor'].includes(f.key) && item[f.key]).map((f) => esc(item[f.key])),
+    ].filter(Boolean);
+    return `<tr data-index="${idx}" class="item-summary ${need.length ? 'needs-more' : ''}">
+      <td class="w-idx muted">${idx + 1}</td>
+      <td class="item-summary-cell" colspan="${colspan}"><button type="button" class="item-summary-btn" data-action="expand-item">
+        <span class="item-summary-name">${esc(item.item_name || '(no name)')}</span>
+        <span class="muted small">${bits.join(' · ')}</span>
+        ${need.length ? `<span class="item-needs small">Needs ${esc(need.map((f) => f.label.toLowerCase()).join(', '))}</span>` : ''}
+      </button></td>
+      <td class="num w-total" data-role="row-total">${fmtMoney(itemTotal(item))}</td>
+      <td class="w-remove"><button type="button" class="icon-btn" data-action="remove-item" title="Remove item" aria-label="Remove item ${idx + 1}" ${items.length === 1 ? 'disabled' : ''}>&times;</button></td>
+    </tr>`;
+  };
+  const drawCompactBar = () => {
+    const bar = el.querySelector('#compact-bar');
+    bar.hidden = items.length <= COMPACT_AT && !compact;
+    if (bar.hidden) return;
+    const need = items.filter((i) => missing(i).length).length;
+    bar.innerHTML = `<span class="small"><strong>${items.length} items</strong>${need ? ` · <span class="item-needs">${need} still need details</span>` : ' · all filled in'}</span>
+      ${compact && need ? '<button type="button" class="btn btn-sm" data-action="next-missing">Open the next one that needs details</button>' : ''}
+      <button type="button" class="btn btn-sm btn-ghost" data-action="toggle-compact">${compact ? 'Show every item in full' : 'Show as a compact list'}</button>`;
+  };
+
   const renderRows = () => {
     const cols = tableFields();
     el.querySelector('#items-head').innerHTML = `<tr>
@@ -272,9 +315,15 @@ export async function renderRequestForm(el, { config, params }) {
     el.querySelector('#total-label').colSpan = cols.length + 1;
     if (oneShipping) el.querySelector('#ship-label').colSpan = cols.length + 1;
     tbody.innerHTML = items
-      .map(
-        (item, idx) => `
-        <tr data-index="${idx}">
+      .map((item, idx) => (compact && !open.has(idx) ? summaryRow(item, idx, cols.length) : fullRow(item, idx, cols)))
+      .join('');
+    updateTotals();
+    applyConditions();
+    tbody.querySelectorAll('textarea.grow').forEach(fitBox);
+    drawCompactBar();
+  };
+  const fullRow = (item, idx, cols) => `
+        <tr data-index="${idx}" ${compact ? 'class="item-open"' : ''}>
           <td class="w-idx muted"><span class="only-mobile">Item </span>${idx + 1}</td>
           ${cols
             .map(
@@ -290,14 +339,9 @@ export async function renderRequestForm(el, { config, params }) {
           <td class="w-remove">
             <button type="button" class="icon-btn" data-action="remove-item" title="Remove item" aria-label="Remove item ${idx + 1}"
               ${items.length === 1 ? 'disabled' : ''}>&times;</button>
+            ${compact ? '<button type="button" class="btn btn-sm btn-ghost item-done" data-action="collapse-item" title="Back to one line">Done</button>' : ''}
           </td>
-        </tr>`
-      )
-      .join('');
-    updateTotals();
-    applyConditions();
-    tbody.querySelectorAll('textarea.grow').forEach(fitBox);
-  };
+        </tr>`;
 
   const onItemInput = (e) => {
     const key = e.target.dataset.ifield;
@@ -382,11 +426,116 @@ export async function renderRequestForm(el, { config, params }) {
       renderRows();
       tbody.querySelector('tr:last-child input, tr:last-child select')?.focus();
     } else if (action === 'remove-item' && items.length > 1) {
-      items.splice(Number(e.target.closest('tr').dataset.index), 1);
+      const gone = Number(e.target.closest('tr').dataset.index);
+      items.splice(gone, 1);
+      open = new Set([...open].filter((i) => i !== gone).map((i) => (i > gone ? i - 1 : i)));
       dirty = true;
       renderRows();
+    } else if (action === 'expand-item' || action === 'collapse-item') {
+      const idx = Number(e.target.closest('tr').dataset.index);
+      if (action === 'expand-item') open.add(idx);
+      else open.delete(idx);
+      renderRows();
+      const row = tbody.querySelector(`tr[data-index="${idx}"]`);
+      if (action === 'expand-item') row?.querySelector('input, select, textarea')?.focus();
+      else row?.querySelector('.item-summary-btn')?.focus();
+    } else if (action === 'next-missing') {
+      const idx = items.findIndex((i, n) => !open.has(n) && missing(i).length);
+      if (idx < 0) return;
+      open.add(idx);
+      renderRows();
+      const row = tbody.querySelector(`tr[data-index="${idx}"]`);
+      row?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      const first = missing(items[idx])[0];
+      (row?.querySelector(`[data-ifield="${first?.key}"]`) || row?.querySelector('input, select, textarea'))?.focus({ preventScroll: true });
+    } else if (action === 'toggle-compact') {
+      compact = !compact;
+      open.clear();
+      renderRows();
+    } else if (action === 'import-items') {
+      openItemImport({
+        config,
+        oneVendor,
+        hasItems: items.some((i) => String(i.item_name ?? '').trim() || String(i.unit_price ?? '').trim()),
+        onImport: importItems,
+      });
+    } else if (action === 'drop-file') {
+      pendingFile = null;
+      drawImportNote();
     }
   });
+
+  // ---- Importing a parts list (js/views/itemImportDialog.js) ----
+  let pendingFile = null; // attached to the request once it's saved
+  let importMessage = '';
+  const drawImportNote = () => {
+    el.querySelector('#import-note').innerHTML =
+      importMessage || pendingFile
+        ? `<div class="alert alert-info import-note">${importMessage}
+          ${pendingFile ? `<div class="small">📎 <strong>${esc(pendingFile.name)}</strong> will be attached to this request when you save it.
+            <button type="button" class="link-btn" data-action="drop-file">Don't attach it</button></div>` : ''}</div>`
+        : '';
+  };
+  const attachTo = async (number, file) => {
+    const saved = await api.getRequest(number);
+    await api.uploadAttachment('request', saved.id, file, 'Imported parts list');
+  };
+  const importItems = async ({ items: incoming, mode, vendor, others, file }) => {
+    // The other vendors' drafts first: if one can't be saved, the form is left as it was.
+    const drafts = [];
+    if (others.length) {
+      const base = currentRequest();
+      for (const g of others) {
+        const request = { ...base, data: { ...base.data }, title: `${String(base.title || 'Parts').trim()} (${g.vendor})`.slice(0, 200) };
+        const number = await api.saveRequest(null, {
+          action: 'draft',
+          request,
+          items: g.items.map((i) => ({ ...i, data: { ...i.data }, vendor: g.vendor })),
+        });
+        drafts.push({ number, vendor: g.vendor });
+        if (file) await attachTo(number, file).catch(() => {});
+      }
+    }
+    // Each row: the defaults and "same for every item" values, then what the list says.
+    const rows = incoming.map((i) => {
+      const item = blankItem();
+      for (const f of iFields) {
+        if (f.type === 'section') continue;
+        const v = getValue(i, f);
+        if (v !== '' && v !== null && v !== undefined) setValue(item, f, v);
+      }
+      return item;
+    });
+    for (const key of [...shared]) {
+      const f = iFields.find((x) => x.key === key);
+      if (incoming.some((i) => String(getValue(i, f) ?? '').trim())) shared.delete(key); // the list has its own values
+    }
+    const blankForm = !items.some((i) => String(i.item_name ?? '').trim() || String(i.unit_price ?? '').trim());
+    if (mode === 'replace' || blankForm) items.length = 0;
+    items.push(...rows);
+    let vendorNote = '';
+    if (oneVendor && vendor) {
+      const box = form.querySelector('#f-vendor');
+      if (!box.value.trim() || mode === 'replace' || blankForm) box.value = vendor;
+      else if (box.value.trim().toLowerCase() !== vendor.toLowerCase()) {
+        vendorNote = ` These items are from <strong>${esc(vendor)}</strong>, but this request's vendor is <strong>${esc(box.value.trim())}</strong>: change one of them.`;
+      }
+    }
+    compact = items.length > COMPACT_AT;
+    open.clear();
+    dirty = true;
+    if (file) pendingFile = file;
+    const need = items.filter((i) => missing(i).length).length;
+    importMessage = `Imported ${rows.length} item${rows.length === 1 ? '' : 's'}${file ? ` from ${esc(file.name)}` : ''}.
+      ${need ? `${need} still need details${compact ? ' (marked below)' : ''}: fill them in before submitting.` : 'Check them before submitting.'}${vendorNote}
+      ${drafts.length ? `<div class="small">Saved as separate drafts, for you to finish: ${drafts
+        .map((d) => `${esc(d.vendor)} → <a href="#/requests/${esc(d.number)}" target="_blank" rel="noopener">${esc(d.number)}</a>`)
+        .join(', ')}.</div>` : ''}`;
+    drawShared();
+    renderRows();
+    drawImportNote();
+    el.querySelector('#import-note').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  };
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -416,11 +565,24 @@ export async function renderRequestForm(el, { config, params }) {
     clearMarks();
     try {
       const number = await api.saveRequest(existing?.id, payload);
-      setFlash(action === 'submit' ? `${number} submitted for approval.` : `${number} saved as a draft.`);
+      let attached = '';
+      if (pendingFile) {
+        attached = await attachTo(number, pendingFile).then(
+          () => ` ${pendingFile.name} is attached.`,
+          () => ` (${pendingFile.name} couldn't be attached: add it under Files on the request.)`
+        );
+      }
+      setFlash((action === 'submit' ? `${number} submitted for approval.` : `${number} saved as a draft.`) + attached);
       releaseGuard(); // saved: leaving is fine now
       location.hash = `#/requests/${number}`;
     } catch (err) {
       buttons.forEach((b) => (b.disabled = false));
+      // Compact list: open the items with problems so they can be marked and fixed.
+      for (const line of err.details || []) {
+        const m = line.match(/^Item (\d+):/);
+        if (m) open.add(Number(m[1]) - 1);
+        else if (/^Add at least one item/.test(line)) open.add(0);
+      }
       renderRows(); // restore "remove" disabled state (before marking item fields)
       showErrors(err);
     }

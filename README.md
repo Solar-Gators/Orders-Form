@@ -73,6 +73,12 @@ If the Chief Engineer requests changes, the request appears at the top of **Requ
 
 **Order again:** buying the same things as an earlier request (yours or anyone's)? Open it and click **Order again** above its items. A new request opens with the same vendor, subsystem, items, prices and shipping; add the needed-by date and why, check the prices and quantities, and submit. The original isn't changed.
 
+**Large orders from a parts list:** on New Request, click **Import items from Excel…**. Choose an .xlsx or .csv file, or paste cells copied from Excel or Google Sheets. Only a part name and a price are needed (a "Total" column works too; quantity is 1 when blank). Check which column is which, look at the preview, and import; then fill in anything else on the form. **Download a template** in the same window gives a sheet with the right columns.
+  - Rows without a name or price, and total / shipping lines, are left out and listed.
+  - A list with several vendors can be split: this form gets one vendor's items and the others are saved as separate drafts with the same details. Or import just one vendor's items.
+  - The file is attached to the request when it's saved.
+  - Over 15 items, the form shows one line per item: click one to fill it in, or **Open the next one that needs details**.
+
 Changed your mind? Open a submitted request and click **Withdraw request** to turn it back into a draft. Drafts and requests sent back for changes can be deleted.
 
 **Watchers:** anyone can click **Watch** on a request to get an email / Teams message whenever its status changes (submitted, approved, sent back, rejected, ordered, received). The requester and leads can also add other people, e.g. a subsystem lead or a teammate waiting on the part. On **Requests**, the "Requests I watch" filter lists them.
