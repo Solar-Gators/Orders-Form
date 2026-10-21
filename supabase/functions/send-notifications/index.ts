@@ -39,6 +39,7 @@ const FALLBACK: Record<string, Template> = {
   ready_to_order: { subject: '{request_number} is ready to order', body: '"{title}" ({total} from {vendor}) is ready to order.' },
   changes_requested: { subject: '{request_number}: changes requested', body: '{approver} asked for changes to "{title}":\n{comment}' },
   rejected: { subject: '{request_number} was rejected', body: '{approver} rejected "{title}":\n{comment}' },
+  cancelled: { subject: '{request_number} was cancelled', body: '"{title}" was approved but cancelled by {approver} before it was ordered.\nWhy: {comment}' },
   ordered: { subject: '{request_number} has been ordered', body: '"{title}" has been ordered.\nOrder / ticket number: {ticket}' },
   received: { subject: '{request_number} has arrived', body: '"{title}" was marked received by {received_by}.\nWhere: {where}' },
   request_update: { subject: '{request_number} is now {status}', body: '"{title}" ({requester}) is now {status}. You\'re getting this because you watch it.' },

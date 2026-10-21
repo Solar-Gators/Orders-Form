@@ -13,6 +13,7 @@ export const STATUS = Object.freeze({
   REJECTED: 'Rejected',
   ORDERED: 'Ordered',
   RECEIVED: 'Received',
+  CANCELLED: 'Cancelled', // approved, then not ordered after all (migration 024)
 });
 export const STATUSES = Object.values(STATUS);
 export const EDITABLE_STATUSES = [STATUS.DRAFT, STATUS.CHANGES_REQUESTED];
@@ -83,7 +84,7 @@ const tone = (key, fallback) => (TONE_KEYS.has(key) ? key : fallback);
 
 export const DEFAULT_STATUS_COLORS = {
   Draft: 'gray', Submitted: 'blue', 'Changes Requested': 'amber', Approved: 'green',
-  Rejected: 'red', Ordered: 'purple', Received: 'teal',
+  Rejected: 'red', Ordered: 'purple', Received: 'teal', Cancelled: 'gray',
 };
 const DEFAULT_PRIORITY_COLORS = { normal: 'gray', low: 'gray', medium: 'amber', high: 'amber', urgent: 'red-strong' };
 
@@ -162,7 +163,7 @@ export const priorityTag = (priority) =>
 
 /** Is `needed_by` today or earlier (and still in an open status)? */
 export function isOverdue(r) {
-  return r.needed_by && r.needed_by <= todayISO() && ![STATUS.ORDERED, STATUS.RECEIVED, STATUS.REJECTED].includes(r.status);
+  return r.needed_by && r.needed_by <= todayISO() && ![STATUS.ORDERED, STATUS.RECEIVED, STATUS.REJECTED, STATUS.CANCELLED].includes(r.status);
 }
 
 /**

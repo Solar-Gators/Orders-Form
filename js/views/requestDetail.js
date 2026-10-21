@@ -258,6 +258,16 @@ function historyCard(r) {
       });
       continue;
     }
+    if (e.kind === 'cancelled' || e.kind === 'restored') {
+      // The Treasurer cancelled it before ordering, or put it back (024).
+      events.push({
+        when: e.created_at,
+        text: `<strong>${e.kind === 'cancelled' ? 'Cancelled' : 'Put back in To order'}</strong> by ${esc(e.actor_name || 'unknown')}`,
+        comment: e.note,
+        kind: e.kind,
+      });
+      continue;
+    }
     if (!['submitted', 'resubmitted', 'withdrawn'].includes(e.kind)) continue;
     const label = { submitted: 'Submitted', resubmitted: 'Resubmitted', withdrawn: 'Withdrawn' }[e.kind];
     events.push({
@@ -432,6 +442,28 @@ function actionPanel(r, config, { names = {}, budget = null } = {}) {
         <div id="action-errors"></div>
         <button type="submit" class="btn btn-primary btn-block">Mark as Ordered</button>
       </form>
+      ${Number(config.schemaVersion) >= 24 ? `<details class="cancel-order">
+        <summary>Not ordering it after all?</summary>
+        <form id="cancel-form" novalidate>
+          <div class="field">
+            <label for="c-reason">Why is it cancelled? <span class="req">*</span></label>
+            <textarea id="c-reason" name="reason" rows="2" required placeholder="e.g. Found spares in the shop, or the vendor is out of stock"></textarea>
+            <p class="hint">${esc(r.requester || 'The requester')} is told why. It leaves To order and stops counting toward the budget; you can put it back afterwards.</p>
+          </div>
+          <button type="submit" class="btn btn-danger btn-block">Cancel this request</button>
+        </form>
+      </details>` : ''}
+    </section>`;
+  }
+
+  if (r.status === STATUS.CANCELLED) {
+    const ev = [...(r.events || [])].reverse().find((e) => e.kind === 'cancelled');
+    return `<section class="card action-card">
+      <h2>Cancelled</h2>
+      <p class="muted">Approved, then cancelled${ev ? ` by ${esc(ev.actor_name || 'the Treasurer')} on ${fmtDate(ev.created_at)}` : ''} before it was ordered.</p>
+      ${ev?.note ? `<blockquote class="ce-comment">${esc(ev.note)}</blockquote>` : ''}
+      ${auth.can('request.order') ? `<div id="action-errors"></div>
+        <button type="button" class="btn btn-block" id="restore-request">Put it back in To order</button>` : ''}
     </section>`;
   }
 
@@ -594,7 +626,7 @@ export async function renderRequestDetail(el, { config, params, rerender }) {
       window.scrollTo({ top: 0, behavior: 'smooth' }); // bring the confirmation into view
     } catch (err) {
       // Someone else acted first (this page was out of date): show the latest instead.
-      const stale = String(err.message).match(/is "([^"]+)", not (Submitted|Approved|Ordered)/);
+      const stale = String(err.message).match(/is "([^"]+)", not (Submitted|Approved|Ordered|Cancelled)/);
       if (stale) {
         setFlash(`Someone else already updated ${r.request_number}: it's now ${stale[1]}. Here's the latest.`);
         await rerender();
@@ -691,6 +723,23 @@ export async function renderRequestDetail(el, { config, params, rerender }) {
       return;
     }
     run(e.target, () => api.markOrdered(r.id, Object.fromEntries(new FormData(e.target))), `${r.request_number} marked as ordered.`);
+  });
+
+  el.querySelector('#cancel-form')?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const reason = e.target.reason;
+    if (!reason.value.trim()) {
+      errors.innerHTML = errorBox(new Error(`Say why it's cancelled, so ${r.requester || 'the requester'} knows.`));
+      reason.classList.add('is-invalid');
+      reason.focus();
+      return;
+    }
+    if (!confirm(`Cancel ${r.request_number}? It won't be ordered, and ${r.requester || 'the requester'} is told why.`)) return;
+    run(e.target, () => api.cancelRequest(r.id, reason.value), `${r.request_number} cancelled. It's off the To order list.`);
+  });
+  el.querySelector('#restore-request')?.addEventListener('click', (e) => {
+    if (!confirm(`Put ${r.request_number} back in To order? It's Approved again and counts toward the budget. ${r.requester || 'The requester'} isn't sent a message about this.`)) return;
+    run(e.target.closest('section'), () => api.restoreRequest(r.id), `${r.request_number} is back in To order.`);
   });
 
   el.querySelector('#receive-form')?.addEventListener('submit', (e) => {

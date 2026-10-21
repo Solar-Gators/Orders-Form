@@ -32,8 +32,8 @@ const norm = (s) => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
 const answer = (r, key) => String(r?.[key] ?? r?.data?.[key] ?? '').trim();
 
 /**
- * Ledger lines for a season: requests that are Approved / Ordered / Received, plus
- * purchases logged on their own. `field` is the request field budgets go by (e.g.
+ * Ledger lines for a season: requests that are Approved / Ordered / Received (or
+ * Cancelled after approval, migration 024), plus purchases logged on their own. `field` is the request field budgets go by (e.g.
  * the Cost center), so a request's category is its answer, unless the Treasurer
  * picked another one for its line (migration 020; `answer` keeps the request's own).
  */
@@ -41,12 +41,12 @@ export function ledgerLines({ requests = [], purchases = [], field = '', season 
   const byRequest = new Map(purchases.filter((p) => p.request_id).map((p) => [p.request_id, p]));
   const lines = [];
   for (const r of requests) {
-    if (!['Approved', 'Ordered', 'Received'].includes(r.status)) continue;
+    if (!['Approved', 'Ordered', 'Received', 'Cancelled'].includes(r.status)) continue;
     if (season && r.season && r.season !== season) continue;
     const p = byRequest.get(r.id);
-    // Ordered / Received come from the request itself; before that, the Treasurer's step.
+    // Ordered / Received / Cancelled come from the request itself; before that, the Treasurer's step.
     const before = p && (COMMITTED.has(p.dept_status) || p.dept_status === 'cancelled') ? p.dept_status : 'to_submit';
-    const status = r.status === 'Ordered' ? 'ordered' : r.status === 'Received' ? 'received' : before;
+    const status = { Ordered: 'ordered', Received: 'received', Cancelled: 'cancelled' }[r.status] || before;
     lines.push({
       key: `r:${r.id}`,
       kind: 'request',

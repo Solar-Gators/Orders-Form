@@ -391,6 +391,18 @@ export const api = {
     return unwrap(await supabase.rpc('fix_request_wording', { p_id: id, p_request: request, p_items: items }));
   },
 
+  /** The Treasurer: an approved request isn't going to be ordered after all (migration 024). */
+  async cancelRequest(id, reason) {
+    unwrap(await supabase.rpc('cancel_request', { p_id: id, p_reason: reason }));
+    deliver();
+  },
+
+  /** The Treasurer: undo a cancel, back to Approved (To order). */
+  async restoreRequest(id) {
+    unwrap(await supabase.rpc('restore_request', { p_id: id }));
+    deliver();
+  },
+
   async markReceived(id, { received_date, received_notes }) {
     unwrap(await supabase.rpc('mark_received', { p_id: id, p_received_date: received_date || null, p_notes: received_notes }));
     deliver();

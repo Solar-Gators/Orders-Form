@@ -98,6 +98,7 @@ Changed your mind? Open a submitted request and click **Withdraw request** to tu
 ### Ordering and delivery (Treasurer)
 - **Queue → To order & deliveries** has two lists: **To order** (approved) and **Awaiting delivery** (ordered). For the Treasurer, **Queue** opens here.
 - **Mark as Ordered:** record the order date, ticket / department order number (required unless turned off in Admin → Request form → Dropdowns & rules), and any notes.
+- **Cancel instead:** not ordering an approved request after all (found spares, out of stock, plans changed)? On the request, under **Mark as Ordered**, open **Not ordering it after all?**, say why, and **Cancel this request**. The requester gets a message with the reason; it leaves To order, stops counting toward the budget, and shows as Cancelled on Finances. **Put it back in To order** undoes it. (Needs `024_cancel_approved.sql`.)
 - **Order several at once:** bought a few approved requests in one checkout? Open **Order several at once** there, tick them (grouped by vendor), and enter the date and ticket number once.
 - **Late deliveries:** Awaiting delivery shows how long each order has been out, and highlights anything over 14 days.
 - **Mark as Received:** record when it arrived and **where it is now** (required, e.g. "in our office"). The requester gets a message that says where. Requesters who pick up their own package can mark it received themselves, with a note saying where they got it.

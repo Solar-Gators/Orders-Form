@@ -56,7 +56,7 @@ export async function renderFinances(el, ctx) {
 
   const budgets = workflowSettings(config).budgets;
   const [requests, funds, seasonInfo, seasons, purchaseFiles, requestFiles, sponsorsIn] = await Promise.all([
-    api.listRequests(['Approved', 'Ordered', 'Received'], { season }),
+    api.listRequests(['Approved', 'Ordered', 'Received', 'Cancelled'], { season }),
     api.listFunds(season),
     api.getFinanceSeason(season),
     api.listSeasons(),
@@ -190,17 +190,23 @@ function drawPurchases(box, s) {
   };
 
   const paidOk = Number(s.config.schemaVersion) >= 22;
+  const cancelOnRequest = Number(s.config.schemaVersion) >= 24; // cancelling a request is done on it (024)
   const statusCell = (l) => {
     if (!canEdit) return stepChip(l.status);
-    // Ordered / Received are marked on the request (date, ticket #, tells the requester).
-    if (l.kind === 'request' && ['ordered', 'received'].includes(l.status)) {
-      return `<a href="#/requests/${esc(l.number)}" class="step-chip step-${esc(stepOf(l.status).tone)} step-link" title="Set on the request itself (it records the date and ticket number). Open ${esc(l.number)} to change it.">${esc(stepOf(l.status).label)} ↗</a>`;
+    // Ordered / Received / Cancelled are marked on the request (date, ticket # or reason; tells the requester).
+    if (l.kind === 'request' && (['ordered', 'received'].includes(l.status) || l.request.status === 'Cancelled')) {
+      const what = l.request.status === 'Cancelled' ? 'it records why, and tells the requester' : 'it records the date and ticket number';
+      return `<a href="#/requests/${esc(l.number)}" class="step-chip step-${esc(stepOf(l.status).tone)} step-link" title="Set on the request itself (${what}). Open ${esc(l.number)} to change it.">${esc(stepOf(l.status).label)} ↗</a>`;
     }
     // Paid (migration 022) is for purchases added here; requests are ordered from their own page.
-    const options = STEPS.filter((x) => (l.kind === 'request' ? !['ordered', 'received', 'paid'].includes(x.key) : x.key !== 'paid' || paidOk || l.status === 'paid'));
+    const options = STEPS.filter((x) =>
+      l.kind === 'request'
+        ? !['ordered', 'received', 'paid'].includes(x.key) && (x.key !== 'cancelled' || !cancelOnRequest || l.status === 'cancelled')
+        : x.key !== 'paid' || paidOk || l.status === 'paid'
+    );
     return `<select data-f="dept_status" class="step-select step-${esc(stepOf(l.status).tone)}" aria-label="Status">${options
       .map((x) => `<option value="${x.key}" ${x.key === l.status ? 'selected' : ''}>${esc(x.label)}</option>`)
-      .join('')}${l.kind === 'request' ? '<option value="goto">Ordered… (on the request)</option>' : ''}</select>`;
+      .join('')}${l.kind === 'request' ? `<option value="goto">Ordered… (on the request)</option>${cancelOnRequest ? '<option value="goto">Cancel… (on the request)</option>' : ''}` : ''}</select>`;
   };
   const input = (l, f, value, attrs = '') => `<input data-f="${f}" value="${esc(value ?? '')}" ${attrs}>`;
   // Requests count toward their answer to the budgets dropdown; the Treasurer can move one

@@ -44,6 +44,7 @@ function myEvents(config) {
     { key: 'approved', mine: 'Your request was approved' },
     { key: 'changes_requested', mine: 'Changes were requested on your request' },
     { key: 'rejected', mine: 'Your request was rejected' },
+    { key: 'cancelled', mine: 'Your approved request was cancelled before ordering' },
     { key: 'ordered', mine: 'Your request was ordered' },
     { key: 'received', mine: 'Your request arrived' },
     { key: 'request_update', mine: 'A request you watch changes status' },

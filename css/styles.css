@@ -21,6 +21,14 @@
   --purple: #5b3cc4;
 
   --radius: 10px;
+
+  /* Form controls, buttons and History dots (dark mode changes these). */
+  --control-bg: #fff;
+  --control-border: #c8d1dc;
+  --btn-bg: #fff;
+  --btn-hover: var(--surface-2);
+  --dot-bg: #fff;
+  --dot-border: #9aa8b8;
 }
 
 * { box-sizing: border-box; }
@@ -143,7 +151,7 @@ p { margin: 0 0 10px; }
 
 input, select, textarea {
   font: inherit; color: inherit; width: 100%;
-  padding: 8px 10px; border: 1px solid #c8d1dc; border-radius: 6px; background: #fff;
+  padding: 8px 10px; border: 1px solid var(--control-border); border-radius: 6px; background: var(--control-bg);
 }
 textarea { resize: vertical; }
 input:focus, select:focus, textarea:focus { outline: none; border-color: var(--orange); box-shadow: 0 0 0 3px var(--focus); }
@@ -190,10 +198,10 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--o
 
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-  padding: 8px 16px; border-radius: 6px; border: 1px solid #c8d1dc; background: #fff; color: var(--text);
+  padding: 8px 16px; border-radius: 6px; border: 1px solid var(--control-border); background: var(--btn-bg); color: var(--text);
   font: inherit; font-weight: 600; text-decoration: none; cursor: pointer; white-space: nowrap;
 }
-.btn:hover { background: var(--surface-2); }
+.btn:hover { background: var(--btn-hover); }
 .btn:disabled { opacity: .55; cursor: not-allowed; }
 .btn:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--focus); }
 .btn-sm { padding: 5px 12px; font-size: 13px; }
@@ -238,7 +246,7 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--o
 .timeline > li:last-child { padding-bottom: 0; border-left-color: transparent; }
 .timeline > li::before {
   content: ""; position: absolute; left: -7px; top: 4px; width: 12px; height: 12px; border-radius: 50%;
-  background: #fff; border: 2px solid #9aa8b8;
+  background: var(--dot-bg); border: 2px solid var(--dot-border);
 }
 .timeline > .tl-approve::before { border-color: var(--green); background: var(--green); }
 .timeline > .tl-request_changes::before { border-color: var(--amber); background: #ffd66b; }
@@ -1356,6 +1364,14 @@ a.step-link:hover { text-decoration: underline; }
 .wording-items[open] > summary { margin-bottom: 8px; }
 .wording-find { margin-bottom: 10px; }
 
+/* ---- Cancelling an approved request (Treasurer, migration 024) ------------ */
+
+.cancel-order { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--border-soft); }
+.cancel-order > summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+.cancel-order[open] > summary { margin-bottom: 10px; }
+.timeline > .tl-cancelled::before { border-color: var(--muted); background: var(--muted); }
+.timeline > .tl-restored::before { border-color: var(--green); background: var(--green); }
+
 /* ---- Appearance menu ------------------------------------------------------ */
 
 .theme-pick { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 12px 8px; margin-bottom: 2px; border-bottom: 1px solid var(--border-soft); }
@@ -1399,6 +1415,13 @@ a.step-link:hover { text-decoration: underline; }
   --d-line-strong: #416b97;
   --d-input: #061a34;
   --d-shadow: 0 10px 30px #00000066;
+
+  --control-bg: #061a34;
+  --control-border: #416b97;
+  --btn-bg: #0d2b50;
+  --btn-hover: #0f325c;
+  --dot-bg: #081f3d;
+  --dot-border: #416b97;
 }
 
 /* Orange text: the darker orange is for light pages; on navy it needs to be brighter. */
@@ -1415,18 +1438,11 @@ a.step-link:hover { text-decoration: underline; }
 [data-theme="dark"] .banner { background: #2a2108; border-bottom-color: #5c4610; color: #ffd98a; }
 
 /* Form controls and buttons */
-[data-theme="dark"] input,
-[data-theme="dark"] select,
-[data-theme="dark"] textarea { background: var(--d-input); border-color: var(--d-line-strong); color: var(--text); }
 [data-theme="dark"] input::placeholder,
 [data-theme="dark"] textarea::placeholder { color: #6f86a3; }
 [data-theme="dark"] input:disabled,
 [data-theme="dark"] select:disabled,
 [data-theme="dark"] textarea:disabled { background: var(--surface-2); color: var(--muted); }
-[data-theme="dark"] .btn { background: var(--surface-2); border-color: var(--d-line-strong); color: var(--text); }
-[data-theme="dark"] .btn:hover { background: var(--d-hover); }
-[data-theme="dark"] .btn-primary { background: var(--orange); border-color: var(--orange); color: #fff; }
-[data-theme="dark"] .btn-primary:hover { background: var(--orange-dark); border-color: var(--orange-dark); }
 [data-theme="dark"] .btn-primary:disabled { background: #1a3352; border-color: #1a3352; color: #7f93ad; }
 [data-theme="dark"] .btn-success { background: #1f8f4c; border-color: #1f8f4c; color: #fff; }
 [data-theme="dark"] .btn-success:hover { background: #187a40; }
@@ -1537,7 +1553,6 @@ a.step-link:hover { text-decoration: underline; }
 [data-theme="dark"] .step-pill.is-on { box-shadow: 0 0 0 2px var(--orange); }
 
 /* Timeline */
-[data-theme="dark"] .timeline > li::before { background: var(--surface); border-color: var(--d-line-strong); }
 [data-theme="dark"] .timeline > .tl-request_changes::before { background: #f2a900; }
 [data-theme="dark"] .timeline > .tl-received::before { background: #1d9aa8; border-color: #1d9aa8; }
 [data-theme="dark"] .timeline > .tl-cost::before,
@@ -1556,6 +1571,7 @@ a.step-link:hover { text-decoration: underline; }
 [data-theme="dark"] .task-list a:hover,
 [data-theme="dark"] .recent-list a:hover { background: var(--d-hover); border-color: var(--d-line-strong); }
 [data-theme="dark"] .steps li::before { background: #331607; border-color: #7a3413; color: #ff9b70; }
+[data-theme="dark"] .layout-list li.is-off { background: var(--surface-2); }
 [data-theme="dark"] .col-list > li.is-calc-col { background: var(--surface-2); border-color: var(--d-line-strong); }
 [data-theme="dark"] .template-preview { background: var(--d-input); }
 [data-theme="dark"] .template-choice:has(input:checked) { background: #2a1a10; }

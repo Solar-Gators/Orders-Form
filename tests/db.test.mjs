@@ -293,7 +293,7 @@ await test('the website cannot change the schema version', async () => {
   const general = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
   await as(ce, () => rpc('update_settings', ['general', { ...general, schemaVersion: 99 }]));
   const after = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
-  assert.equal(after.schemaVersion, 23);
+  assert.equal(after.schemaVersion, 24);
 });
 
 console.log('Form fields');
@@ -1584,6 +1584,38 @@ await test('Received: the requester can mark their own pickup; everyone has to s
   await as(treasurer, () => rejects(rpc('mark_received', [id2, null, '']), /Say where it is/)); // the Treasurer too
   await as(treasurer, () => rpc('mark_received', [id2, null, 'In our office']));
   assert.equal(await statusOf(second), 'Received');
+});
+
+await test('Cancelled: the Treasurer can cancel an approved request (with a reason) and put it back (024)', async () => {
+  await db.exec(`delete from notification_outbox`);
+  await as(admin, () => rpc('update_settings', ['notifications', {
+    enabled: true, events: { approved: { email: true }, ready_to_order: { email: true }, cancelled: { email: true } },
+  }]));
+  const number = numberOf(await submit(vendorRequest));
+  const id = await idOf(number);
+  await as(treasurer, () => rejects(rpc('cancel_request', [id, 'Not needed']), /not Approved/)); // still Submitted
+  await review(ce, number, 'approve');
+  await db.exec(`delete from notification_outbox`);
+  await as(member, () => rejects(rpc('cancel_request', [id, 'Changed my mind']), /does not allow/));
+  await as(treasurer, () => rejects(rpc('cancel_request', [id, '  ']), /Say why/));
+  await as(treasurer, () => rpc('cancel_request', [id, 'Found spares in the shop']));
+  assert.equal(await statusOf(number), 'Cancelled');
+  const { rows: [ev] } = await db.query(`select kind, note, actor_name from request_events where request_id = $1 order by id desc limit 1`, [id]);
+  assert.deepEqual([ev.kind, ev.note, ev.actor_name], ['cancelled', 'Found spares in the shop', 'Tess Treasurer']);
+  // The requester is told why; it can't be ordered now.
+  const { rows: msgs } = await db.query(`select event, email, payload from notification_outbox`);
+  assert.deepEqual(msgs.map((m) => `${m.event} ${m.email}`), ['cancelled member@ufl.edu']);
+  assert.deepEqual([msgs[0].payload.comment, msgs[0].payload.approver], ['Found spares in the shop', 'Tess Treasurer']);
+  await as(treasurer, () => rejects(rpc('mark_ordered', [id, null, 'PO-1', '']), /not Approved/));
+  // Put back: Approved again, without "approved" / "ready to order" messages; an unsent "cancelled" one is dropped.
+  const waiting = await idOf(numberOf(await submit(vendorRequest)));
+  await as(treasurer, () => rejects(rpc('restore_request', [waiting]), /not Cancelled/));
+  await as(treasurer, () => rpc('restore_request', [id]));
+  assert.equal(await statusOf(number), 'Approved');
+  const { rows: after } = await db.query(`select event, status from notification_outbox where request_id = $1 order by id`, [id]);
+  assert.deepEqual(after.map((m) => `${m.event} ${m.status}`), ['cancelled cancelled']);
+  await as(treasurer, () => rpc('mark_ordered', [id, null, 'PO-2', '']));
+  assert.equal(await statusOf(number), 'Ordered');
 });
 
 console.log(`\n${passed} passed${process.exitCode ? ', some FAILED' : ''}`);
