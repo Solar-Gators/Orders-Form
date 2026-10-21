@@ -7,7 +7,7 @@
  */
 import { api } from '../api.js';
 import { auth } from '../auth.js';
-import { esc, fmtMoney, fmtDate, itemTotal, round2, statusBadge, errorBox, setFlash, introText } from '../ui.js';
+import { esc, fmtMoney, fmtPrice, fmtDate, itemTotal, round2, statusBadge, errorBox, setFlash, introText } from '../ui.js';
 import { requestFields, itemFields, shown, getValue, setValue, renderInput, isVisible, shippingPerRequest } from '../formFields.js';
 import { guardLeaving, releaseGuard } from '../leaveGuard.js';
 import { openItemImport } from './itemImportDialog.js';
@@ -32,10 +32,17 @@ const itemInput = (f, value, config, attrs) => {
 const COMPACT_AT = 15;
 
 /** Fit a growing box to its text (one line when short). */
-const fitBox = (ta) => {
-  if (!ta.offsetParent) return void (ta.style.height = ''); // hidden: back to one line
-  ta.style.height = 'auto';
-  ta.style.height = `${ta.scrollHeight + 2}px`;
+const fitBox = (ta) => fitBoxes([ta]);
+/** Many at once: measure them all, then size them all (one layout instead of one per box). */
+const fitBoxes = (list) => {
+  const shown = [...list].filter((ta) => {
+    if (ta.offsetParent) return true;
+    ta.style.height = ''; // hidden: back to one line
+    return false;
+  });
+  shown.forEach((ta) => (ta.style.height = 'auto'));
+  const heights = shown.map((ta) => ta.scrollHeight);
+  shown.forEach((ta, i) => (ta.style.height = `${heights[i] + 2}px`));
 };
 
 export async function renderRequestForm(el, { config, params }) {
@@ -280,7 +287,7 @@ export async function renderRequestForm(el, { config, params }) {
   const summaryRow = (item, idx, colspan) => {
     const need = missing(item);
     const bits = [
-      String(item.quantity ?? '') !== '' && String(item.unit_price ?? '') !== '' ? `${esc(item.quantity)} × ${fmtMoney(Number(item.unit_price) || 0)}` : '',
+      String(item.quantity ?? '') !== '' && String(item.unit_price ?? '') !== '' ? `${esc(item.quantity)} × ${fmtPrice(Number(item.unit_price) || 0)}` : '',
       ...tableFields().filter((f) => ['part_number', 'vendor'].includes(f.key) && item[f.key]).map((f) => esc(item[f.key])),
     ].filter(Boolean);
     return `<tr data-index="${idx}" class="item-summary ${need.length ? 'needs-more' : ''}">
@@ -319,7 +326,7 @@ export async function renderRequestForm(el, { config, params }) {
       .join('');
     updateTotals();
     applyConditions();
-    tbody.querySelectorAll('textarea.grow').forEach(fitBox);
+    fitBoxes(tbody.querySelectorAll('textarea.grow'));
     drawCompactBar();
   };
   const fullRow = (item, idx, cols) => `
@@ -359,7 +366,7 @@ export async function renderRequestForm(el, { config, params }) {
   };
   tbody.addEventListener('input', onItemInput);
   // A wider or narrower window wraps the text differently.
-  const refit = () => (el.isConnected ? tbody.querySelectorAll('textarea.grow').forEach(fitBox) : window.removeEventListener('resize', refit));
+  const refit = () => (el.isConnected ? fitBoxes(tbody.querySelectorAll('textarea.grow')) : window.removeEventListener('resize', refit));
   window.addEventListener('resize', refit);
   tbody.addEventListener('change', onItemInput); // selects
 
@@ -457,6 +464,7 @@ export async function renderRequestForm(el, { config, params }) {
         config,
         oneVendor,
         hasItems: items.some((i) => String(i.item_name ?? '').trim() || String(i.unit_price ?? '').trim()),
+        currentVendor: oneVendor ? form.querySelector('#f-vendor').value : '',
         onImport: importItems,
       });
     } else if (action === 'drop-file') {
@@ -511,10 +519,10 @@ export async function renderRequestForm(el, { config, params }) {
       if (incoming.some((i) => String(getValue(i, f) ?? '').trim())) shared.delete(key); // the list has its own values
     }
     const blankForm = !items.some((i) => String(i.item_name ?? '').trim() || String(i.unit_price ?? '').trim());
-    if (mode === 'replace' || blankForm) items.length = 0;
+    if (rows.length && (mode === 'replace' || blankForm)) items.length = 0; // all saved as drafts: the form stays as it was
     items.push(...rows);
     let vendorNote = '';
-    if (oneVendor && vendor) {
+    if (oneVendor && vendor && rows.length) {
       const box = form.querySelector('#f-vendor');
       if (!box.value.trim() || mode === 'replace' || blankForm) box.value = vendor;
       else if (box.value.trim().toLowerCase() !== vendor.toLowerCase()) {
@@ -524,10 +532,13 @@ export async function renderRequestForm(el, { config, params }) {
     compact = items.length > COMPACT_AT;
     open.clear();
     dirty = true;
-    if (file) pendingFile = file;
+    if (file && rows.length) pendingFile = file;
     const need = items.filter((i) => missing(i).length).length;
-    importMessage = `Imported ${rows.length} item${rows.length === 1 ? '' : 's'}${file ? ` from ${esc(file.name)}` : ''}.
-      ${need ? `${need} still need details${compact ? ' (marked below)' : ''}: fill them in before submitting.` : 'Check them before submitting.'}${vendorNote}
+    const one = rows.length === 1;
+    importMessage = `${rows.length
+      ? `Imported ${rows.length} item${one ? '' : 's'}${file ? ` from ${esc(file.name)}` : ''}.
+        ${need ? `${need} ${need === 1 ? 'item still needs' : 'still need'} details${compact ? ' (marked below)' : ''}: fill ${need === 1 ? 'it' : 'them'} in before submitting.` : `Check ${one ? 'it' : 'them'} before submitting.`}`
+      : 'Nothing was added to this request.'}${vendorNote}
       ${drafts.length ? `<div class="small">Saved as separate drafts, for you to finish: ${drafts
         .map((d) => `${esc(d.vendor)} → <a href="#/requests/${esc(d.number)}" target="_blank" rel="noopener">${esc(d.number)}</a>`)
         .join(', ')}.</div>` : ''}`;

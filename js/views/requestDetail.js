@@ -25,6 +25,7 @@ const showCopy = () => copyAllowed(layout);
 /** Plain text to copy for a field value (dollars without "$", URLs as-is). */
 function copyText(field, value) {
   if (value === null || value === undefined || value === '') return '';
+  if (field.key === 'unit_price') return Number(value).toFixed(4).replace(/(\.\d\d\d*?)0+$/, '$1'); // 0.012 stays 0.012, 9.8 → 9.80
   if (MONEY_FIELDS.has(field.key)) return Number(value).toFixed(2);
   return String(value);
 }
@@ -53,8 +54,12 @@ function itemFieldsShown(config, r = null) {
   return fields.filter((f) => !(shippingPerRequest(config) && f.key === 'shipping_cost') && !(oneVendor && f.key === 'vendor'));
 }
 
+// Long orders show the first items, with a button for the rest (the totals stay in view).
+const ITEMS_SHOWN = 15;
+
 function itemsTable(r, config) {
   if (!r.items.length) return '<div class="empty">No items yet.</div>';
+  const folded = r.items.length > ITEMS_SHOWN + 5; // not worth hiding just a few
   // Item name gets its own column with notes underneath; the other chosen fields follow.
   const fields = itemFieldsShown(config, r);
   const nameField = fields.find((f) => f.key === 'item_name');
@@ -67,7 +72,7 @@ function itemsTable(r, config) {
   const blank = (f, i) => !isVisible(f, r, i) || [null, undefined, ''].includes(getValue(i, f));
   const rows = r.items
     .map(
-      (i, idx) => `<tr>
+      (i, idx) => `<tr${folded && idx >= ITEMS_SHOWN ? ' class="item-extra" hidden' : ''}>
         <td class="muted hide-mobile">${idx + 1}</td>
         <td class="cell-primary" data-label=""><strong>${esc(i.item_name || '—')}</strong>${nameField ? copyFor(nameField, i.item_name) : ''}${notesField && i.notes ? `<div class="muted small">${esc(i.notes)}</div>` : ''}</td>
         ${cols.map((f) => `<td class="${isNum(f) ? 'num' : ''}${blank(f, i) ? ' is-empty' : ''}" data-label="${esc(f.label)}">${cell(f, i)}</td>`).join('')}
@@ -81,6 +86,8 @@ function itemsTable(r, config) {
       .join('')}<th class="num">Total</th></tr></thead>
     <tbody>${rows}</tbody>
     <tfoot>
+      ${folded ? `<tr class="items-more-row"><td colspan="${cols.length + 3}"><button type="button" class="btn btn-sm" data-show-items>Show all ${r.items.length} items</button>
+        <span class="muted small">${r.items.length - ITEMS_SHOWN} more not shown</span></td></tr>` : ''}
       ${r.shipping ? `<tr class="subtotal"><td colspan="${cols.length + 2}" class="num">Items</td><td class="num">${fmtMoney(r.subtotal)}</td></tr>
       <tr class="subtotal"><td colspan="${cols.length + 2}" class="num">Shipping${shippingPerRequest(config) ? ' <span class="muted small">(whole order)</span>' : ''}</td>
         <td class="num"><span class="copy-wrap">${fmtMoney(r.shipping)}${showCopy() ? copyButton(r.shipping.toFixed(2), 'shipping') : ''}</span></td></tr>` : ''}
@@ -106,7 +113,7 @@ function costEditor(r, config) {
           (i) => `<tr data-id="${esc(i.id)}">
             <td class="w-idx"><strong>${esc(i.item_name || '—')}</strong></td>
             <td class="num" data-label="Quantity">${esc(i.quantity ?? '—')}</td>
-            <td class="w-number" data-label="Unit price"><input type="number" min="0" step="0.01" inputmode="decimal" name="unit_price"
+            <td class="w-number" data-label="Unit price"><input type="number" min="0" step="any" inputmode="decimal" name="unit_price"
               value="${esc(money(i.unit_price))}" data-original="${esc(money(i.unit_price))}" aria-label="Unit price for ${esc(i.item_name)}"></td>
             ${perRequest ? '' : `<td class="w-number" data-label="Shipping"><input type="number" min="0" step="0.01" inputmode="decimal" name="shipping_cost"
               value="${esc(money(i.shipping_cost))}" data-original="${esc(money(i.shipping_cost))}" placeholder="—" aria-label="Shipping for ${esc(i.item_name)}"></td>`}
@@ -189,14 +196,17 @@ function wordingEditor(r, config) {
     <p class="muted small">Fix typos without changing the order: vendor, links, part numbers, quantities and prices stay as they are.
       Every change is kept in the History.</p>
     ${wordingFields(config).map(field).join('')}
-    ${r.items.length ? `<h3 class="sub-heading">Items</h3>${r.items
-      .map((i, n) => `<div class="wording-item">
+    ${r.items.length ? `<details class="wording-items" ${r.items.length <= 5 ? 'open' : ''}>
+      <summary><strong>Item names${notesField ? ` and ${esc(notesField.label.toLowerCase())}` : ''}</strong> <span class="muted small">(${r.items.length})</span></summary>
+      ${r.items.length > 10 ? '<input type="search" class="wording-find" placeholder="Find an item…" aria-label="Find an item">' : ''}
+      ${r.items
+      .map((i, n) => `<div class="wording-item" data-find="${esc(`${i.item_name || ''} ${i.notes || ''}`.toLowerCase())}">
         <div class="field"><label for="wi-${esc(i.id)}">${n + 1}. ${esc(nameLabel)}</label>
           <input id="wi-${esc(i.id)}" data-item="${esc(i.id)}" data-k="item_name" type="text" value="${esc(i.item_name || '')}"></div>
         ${notesField ? `<div class="field"><label for="wn-${esc(i.id)}">${esc(notesField.label)}</label>
           <input id="wn-${esc(i.id)}" data-item="${esc(i.id)}" data-k="notes" type="text" value="${esc(i.notes || '')}"></div>` : ''}
       </div>`)
-      .join('')}` : ''}
+      .join('')}</details>` : ''}
     <div id="wording-errors"></div>
     <div class="form-actions">
       <button type="button" class="btn btn-ghost" id="wording-cancel">Cancel</button>
@@ -704,6 +714,10 @@ export async function renderRequestDetail(el, { config, params, rerender }) {
     body.querySelector('input, textarea')?.focus();
     const form = body.querySelector('#wording-form');
     body.querySelector('#wording-cancel').addEventListener('click', () => rerender());
+    body.querySelector('.wording-find')?.addEventListener('input', (ev) => {
+      const words = ev.target.value.toLowerCase().split(/\s+/).filter(Boolean);
+      body.querySelectorAll('.wording-item').forEach((d) => (d.hidden = !words.every((w) => d.dataset.find.includes(w))));
+    });
     form.addEventListener('submit', async (ev) => {
       ev.preventDefault();
       const request = Object.fromEntries([...form.querySelectorAll('[data-wkey]')].map((x) => [x.dataset.wkey, x.value]));
@@ -723,6 +737,12 @@ export async function renderRequestDetail(el, { config, params, rerender }) {
   });
 
   // ---- Treasurer: edit costs ------------------------------------------------------
+  el.querySelector('#items-body').addEventListener('click', (e) => {
+    const more = e.target.closest('[data-show-items]');
+    if (!more) return;
+    el.querySelectorAll('#items-body tr.item-extra').forEach((tr) => (tr.hidden = false));
+    more.closest('tr').remove();
+  });
   el.querySelector('#edit-costs')?.addEventListener('click', (e) => {
     e.target.hidden = true;
     const body = el.querySelector('#items-body');

@@ -9,8 +9,8 @@ import { STATUS, STATUSES, EDITABLE_STATUSES, esc, errorBox, setCurrentSeason, s
 const app = document.getElementById('app');
 
 // Bump when adding a file to supabase/migrations/ (the migration sets general.schemaVersion).
-const REQUIRED_SCHEMA_VERSION = 22;
-const MIGRATIONS = { 2: '002_form_fields.sql', 3: '003_archive_and_import.sql', 4: '004_cost_adjustments.sql', 5: '005_editable_permissions.sql', 6: '006_seasons.sql', 7: '007_one_vendor_per_request.sql', 8: '008_roles_admin_history.sql', 9: '009_form_rules_layout_exports.sql', 10: '010_workflow_budgets_notifications.sql', 11: '011_notification_choices.sql', 12: '012_link_imported_requests.sql', 13: '013_history_drafts_ticket.sql', 14: '014_finances.sql', 15: '015_sponsors.sql', 16: '016_request_watchers.sql', 17: '017_attachments.sql', 18: '018_treasurer_ledger.sql', 19: '019_fix_wording_pickup.sql', 20: '020_ledger_category.sql', 21: '021_budget_categories.sql', 22: '022_paid_status.sql' };
+const REQUIRED_SCHEMA_VERSION = 23;
+const MIGRATIONS = { 2: '002_form_fields.sql', 3: '003_archive_and_import.sql', 4: '004_cost_adjustments.sql', 5: '005_editable_permissions.sql', 6: '006_seasons.sql', 7: '007_one_vendor_per_request.sql', 8: '008_roles_admin_history.sql', 9: '009_form_rules_layout_exports.sql', 10: '010_workflow_budgets_notifications.sql', 11: '011_notification_choices.sql', 12: '012_link_imported_requests.sql', 13: '013_history_drafts_ticket.sql', 14: '014_finances.sql', 15: '015_sponsors.sql', 16: '016_request_watchers.sql', 17: '017_attachments.sql', 18: '018_treasurer_ledger.sql', 19: '019_fix_wording_pickup.sql', 20: '020_ledger_category.sql', 21: '021_budget_categories.sql', 22: '022_paid_status.sql', 23: '023_rename_category_fix.sql' };
 
 /** Shared config object handed to every view. Mutated in place on reload. */
 const config = {};
@@ -48,7 +48,7 @@ async function reloadConfig() {
 /** Logo and accent color from Admin → Display → Colors & logo (also shown on the sign-in page). */
 function applyBranding() {
   const a = config.appearance || {};
-  document.querySelector('.brand-logo').src = a.logo || 'assets/solar-gators-logo.png';
+  document.querySelector('.brand-logo').src = a.logo || (isDark() ? 'assets/solar-gators-logo-dark.png' : 'assets/solar-gators-logo.png');
   const root = document.documentElement.style;
   if (/^#[0-9a-f]{6}$/i.test(a.accent || '')) {
     const [r, g, b] = [1, 3, 5].map((i) => parseInt(a.accent.slice(i, i + 2), 16));
@@ -144,11 +144,51 @@ function bindMenu() {
   document.getElementById('account-btn').addEventListener('click', () => setAccountMenu(document.getElementById('account-pop').hidden));
   document.getElementById('menu-sign-out').addEventListener('click', () => (closeMenus(), auth.signOut()));
   bindInstall();
+  bindTheme();
   document.addEventListener('click', (e) => {
     if (!e.target.closest('#menu-btn, #main-nav')) setMenu(false);
     if (!e.target.closest('.account-menu') || e.target.closest('#account-pop a')) setAccountMenu(false);
   });
   document.addEventListener('keydown', (e) => e.key === 'Escape' && closeMenus());
+}
+
+/**
+ * Light / dark mode (dark follows GatorWire's navy and UF orange). The account menu's
+ * Appearance picks Auto (the device's setting), Light or Dark, remembered on this device.
+ * index.html sets data-theme before the page draws; this keeps it in step after that.
+ */
+const darkQuery = matchMedia('(prefers-color-scheme: dark)');
+let pickedTheme = 'auto'; // when storage is blocked (some private windows), until reload
+const themePref = () => {
+  try {
+    return localStorage.getItem('theme') || pickedTheme;
+  } catch {
+    return pickedTheme;
+  }
+};
+const isDark = () => document.documentElement.dataset.theme === 'dark';
+function applyTheme() {
+  const pref = themePref();
+  const dark = pref === 'dark' || (pref === 'auto' && darkQuery.matches);
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  document.querySelector('meta[name="theme-color"]').content = dark ? '#06182f' : '#ffffff';
+  document.querySelectorAll('[data-theme-set]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.themeSet === pref)));
+  applyBranding();
+}
+function bindTheme() {
+  darkQuery.addEventListener('change', () => themePref() === 'auto' && applyTheme());
+  document.querySelectorAll('[data-theme-set]').forEach((b) =>
+    b.addEventListener('click', () => {
+      pickedTheme = b.dataset.themeSet;
+      try {
+        localStorage.setItem('theme', pickedTheme);
+      } catch {
+        /* storage blocked: pickedTheme holds it until reload */
+      }
+      applyTheme();
+    })
+  );
+  applyTheme();
 }
 
 /**

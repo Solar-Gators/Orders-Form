@@ -61,7 +61,18 @@ export function parseDelimited(text, delimiter) {
 /** Cells copied from Excel / Google Sheets arrive tab-separated; a CSV pasted as text has commas. */
 export function parsePasted(text) {
   const t = String(text ?? '');
-  return parseDelimited(t, t.includes('\t') ? '\t' : t.includes(';') && !t.includes(',') ? ';' : ',');
+  return parseDelimited(t, guessDelimiter(t));
+}
+
+/**
+ * Tab (copied cells), semicolon (a CSV from Excel set to European number format,
+ * where the comma is the decimal point) or comma: whichever splits the first line most.
+ */
+export function guessDelimiter(text) {
+  const first = String(text ?? '').split(/\r?\n/).find((l) => l.trim()) || '';
+  const count = (d) => first.split(d).length - 1;
+  if (count('\t')) return '\t';
+  return count(';') > count(',') ? ';' : ',';
 }
 
 /** An .xlsx or .csv file → the sheets that have something in them. */
@@ -69,7 +80,7 @@ export async function readItemFile(file) {
   const name = file.name || 'file';
   if (/\.(csv|tsv|txt)$/i.test(name) || /^text\//.test(file.type)) {
     const text = await file.text();
-    return [{ name, grid: parseDelimited(text, /\.tsv$/i.test(name) || (text.includes('\t') && !text.includes(',')) ? '\t' : ',') }];
+    return [{ name, grid: parseDelimited(text, /\.tsv$/i.test(name) ? '\t' : guessDelimiter(text)) }];
   }
   if (/\.xls$/i.test(name)) throw new Error('That\'s an old .xls file. Open it in Excel and save it as .xlsx (or .csv), then import that.');
   if (!/\.xlsx$/i.test(name)) throw new Error('Choose an Excel (.xlsx) or CSV file.');
@@ -161,7 +172,13 @@ export function guessMapping(headers, fields) {
 
 /** "$1,234.50" → 1234.5; "" or words → null. */
 export function toMoney(text) {
-  const t = String(text ?? '').replace(/[$€£,\s]/g, '').replace(/^\((.*)\)$/, '-$1');
+  let t = String(text ?? '')
+    .replace(/\b(usd|us|cad|eur|gbp)\b/gi, '') // "US$24.90", "24.90 USD"
+    .replace(/[$€£\s]/g, '')
+    .replace(/^\((.*)\)$/, '-$1');
+  // "12,50" or "1.234,50": a comma decimal point. "1,234" stays one thousand two hundred and thirty-four.
+  if (/^-?\d+,\d{1,2}$/.test(t) || /^-?\d{1,3}(\.\d{3})+,\d{1,4}$/.test(t)) t = t.replace(/\./g, '').replace(',', '.');
+  t = t.replace(/,/g, '');
   return /^-?\d*\.?\d+$/.test(t) ? Number(t) : null;
 }
 const toQty = (text) => {

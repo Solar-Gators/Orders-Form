@@ -8,7 +8,7 @@
  * are stored in the `data` object of the request / item. The database
  * validates the same rules (supabase/migrations/002_form_fields.sql).
  */
-import { esc, fmtMoney, fmtDate, optionChip, priorityTag } from './ui.js';
+import { esc, fmtMoney, fmtPrice, fmtDate, optionChip, priorityTag } from './ui.js';
 
 export const FIELD_TYPES = [
   { key: 'text', label: 'Short text' },
@@ -171,6 +171,7 @@ export function renderInput(field, value, config, attrs = '') {
 /** Read-only HTML for a value (detail page). */
 export function displayValue(field, value) {
   if (value === '' || value === null || value === undefined) return '—';
+  if (field.key === 'unit_price') return fmtPrice(value);
   if (MONEY_FIELDS.has(field.key)) return fmtMoney(value);
   if (field.type === 'date') return fmtDate(value);
   if (field.key === 'priority') return priorityTag(value); // has its own colors

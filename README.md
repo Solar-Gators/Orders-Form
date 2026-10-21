@@ -78,6 +78,10 @@ If the Chief Engineer requests changes, the request appears at the top of **Requ
   - A list with several vendors can be split: this form gets one vendor's items and the others are saved as separate drafts with the same details. Or import just one vendor's items.
   - The file is attached to the request when it's saved.
   - Over 15 items, the form shows one line per item: click one to fill it in, or **Open the next one that needs details**.
+  - Prices can be in any common format: `$24.90`, `US$24.90`, `24.90 USD`, European `1.234,50`, and sub-cent prices like `$0.012` (kept to 4 decimals). CSVs separated by `;` work too. A link column pulls the first URL out of its text.
+  - Adding to a request that already has a vendor: items from other vendors can be saved as their own drafts (with the same details) instead of mixing vendors.
+
+On a request's page, more than 20 items are folded to the first 15 with **Show all N items**; **Fix wording** folds the item names under a header and, over 10 items, adds a box to find one.
 
 Changed your mind? Open a submitted request and click **Withdraw request** to turn it back into a draft. Drafts and requests sent back for changes can be deleted.
 
@@ -108,7 +112,7 @@ The **Finances** tab follows the Treasurer's own spreadsheet, so it can replace 
   - Also **M/E** (who orders it: M = MAE, E = ECE, A = other), category, order #, date, notes, and 📎 for receipts and quotes.
   - A request's description, cost, category and order # come from the request; Ordered and Received are marked on the request itself (they record the date and ticket number, and tell the requester).
   - The Treasurer can change a request's **Category** to count it toward another budget (e.g. older orders that answered Subsystem, after budgets switched to Cost center). Moved ones show in blue; clear the box to go back to what the request says. The approver's over-budget check uses the same category. (Needs `020_ledger_category.sql`.)
-- **Budget:** per category (from the budgets' dropdown, e.g. Cost center): budget, spent (ordered, received or paid), in the pipeline (approved but not ordered), and left. Type a budget straight into the table or add a category. Each category has **↑ ↓** to reorder, **✎** to rename it or combine it with another (type an existing name; budgets add up), and **×** to delete it (its budget goes; any purchases in it move to the category you pick). Renaming, combining and deleting move purchases in every season, requests included. (Reorder / rename / combine need `021_budget_categories.sql`.) Purchases added by hand count too, including in the approver's over-budget warning; cancelled ones don't.
+- **Budget:** per category (from the budgets' dropdown, e.g. Cost center): budget, spent (ordered, received or paid), in the pipeline (approved but not ordered), and left. Type a budget straight into the table or add a category. Each category has **↑ ↓** to reorder, **✎** to rename it or combine it with another (type an existing name; budgets add up), and **×** to delete it (its budget goes; any purchases in it move to the category you pick). Renaming, combining and deleting move purchases in every season, requests included. (Reorder / rename / combine need `021_budget_categories.sql`; `023_rename_category_fix.sql` makes renaming also move requests whose category was changed by hand.) Purchases added by hand count too, including in the approver's over-budget warning; cancelled ones don't.
 - **Funding:** where the money comes from (the allocation, donations, ECE…), expected and received; the Sponsors board's received cards add themselves. Shows the expected funds against the total budget (to spare / short), and the rainy-day fund balance.
 - **Notes:** the Treasurer's planning notes for the season.
 - **Custom sheets:** free-form spreadsheets for anything else (below).
@@ -197,6 +201,10 @@ Admin has four tabs, each with a few pages (on a phone, one menu lists them all)
 - **Notifications:** email and Microsoft Teams messages (see below).
 
 ---
+
+## Dark mode
+
+Account menu (your name, top right) → **Appearance**: **Auto** follows your phone or computer's light / dark setting, or pick **Light** or **Dark**. It's remembered on each device. Dark mode uses GatorWire's navy and UF orange. The default logo has a dark-mode version (`assets/solar-gators-logo-dark.png`); a custom logo from Admin → Display is used as is in both. (Colors: the `[data-theme="dark"]` section at the end of `css/styles.css`.)
 
 ## Installing it as an app
 

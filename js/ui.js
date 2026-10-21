@@ -28,6 +28,9 @@ export const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => HTML_ESCAPE
 
 const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
 export const fmtMoney = (n) => money.format(Number(n) || 0);
+const price = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 4 });
+/** A price each: like fmtMoney, but fractions of a cent are kept ($0.012 for a resistor). */
+export const fmtPrice = (n) => price.format(Number(n) || 0);
 
 export const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 export const itemTotal = (item) => round2((Number(item.quantity) || 0) * (Number(item.unit_price) || 0));
@@ -278,7 +281,8 @@ export const COLUMNS = {
   total: {
     label: 'Total',
     className: 'num',
-    cell: (r) => fmtMoney(r.total),
+    // How big the order is, under its total (approvers notice a 30-item order).
+    cell: (r) => `${fmtMoney(r.total)}${r.items?.length > 1 ? `<div class="muted small nowrap">${r.items.length} items</div>` : ''}`,
     sort: (r) => Number(r.total) || 0,
     defaultDir: 'desc',
     dirLabels: NUM_LABELS,

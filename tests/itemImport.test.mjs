@@ -45,6 +45,8 @@ test('pasted cells from Excel / Google Sheets (tabs), and CSV with quotes', () =
   assert.deepEqual(parsePasted('Part\tPrice\r\nBolt\t$1.50\r\n\r\n'), [['Part', 'Price'], ['Bolt', '$1.50']]);
   assert.deepEqual(parseDelimited('Part,Price,Notes\n"Bolt, M5","$1,234.50","say ""hi"""\n', ','), [['Part', 'Price', 'Notes'], ['Bolt, M5', '$1,234.50', 'say "hi"']]);
   assert.deepEqual(parsePasted('Part,Price\nNut,0.10'), [['Part', 'Price'], ['Nut', '0.10']]);
+  // Excel's CSV with European number settings: semicolons, comma decimals.
+  assert.deepEqual(parsePasted('Item;Qty;Price\nCable;2;1.234,50'), [['Item', 'Qty', 'Price'], ['Cable', '2', '1.234,50']]);
 });
 
 test('header row: skips a title line above the table; -1 when there are no headers', () => {
@@ -114,6 +116,10 @@ test('the template: its headers match exactly, and its example row is left out',
 
 test('money: $, commas, accounting negatives', () => {
   assert.deepEqual([toMoney('$1,234.50'), toMoney(' 3 '), toMoney('(5.00)'), toMoney('free'), toMoney('')], [1234.5, 3, -5, null, null]);
+  assert.deepEqual(
+    [toMoney('US$24.90'), toMoney('24.90 USD'), toMoney('$ 9.95 '), toMoney('12,50'), toMoney('1.234,50'), toMoney('1,234')],
+    [24.9, 24.9, 9.95, 12.5, 1234.5, 1234]
+  );
 });
 
 test('vendors: grouped ignoring case, in order of first appearance', () => {

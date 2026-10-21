@@ -46,7 +46,7 @@ export async function renderHome(el, { config }) {
 
   const steps = [
     ['Make a request', `Say what you need and why, with one row per item${config.oneVendorPerRequest !== false ? ' from a single vendor' : ''}.${
-      shippingPerRequest(config) ? ' Enter shipping once for the whole order.' : ''}`],
+      shippingPerRequest(config) ? ' Enter shipping once for the whole order.' : ''} A long parts list? Import it from Excel instead of typing it.`],
     ['It gets approved', 'A Chief Engineer approves it, or sends it back with a note so you can fix it and resubmit.'],
     ['The Treasurer orders it', 'Approved requests are ordered through the department. You can see the ticket number on the request.'],
     ['It arrives', "The request is marked Received when it's delivered. Everything stays searchable in Requests and the Archive."],

@@ -4,10 +4,11 @@
  * reading). With one vendor per request, a list from several vendors can be split
  * into one request per vendor.
  *
- * openItemImport({ config, oneVendor, hasItems, onImport }) — onImport receives
- * { items, mode: 'add' | 'replace', vendor, others: [{ vendor, items }], file }.
+ * openItemImport({ config, oneVendor, hasItems, currentVendor, onImport }) — onImport
+ * receives { items, mode: 'add' | 'replace', vendor, others: [{ vendor, items }], file }.
+ * Items for another vendor than the form's can be saved as their own drafts (`others`).
  */
-import { esc, fmtMoney, errorBox } from '../ui.js';
+import { esc, fmtMoney, fmtPrice, errorBox } from '../ui.js';
 import { importableFields, readItemFile, parsePasted, findHeaderRow, guessMapping, toItems, byVendor, toMoney, downloadItemTemplate } from '../itemImport.js';
 
 const colName = (n) => {
@@ -16,7 +17,7 @@ const colName = (n) => {
   return s;
 };
 
-export function openItemImport({ config, oneVendor, hasItems, onImport }) {
+export function openItemImport({ config, oneVendor, hasItems, currentVendor = '', onImport }) {
   const fields = importableFields(config);
   const byKey = Object.fromEntries(fields.map((f) => [f.key, f]));
   // The columns to match, the two that matter first. '_total' is an alternative to the price each.
@@ -36,6 +37,7 @@ export function openItemImport({ config, oneVendor, hasItems, onImport }) {
   let result = { items: [], skipped: [] };
   let vendorChoice = 'split';
   let onlyVendor = '';
+  let mode = hasItems ? 'add' : 'replace';
 
   const dialog = document.createElement('dialog');
   dialog.className = 'card sheet-dialog import-dialog';
@@ -51,6 +53,25 @@ export function openItemImport({ config, oneVendor, hasItems, onImport }) {
   const rows = () => grid().slice(headerRow + 1).map((cells, i) => ({ n: headerRow + i + 2, cells }));
   const recompute = () => (result = toItems(rows(), mapping, fields, config));
   const groups = () => byVendor(result.items).filter((g) => g.vendor);
+  const same = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+
+  /**
+   * What importing does with vendors (one vendor per request): the form keeps one
+   * vendor's items (the form's own vendor when adding to it, else the list's first),
+   * and the rest go to their own drafts, or are left out. Rows with no vendor stay here.
+   */
+  const plan = () => {
+    const g = groups();
+    const formVendor = oneVendor && hasItems && mode === 'add' ? currentVendor.trim() : '';
+    if (!oneVendor || !g.length) return { items: result.items, vendor: '', others: [], choice: false, g, formVendor };
+    const mainVendor = formVendor || g[0].vendor;
+    const differs = g.filter((x) => !same(x.vendor, mainVendor));
+    const forVendor = (v) => result.items.filter((i) => !i.vendor || same(i.vendor, v));
+    if (!differs.length) return { items: result.items, vendor: mainVendor, others: [], choice: false, g, formVendor };
+    if (!onlyVendor || (!g.some((x) => same(x.vendor, onlyVendor)) && !same(onlyVendor, formVendor))) onlyVendor = mainVendor;
+    if (vendorChoice === 'split') return { items: forVendor(mainVendor), vendor: mainVendor, others: differs, choice: true, g, formVendor, mainVendor, differs };
+    return { items: forVendor(onlyVendor), vendor: onlyVendor, others: [], choice: true, g, formVendor, mainVendor, differs };
+  };
 
   // ---- Step 1: a file or pasted cells ----
   const drawSource = (error = null) => {
@@ -130,15 +151,22 @@ export function openItemImport({ config, oneVendor, hasItems, onImport }) {
   };
   const drawMap = () => {
     recompute();
-    const g = groups();
-    const many = oneVendor && g.length > 1;
-    if (many && !g.some((x) => x.vendor === onlyVendor)) onlyVendor = g[0].vendor;
+    const p = plan();
+    const { g } = p;
     const nameOk = mapping.item_name !== undefined;
     const priceOk = mapping.unit_price !== undefined || mapping._total !== undefined;
-    const forVendor = (v) => result.items.filter((i) => !i.vendor || i.vendor.toLowerCase() === v.toLowerCase());
-    const importing = !many ? result.items : forVendor(vendorChoice === 'split' ? g[0].vendor : onlyVendor);
-    const split = many && vendorChoice === 'split';
-    const others = split ? g.slice(1) : [];
+    const importing = p.items;
+    const others = p.others;
+    const vendorList = [...new Set([p.formVendor, ...g.map((x) => x.vendor)].filter(Boolean))];
+    // "this item is from X", "these items are from X", "3 of these items are from X (2), Y (1)"
+    const otherItemsText = ({ differs }) => {
+      const n = differs.reduce((s, x) => s + x.items.length, 0);
+      const who = differs.length > 1 ? differs.map((x) => `${esc(x.vendor)} (${x.items.length})`).join(', ') : esc(differs[0].vendor);
+      if (n === result.items.length) return `${n === 1 ? 'this item is' : 'these items are'} from ${who}`;
+      return `${n} of these items ${n === 1 ? 'is' : 'are'} from ${who}`;
+    };
+    const draftsText = (list) =>
+      list.length === 1 ? `The ${esc(list[0].vendor)} items are saved as a separate draft` : `The other ${list.length} vendors are each saved as a separate draft`;
 
     dialog.innerHTML = `<form method="dialog" novalidate>
       <h2>Import items${file ? ` <span class="muted small">from ${esc(file.name)}</span>` : ''}</h2>
@@ -157,29 +185,34 @@ export function openItemImport({ config, oneVendor, hasItems, onImport }) {
         <ul class="small">${result.skipped.map((s) => `<li>Row ${s.row}: ${esc(s.reason)}</li>`).join('')}</ul></details>` : ''}
       ${result.items.length ? `<div class="table-wrap flat import-preview"><table class="table">
         <thead><tr><th>${esc(byKey.item_name?.label || 'Item')}</th><th class="num">Qty</th><th class="num">Each</th><th class="num">Total</th>${mapping.vendor !== undefined ? '<th>Vendor</th>' : ''}</tr></thead>
-        <tbody>${result.items.slice(0, 6).map((i) => `<tr><td>${esc(i.item_name)}</td><td class="num">${esc(i.quantity)}</td><td class="num">${fmtMoney(Number(i.unit_price))}</td>
+        <tbody>${result.items.slice(0, 6).map((i) => `<tr><td>${esc(i.item_name)}</td><td class="num">${esc(i.quantity)}</td><td class="num">${fmtPrice(Number(i.unit_price))}</td>
           <td class="num">${fmtMoney(Number(i.unit_price) * Number(i.quantity))}</td>${mapping.vendor !== undefined ? `<td>${esc(i.vendor || '')}</td>` : ''}</tr>`).join('')}
           ${result.items.length > 6 ? `<tr><td colspan="5" class="muted small">…and ${result.items.length - 6} more</td></tr>` : ''}</tbody>
         <tfoot><tr><td colspan="3"><strong>Total</strong> <span class="muted small">(before shipping)</span></td><td class="num"><strong>${fmtMoney(result.items.reduce((s, i) => s + Number(i.unit_price) * Number(i.quantity), 0))}</strong></td>${mapping.vendor !== undefined ? '<td></td>' : ''}</tr></tfoot>
       </table></div>` : ''}
 
-      ${many ? `<div class="import-vendors">
-        <p class="small"><strong>This list has ${g.length} vendors</strong> (${g.map((x) => `${esc(x.vendor)}: ${x.items.length}`).join(', ')}), and each request is for one vendor.</p>
-        <label class="rule-toggle"><input type="radio" name="imp-vendors" value="split" ${vendorChoice === 'split' ? 'checked' : ''}>
-          <span>Split it: one request per vendor <span class="hint">This form gets the ${esc(g[0].vendor)} items. ${g.length === 2 ? `The ${esc(g[1].vendor)} items are saved as a separate draft` : `The other ${g.length - 1} vendors are each saved as a separate draft`} with the same details, for you to finish.</span></span></label>
-        <label class="rule-toggle"><input type="radio" name="imp-vendors" value="one" ${vendorChoice === 'one' ? 'checked' : ''}>
-          <span>Only import one vendor's items:
-            <select id="imp-only" ${vendorChoice === 'one' ? '' : 'disabled'}>${g.map((x) => `<option ${x.vendor === onlyVendor ? 'selected' : ''}>${esc(x.vendor)}</option>`).join('')}</select></span></label>
-        ${result.items.some((i) => !i.vendor) ? '<p class="hint">Rows with no vendor stay on this form.</p>' : ''}
+      ${hasItems ? `<div class="import-mode">
+        <label class="rule-toggle"><input type="radio" name="imp-mode" value="add" ${mode === 'add' ? 'checked' : ''}><span>Add them after the items already on the form</span></label>
+        <label class="rule-toggle"><input type="radio" name="imp-mode" value="replace" ${mode === 'replace' ? 'checked' : ''}><span>Replace the items on the form</span></label>
       </div>` : ''}
 
-      ${hasItems ? `<div class="import-mode">
-        <label class="rule-toggle"><input type="radio" name="imp-mode" value="add" checked><span>Add them after the items already on the form</span></label>
-        <label class="rule-toggle"><input type="radio" name="imp-mode" value="replace"><span>Replace the items on the form</span></label>
+      ${p.choice ? `<div class="import-vendors">
+        <p class="small">${p.formVendor
+          ? `<strong>This request is for ${esc(p.formVendor)}</strong>, and ${otherItemsText(p)}. Each request is for one vendor.`
+          : `<strong>This list has ${g.length} vendors</strong> (${g.map((x) => `${esc(x.vendor)}: ${x.items.length}`).join(', ')}), and each request is for one vendor.`}</p>
+        <label class="rule-toggle"><input type="radio" name="imp-vendors" value="split" ${vendorChoice === 'split' ? 'checked' : ''}>
+          <span>${p.formVendor ? 'Save them as their own request' : 'Split it: one request per vendor'} <span class="hint">${p.items.length ? `This form gets the ${esc(p.mainVendor)} items. ` : ''}${draftsText(p.differs)} with the same details, for you to finish.</span></span></label>
+        <label class="rule-toggle"><input type="radio" name="imp-vendors" value="one" ${vendorChoice === 'one' ? 'checked' : ''}>
+          <span>Only import one vendor's items:
+            <select id="imp-only" ${vendorChoice === 'one' ? '' : 'disabled'}>${vendorList.map((v) => `<option ${same(v, onlyVendor) ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select></span></label>
+        ${result.items.some((i) => !i.vendor) ? '<p class="hint">Rows with no vendor stay on this form.</p>' : ''}
       </div>` : ''}
       <div id="imp-errors"></div>
       <div class="form-actions"><button type="button" class="btn btn-ghost" id="imp-back">Back</button>
-        <button type="button" class="btn btn-primary" id="imp-go" ${importing.length && nameOk && priceOk ? '' : 'disabled'}>Import ${importing.length} item${importing.length === 1 ? '' : 's'}${others.length ? ` + ${others.length} draft${others.length === 1 ? '' : 's'}` : ''}</button></div>
+        <button type="button" class="btn btn-primary" id="imp-go" ${(importing.length || others.length) && nameOk && priceOk ? '' : 'disabled'}>${[
+          importing.length || !others.length ? `Import ${importing.length} item${importing.length === 1 ? '' : 's'}` : '',
+          others.length ? `${importing.length ? '+' : 'Save'} ${others.length} draft${others.length === 1 ? '' : 's'}` : '',
+        ].filter(Boolean).join(' ')}</button></div>
     </form>`;
   };
 
@@ -201,6 +234,10 @@ export function openItemImport({ config, oneVendor, hasItems, onImport }) {
         for (const k of Object.keys(mapping)) if (mapping[k] === col) delete mapping[k]; // a column means one thing
         mapping[key] = col;
       }
+      return drawMap();
+    }
+    if (t.name === 'imp-mode') {
+      mode = t.value;
       return drawMap();
     }
     if (t.name === 'imp-vendors') {
@@ -228,20 +265,7 @@ export function openItemImport({ config, oneVendor, hasItems, onImport }) {
     } else if (btn.id === 'imp-back') {
       drawSource();
     } else if (btn.id === 'imp-go') {
-      const mode = dialog.querySelector('[name="imp-mode"]:checked')?.value || 'replace';
-      const g = groups();
-      const many = oneVendor && g.length > 1;
-      let items = result.items;
-      let others = [];
-      let vendor = oneVendor && g.length === 1 ? g[0].vendor : '';
-      if (many && vendorChoice === 'split') {
-        vendor = g[0].vendor;
-        items = result.items.filter((i) => !i.vendor || i.vendor.toLowerCase() === vendor.toLowerCase());
-        others = g.slice(1);
-      } else if (many) {
-        vendor = onlyVendor;
-        items = result.items.filter((i) => !i.vendor || i.vendor.toLowerCase() === vendor.toLowerCase());
-      }
+      const { items, vendor, others } = plan();
       btn.disabled = true;
       btn.textContent = others.length ? 'Importing and saving drafts…' : 'Importing…';
       try {

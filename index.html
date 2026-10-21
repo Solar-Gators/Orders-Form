@@ -9,6 +9,16 @@
   <!-- Installable as an app (PWA): manifest.webmanifest + sw.js. -->
   <link rel="manifest" href="manifest.webmanifest">
   <meta name="theme-color" content="#ffffff">
+  <!-- Light or dark before the page draws (no white flash): "auto" follows the device;
+       the account menu's Appearance sets light or dark (js/main.js applyTheme). -->
+  <script>
+    (function () {
+      var t = null;
+      try { t = localStorage.getItem('theme'); } catch (e) {}
+      var dark = t === 'dark' || (t !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
+      document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+    })();
+  </script>
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="SG Orders">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -46,6 +56,14 @@
         <div class="account-pop" id="account-pop" hidden>
           <a href="#/account" data-nav="account">My account &amp; notifications</a>
           <a href="#/help" data-nav="help" id="nav-help" hidden>Help</a>
+          <div class="theme-pick" role="group" aria-label="Appearance">
+            <span>Appearance</span>
+            <div class="theme-options">
+              <button type="button" data-theme-set="auto" title="Follow this device's setting">Auto</button>
+              <button type="button" data-theme-set="light">Light</button>
+              <button type="button" data-theme-set="dark">Dark</button>
+            </div>
+          </div>
           <button type="button" id="menu-install" hidden>Install the app</button>
           <button type="button" id="menu-sign-out">Sign out</button>
         </div>

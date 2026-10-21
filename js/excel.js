@@ -174,7 +174,8 @@ export async function downloadWorkbook(requests, config, template = fullTemplate
 
   columns.forEach((col, i) => {
     const column = ws.getColumn(i + 1);
-    if (col.type === 'currency') column.numFmt = CURRENCY;
+    if (col.type === 'currency') column.numFmt = col.key === 'item:unit_price' ? '"$"#,##0.00##' : CURRENCY; // $0.012 stays
+
     if (col.type === 'date') column.numFmt = DATE;
     if (col.type === 'link') column.font = { color: { argb: 'FF1D4ED8' }, underline: true };
   });

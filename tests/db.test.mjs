@@ -293,7 +293,7 @@ await test('the website cannot change the schema version', async () => {
   const general = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
   await as(ce, () => rpc('update_settings', ['general', { ...general, schemaVersion: 99 }]));
   const after = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
-  assert.equal(after.schemaVersion, 22);
+  assert.equal(after.schemaVersion, 23);
 });
 
 console.log('Form fields');
@@ -1493,6 +1493,16 @@ await test('Ledger: purchases added on Finances can be Paid; requests cannot (02
   const reqId = await idOf(number);
   await as(treasurer, () => rejects(rpc('save_purchase', [null, { request_id: reqId, dept_status: 'paid' }]), /Paid is for purchases added on Finances/));
   await as(treasurer, () => rpc('delete_purchase', [debt]));
+});
+
+await test('Budget categories: renaming moves requests put there by hand, before budgets follow a dropdown (023)', async () => {
+  await as(treasurer, () => rpc('set_budgets', [{ field: '', amounts: {}, block: false }]));
+  const number = numberOf(await submit(vendorRequest));
+  await review(ce, number, 'approve');
+  const reqId = await idOf(number);
+  await as(treasurer, () => rpc('save_purchase', [null, { request_id: reqId, category: 'Wiring' }]));
+  assert.equal((await as(treasurer, () => rpc('rename_category', ['Wiring', 'Electrical', false]))).rows[0].result, 1);
+  assert.equal((await db.query(`select category from finance_purchases where request_id = $1`, [reqId])).rows[0].category, 'Electrical');
 });
 
 await test('Ledger: receipts can be attached to purchases logged on their own', async () => {
