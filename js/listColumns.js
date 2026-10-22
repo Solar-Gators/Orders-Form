@@ -26,20 +26,20 @@ export const LISTS = {
   treasurerToOrder: {
     label: 'Treasurer — To order',
     help: 'Approved requests waiting to be ordered.',
-    columns: ['requested', 'title', 'requester', 'subsystem', 'total', 'vendors', 'approvedOn'],
+    columns: ['requested', 'title', 'requester', 'subsystem', 'total', 'vendors', 'approvedOn', 'step', 'treasurerNote'],
     sort: { key: 'approvedOn', dir: 'asc' },
   },
   treasurerOrdered: {
     label: 'Treasurer — Awaiting delivery',
     help: 'Ordered requests waiting to arrive.',
     // Same first columns as To order, so the two tables on the page line up.
-    columns: ['requested', 'title', 'requester', 'subsystem', 'total', 'vendors', 'orderNumber', 'orderedOn'],
+    columns: ['requested', 'title', 'requester', 'subsystem', 'total', 'vendors', 'orderNumber', 'orderedOn', 'arrived', 'treasurerNote'],
     sort: { key: 'orderedOn', dir: 'asc' },
   },
 };
 
 // Computed (non-field) columns that can be added to any list.
-const COMPUTED = ['requested', 'total', 'shipping', 'itemCount', 'status', 'vendors', 'approvedOn', 'orderedOn', 'orderNumber', 'receivedOn', 'season', 'id'];
+const COMPUTED = ['requested', 'total', 'shipping', 'itemCount', 'status', 'vendors', 'approvedOn', 'orderedOn', 'orderNumber', 'receivedOn', 'season', 'id', 'step', 'arrived', 'treasurerNote'];
 
 // Built-in fields with special display (title links to the request, overdue dates in red, …).
 const SPECIAL = { title: 'title', requester: 'requester', subsystem: 'subsystem', needed_by: 'neededBy' };

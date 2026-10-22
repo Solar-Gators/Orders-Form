@@ -3,8 +3,10 @@
  * the one action panel that fits the request's status and the user's permissions:
  *   Draft / Changes Requested -> Edit (the person who created it)
  *   Submitted                 -> Approve / Request Changes / Reject (request.review)
- *   Approved                  -> Mark as Ordered (request.order)
- *   Ordered                   -> Mark as Received (request.order)
+ *   Approved                  -> Purchasing step, Mark as Ordered, or Cancel (request.order)
+ *   Ordered                   -> Items arriving, Mark as Received (request.order or the requester), or Cancel
+ *   Cancelled                 -> Put it back (request.order)
+ * Plus, for the Treasurer: private notes (the ledger line's), and deleting a request entirely (025).
  */
 import { api } from '../api.js';
 import { renderAttachments } from '../attachments.js';
@@ -16,6 +18,7 @@ import {
 import { getValue, displayValue, isVisible, MONEY_FIELDS, shippingPerRequest, requestFields, itemFields } from '../formFields.js';
 import { pageLayout, copyAllowed, detailFieldList, itemColumnList } from '../pageLayout.js';
 import { approvalState, canReview, workflowSettings, budgetSummary, budgetFor } from '../workflow.js';
+import { COMMITTED, stepChoices, stepOf } from '../ledger.js';
 
 /** Copy buttons (for pasting into purchasing forms) go to whoever Admin → Request page says. */
 let layout = null; // set on each render from the `layout` settings
@@ -57,8 +60,32 @@ function itemFieldsShown(config, r = null) {
 // Long orders show the first items, with a button for the rest (the totals stay in view).
 const ITEMS_SHOWN = 15;
 
+/** Items arriving one by one (025): shown once it's Ordered; ticked by the Treasurer or the requester. */
+const arrivals = (r) => [STATUS.ORDERED, STATUS.RECEIVED].includes(r.status) && r.items.some((i) => 'arrived_on' in i);
+const canMarkArrived = (r) => r.status === STATUS.ORDERED && arrivals(r) && (auth.can('request.order') || r.created_by === auth.user.id);
+
+function arrivedCell(i) {
+  if (!i.arrived_on) return '<span class="muted">Not yet</span>';
+  return `<span class="arrived-tag" title="${esc(i.arrived_note || '')}">✓ ${fmtDate(i.arrived_on)}</span>`;
+}
+
+function arriveBar(r) {
+  const done = r.items.filter((i) => i.arrived_on).length;
+  return `<div class="arrive-bar" id="arrive-bar">
+    <span><strong>${done} of ${r.items.length}</strong> arrived</span>
+    <input type="date" id="arrive-date" value="${todayISO()}" max="${todayISO()}" aria-label="Arrived on">
+    <input type="text" id="arrive-note" maxlength="500" placeholder="Note (optional), e.g. 1 bag short" aria-label="Note">
+    <button type="button" class="btn btn-sm btn-primary" data-arrive="ticked" disabled>Ticked ones arrived</button>
+    ${done < r.items.length ? '<button type="button" class="btn btn-sm" data-arrive="all">All arrived</button>' : ''}
+    <button type="button" class="btn btn-sm btn-ghost" data-arrive="undo" disabled>Not arrived</button>
+    <div id="arrive-errors"></div>
+  </div>`;
+}
+
 function itemsTable(r, config) {
   if (!r.items.length) return '<div class="empty">No items yet.</div>';
+  const showArrived = arrivals(r);
+  const tick = canMarkArrived(r);
   const folded = r.items.length > ITEMS_SHOWN + 5; // not worth hiding just a few
   // Item name gets its own column with notes underneath; the other chosen fields follow.
   const fields = itemFieldsShown(config, r);
@@ -72,26 +99,29 @@ function itemsTable(r, config) {
   const blank = (f, i) => !isVisible(f, r, i) || [null, undefined, ''].includes(getValue(i, f));
   const rows = r.items
     .map(
-      (i, idx) => `<tr${folded && idx >= ITEMS_SHOWN ? ' class="item-extra" hidden' : ''}>
-        <td class="muted hide-mobile">${idx + 1}</td>
-        <td class="cell-primary" data-label=""><strong>${esc(i.item_name || '—')}</strong>${nameField ? copyFor(nameField, i.item_name) : ''}${notesField && i.notes ? `<div class="muted small">${esc(i.notes)}</div>` : ''}</td>
+      (i, idx) => `<tr${folded && idx >= ITEMS_SHOWN ? ' class="item-extra" hidden' : ''} data-item="${esc(i.id)}">
+        <td class="muted ${tick ? 'item-tick' : 'hide-mobile'}">${tick ? `<input type="checkbox" data-tick aria-label="Arrived: ${esc(i.item_name || `item ${idx + 1}`)}">` : idx + 1}</td>
+        <td class="cell-primary" data-label=""><strong>${esc(i.item_name || '—')}</strong>${nameField ? copyFor(nameField, i.item_name) : ''}${notesField && i.notes ? `<div class="muted small">${esc(i.notes)}</div>` : ''}${
+          showArrived && i.arrived_note ? `<div class="small arrived-note">${esc(i.arrived_note)}</div>` : ''}</td>
         ${cols.map((f) => `<td class="${isNum(f) ? 'num' : ''}${blank(f, i) ? ' is-empty' : ''}" data-label="${esc(f.label)}">${cell(f, i)}</td>`).join('')}
+        ${showArrived ? `<td class="nowrap" data-label="Arrived">${arrivedCell(i)}</td>` : ''}
         <td class="num" data-label="Total">${fmtMoney(i.item_total)}</td>
       </tr>`
     )
     .join('');
-  return `<div class="table-wrap flat"><table class="table detail-items stack-mobile" data-fit>
-    <thead><tr><th>#</th><th>${esc(nameField?.label || 'Item')}</th>${cols
+  const extra = showArrived ? 1 : 0; // the Arrived column
+  return `${tick ? arriveBar(r) : ''}<div class="table-wrap flat"><table class="table detail-items stack-mobile" data-fit>
+    <thead><tr><th>${tick ? '<input type="checkbox" data-tick-all aria-label="Tick every item">' : '#'}</th><th>${esc(nameField?.label || 'Item')}</th>${cols
       .map((f) => `<th class="${isNum(f) ? 'num' : ''}">${esc(f.label)}</th>`)
-      .join('')}<th class="num">Total</th></tr></thead>
+      .join('')}${showArrived ? '<th>Arrived</th>' : ''}<th class="num">Total</th></tr></thead>
     <tbody>${rows}</tbody>
     <tfoot>
-      ${folded ? `<tr class="items-more-row"><td colspan="${cols.length + 3}"><button type="button" class="btn btn-sm" data-show-items>Show all ${r.items.length} items</button>
+      ${folded ? `<tr class="items-more-row"><td colspan="${cols.length + 3 + extra}"><button type="button" class="btn btn-sm" data-show-items>Show all ${r.items.length} items</button>
         <span class="muted small">${r.items.length - ITEMS_SHOWN} more not shown</span></td></tr>` : ''}
-      ${r.shipping ? `<tr class="subtotal"><td colspan="${cols.length + 2}" class="num">Items</td><td class="num">${fmtMoney(r.subtotal)}</td></tr>
-      <tr class="subtotal"><td colspan="${cols.length + 2}" class="num">Shipping${shippingPerRequest(config) ? ' <span class="muted small">(whole order)</span>' : ''}</td>
+      ${r.shipping ? `<tr class="subtotal"><td colspan="${cols.length + 2 + extra}" class="num">Items</td><td class="num">${fmtMoney(r.subtotal)}</td></tr>
+      <tr class="subtotal"><td colspan="${cols.length + 2 + extra}" class="num">Shipping${shippingPerRequest(config) ? ' <span class="muted small">(whole order)</span>' : ''}</td>
         <td class="num"><span class="copy-wrap">${fmtMoney(r.shipping)}${showCopy() ? copyButton(r.shipping.toFixed(2), 'shipping') : ''}</span></td></tr>` : ''}
-      <tr><td colspan="${cols.length + 2}" class="num"><strong>Request total</strong></td><td class="num"><strong>${fmtMoney(r.total)}</strong></td></tr>
+      <tr><td colspan="${cols.length + 2 + extra}" class="num"><strong>Request total</strong></td><td class="num"><strong>${fmtMoney(r.total)}</strong></td></tr>
     </tfoot>
   </table></div>`;
 }
@@ -259,11 +289,23 @@ function historyCard(r) {
       continue;
     }
     if (e.kind === 'cancelled' || e.kind === 'restored') {
-      // The Treasurer cancelled it before ordering, or put it back (024).
+      // The Treasurer cancelled it, or put it back (024; 025 says where it went back to).
+      const back = e.note === 'Ordered' ? 'Put back (Ordered)' : 'Put back in To order';
       events.push({
         when: e.created_at,
-        text: `<strong>${e.kind === 'cancelled' ? 'Cancelled' : 'Put back in To order'}</strong> by ${esc(e.actor_name || 'unknown')}`,
-        comment: e.note,
+        text: `<strong>${e.kind === 'cancelled' ? 'Cancelled' : back}</strong> by ${esc(e.actor_name || 'unknown')}`,
+        comment: e.kind === 'cancelled' ? e.note : '',
+        kind: e.kind,
+      });
+      continue;
+    }
+    if (e.kind === 'arrived') {
+      // Items arriving one by one (025).
+      const undo = /^Not arrived after all: /.test(e.note || '');
+      events.push({
+        when: e.created_at,
+        text: `<strong>${undo ? 'Marked not arrived' : 'Items arrived'}</strong> by ${esc(e.actor_name || 'unknown')}`,
+        comment: String(e.note || '').replace(/^Not arrived after all: /, ''),
         kind: e.kind,
       });
       continue;
@@ -361,7 +403,37 @@ function budgetNote(r, config, budget) {
   </div>`;
 }
 
-function actionPanel(r, config, { names = {}, budget = null } = {}) {
+/** Cancel: Approved (024) or Ordered (025), for the Treasurer. */
+function cancelBox(r, config) {
+  const ordered = r.status === STATUS.ORDERED;
+  if (!auth.can('request.order') || Number(config.schemaVersion) < (ordered ? 25 : 24)) return '';
+  return `<details class="cancel-order">
+    <summary>${ordered ? 'Order fell through? Cancel it' : 'Not ordering it after all?'}</summary>
+    <form id="cancel-form" novalidate>
+      <div class="field">
+        <label for="c-reason">Why is it cancelled? <span class="req">*</span></label>
+        <textarea id="c-reason" name="reason" rows="2" required placeholder="${ordered ? 'e.g. The vendor cancelled the order' : 'e.g. Found spares in the shop, or the vendor is out of stock'}"></textarea>
+        <p class="hint">${esc(r.requester || 'The requester')} is told why. It ${ordered ? 'leaves Awaiting delivery' : 'leaves To order'} and stops counting toward the budget; you can put it back afterwards.</p>
+      </div>
+      <button type="submit" class="btn btn-danger btn-block">Cancel this request</button>
+    </form>
+  </details>`;
+}
+
+/** The Treasurer's purchasing step for an approved request (Request sent, Dept approved…; 025). */
+function stepPicker(purchase, config) {
+  if (!auth.can('request.order') || Number(config.schemaVersion) < 25) return '';
+  const current = purchase && COMMITTED.has(purchase.dept_status) ? purchase.dept_status : 'to_submit';
+  return `<div class="field step-field">
+    <label for="r-step">Purchasing step</label>
+    <select id="r-step" class="step-select step-${esc(stepOf(current).tone)}">${stepChoices((x) => COMMITTED.has(x.key), current)
+      .map((x) => `<option value="${esc(x.key)}" ${x.key === current ? 'selected' : ''} title="${esc(x.hint || '')}">${esc(x.label)}</option>`)
+      .join('')}</select>
+    <span class="muted small" id="r-step-status"></span>
+  </div>`;
+}
+
+function actionPanel(r, config, { names = {}, budget = null, purchase = null } = {}) {
   const isOwner = r.created_by === auth.user.id;
 
   if (config.editableStatuses.includes(r.status)) {
@@ -426,6 +498,7 @@ function actionPanel(r, config, { names = {}, budget = null } = {}) {
     if (!auth.can('request.order')) return waitingCard('Ready to order', isLead() ? 'View only — only the <strong>Treasurer</strong> can mark this as Ordered.' : 'The Treasurer will place this order.');
     return `<section class="card action-card">
       <h2>Place order</h2>
+      ${stepPicker(purchase, config)}
       <form id="order-form" novalidate>
         <div class="field">
           <label for="o-date">Order date</label>
@@ -442,17 +515,7 @@ function actionPanel(r, config, { names = {}, budget = null } = {}) {
         <div id="action-errors"></div>
         <button type="submit" class="btn btn-primary btn-block">Mark as Ordered</button>
       </form>
-      ${Number(config.schemaVersion) >= 24 ? `<details class="cancel-order">
-        <summary>Not ordering it after all?</summary>
-        <form id="cancel-form" novalidate>
-          <div class="field">
-            <label for="c-reason">Why is it cancelled? <span class="req">*</span></label>
-            <textarea id="c-reason" name="reason" rows="2" required placeholder="e.g. Found spares in the shop, or the vendor is out of stock"></textarea>
-            <p class="hint">${esc(r.requester || 'The requester')} is told why. It leaves To order and stops counting toward the budget; you can put it back afterwards.</p>
-          </div>
-          <button type="submit" class="btn btn-danger btn-block">Cancel this request</button>
-        </form>
-      </details>` : ''}
+      ${cancelBox(r, config)}
     </section>`;
   }
 
@@ -460,10 +523,10 @@ function actionPanel(r, config, { names = {}, budget = null } = {}) {
     const ev = [...(r.events || [])].reverse().find((e) => e.kind === 'cancelled');
     return `<section class="card action-card">
       <h2>Cancelled</h2>
-      <p class="muted">Approved, then cancelled${ev ? ` by ${esc(ev.actor_name || 'the Treasurer')} on ${fmtDate(ev.created_at)}` : ''} before it was ordered.</p>
+      <p class="muted">${r.order ? 'Ordered' : 'Approved'}, then cancelled${ev ? ` by ${esc(ev.actor_name || 'the Treasurer')} on ${fmtDate(ev.created_at)}` : ''}${r.order ? '' : ' before it was ordered'}.</p>
       ${ev?.note ? `<blockquote class="ce-comment">${esc(ev.note)}</blockquote>` : ''}
       ${auth.can('request.order') ? `<div id="action-errors"></div>
-        <button type="button" class="btn btn-block" id="restore-request">Put it back in To order</button>` : ''}
+        <button type="button" class="btn btn-block" id="restore-request">${r.order ? 'Put it back (Ordered)' : 'Put it back in To order'}</button>` : ''}
     </section>`;
   }
 
@@ -490,10 +553,47 @@ function actionPanel(r, config, { names = {}, budget = null } = {}) {
         <div id="action-errors"></div>
         <button type="submit" class="btn btn-primary btn-block">Mark as Received</button>
       </form>
+      ${cancelBox(r, config)}
     </section>`;
   }
 
   return ''; // Rejected / Received: nothing left to do
+}
+
+/**
+ * The Treasurer's own notes on a request: the same note as its line on Finances,
+ * only for people who see Finances (quote numbers, who was emailed, what's left).
+ */
+const ledgerViewer = () => auth.can('finances.view') || auth.can('finances.edit');
+const notesShown = (r) => ![STATUS.DRAFT, STATUS.CHANGES_REQUESTED].includes(r.status);
+function treasurerNotesCard(r, purchase) {
+  const canEdit = auth.can('finances.edit') || auth.can('request.order');
+  const notes = purchase?.notes || '';
+  return `<section class="card treasurer-notes">
+    <div class="card-head"><h2>Treasurer notes</h2><span class="muted small" title="Only people who can see Finances read these">🔒 Finances only</span></div>
+    ${canEdit
+      ? `<textarea id="t-notes" rows="3" maxlength="2000" placeholder="Anything to remember: quote numbers, who you emailed, what's left to do…">${esc(notes)}</textarea>
+         <div class="muted small" id="t-notes-status">Same note as this request's line on Finances. Saves when you click away.</div>`
+      : `<p class="prewrap">${notes ? esc(notes) : '<span class="muted">No notes.</span>'}</p>`}
+  </section>`;
+}
+
+/** The Treasurer: delete a request entirely, e.g. an accidental duplicate (025). */
+function deleteCard(r, config) {
+  if (!auth.can('request.order') || Number(config.schemaVersion) < 25) return '';
+  return `<section class="card delete-card">
+    <details>
+      <summary class="danger-link">Delete this request…</summary>
+      <p class="muted small">For duplicates and requests made by mistake. It's removed for everyone, with its items, history and files.
+        A copy is kept (Queue › To order &amp; deliveries › Deleted requests).</p>
+      <form id="purge-form" novalidate>
+        <div class="field"><label for="p-reason">Why? <span class="req">*</span></label>
+          <input id="p-reason" name="reason" maxlength="500" placeholder="e.g. Duplicate of SG-014"></div>
+        <div id="purge-errors"></div>
+        <button type="submit" class="btn btn-danger btn-block">Delete ${esc(r.request_number)} for good</button>
+      </form>
+    </details>
+  </section>`;
 }
 
 /**
@@ -559,7 +659,7 @@ export async function renderRequestDetail(el, { config, params, rerender }) {
   wholeOrderShipping = shippingPerRequest(config);
   // People (approvers' names, whose request it is) and the budget, for the side panel.
   const showWatchers = r.status !== STATUS.DRAFT;
-  const [people, summary, watchers] = await Promise.all([
+  const [people, summary, watchers, purchase] = await Promise.all([
     isLead() || showWatchers || (r.status === STATUS.SUBMITTED && approvalState(r).type === 'people') ? api.listProfiles().catch(() => []) : [],
     isLead() && workflowSettings(config).budgets.field && [STATUS.SUBMITTED, STATUS.APPROVED].includes(r.status)
       ? Promise.all([api.listRequests(null, { season: config.season }), api.listPurchases().catch(() => [])])
@@ -567,6 +667,7 @@ export async function renderRequestDetail(el, { config, params, rerender }) {
           .catch(() => [])
       : [],
     showWatchers ? api.listRequestWatchers(r.id) : null, // null: before migration 016
+    ledgerViewer() && notesShown(r) && Number(config.schemaVersion) >= 18 ? api.getRequestPurchase(r.id) : null,
   ]);
   const budget = budgetFor(config, r, summary);
   const names = Object.fromEntries(people.map((p) => [p.id, p.full_name || p.email]));
@@ -604,11 +705,13 @@ export async function renderRequestDetail(el, { config, params, rerender }) {
         ${layout.itemsFirst ? detailsCard : ''}
       </div>
       <aside class="detail-side">
-        ${actionPanel(r, config, { names, budget })}
+        ${actionPanel(r, config, { names, budget, purchase })}
+        ${ledgerViewer() && notesShown(r) && Number(config.schemaVersion) >= 18 ? treasurerNotesCard(r, purchase) : ''}
         <div id="request-files"></div>
         ${showWatchers && watchers ? watchersCard(r, watchers, people, names) : ''}
         ${historyCard(r)}
         ${isLead() ? ownerCard(r, people, names) : ''}
+        ${deleteCard(r, config)}
       </aside>
     </div>`;
 
@@ -735,11 +838,95 @@ export async function renderRequestDetail(el, { config, params, rerender }) {
       return;
     }
     if (!confirm(`Cancel ${r.request_number}? It won't be ordered, and ${r.requester || 'the requester'} is told why.`)) return;
-    run(e.target, () => api.cancelRequest(r.id, reason.value), `${r.request_number} cancelled. It's off the To order list.`);
+    run(e.target, () => api.cancelRequest(r.id, reason.value), `${r.request_number} cancelled. It's off the ${r.status === STATUS.ORDERED ? 'Awaiting delivery' : 'To order'} list.`);
   });
   el.querySelector('#restore-request')?.addEventListener('click', (e) => {
-    if (!confirm(`Put ${r.request_number} back in To order? It's Approved again and counts toward the budget. ${r.requester || 'The requester'} isn't sent a message about this.`)) return;
-    run(e.target.closest('section'), () => api.restoreRequest(r.id), `${r.request_number} is back in To order.`);
+    const where = r.order ? 'Ordered (Awaiting delivery)' : 'Approved (To order)';
+    if (!confirm(`Put ${r.request_number} back? It's ${where} again and counts toward the budget. ${r.requester || 'The requester'} isn't sent a message about this.`)) return;
+    let to = '';
+    run(e.target.closest('section'), async () => (to = await api.restoreRequest(r.id)), () => `${r.request_number} is back: ${to === 'Ordered' ? 'Ordered, awaiting delivery' : 'in To order'}.`);
+  });
+
+  // ---- Treasurer: purchasing step, own notes, deleting (025) ------------------------------------
+  el.querySelector('#r-step')?.addEventListener('change', async (e) => {
+    const status = el.querySelector('#r-step-status');
+    e.target.className = `step-select step-${stepOf(e.target.value).tone}`;
+    try {
+      await api.savePurchase(purchase?.id || null, purchase?.id ? { dept_status: e.target.value } : { request_id: r.id, dept_status: e.target.value });
+      status.textContent = 'Saved ✓';
+    } catch (err) {
+      status.innerHTML = errorBox(err);
+    }
+  });
+  el.querySelector('#t-notes')?.addEventListener('change', async (e) => {
+    const status = el.querySelector('#t-notes-status');
+    try {
+      await api.savePurchase(purchase?.id || null, purchase?.id ? { notes: e.target.value } : { request_id: r.id, notes: e.target.value });
+      status.textContent = 'Saved ✓';
+    } catch (err) {
+      status.innerHTML = errorBox(err);
+    }
+  });
+  el.querySelector('#purge-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const reason = e.target.reason;
+    const errs = el.querySelector('#purge-errors');
+    if (!reason.value.trim()) {
+      errs.innerHTML = errorBox(new Error('Say why it\'s being deleted (e.g. "Duplicate of SG-014").'));
+      reason.classList.add('is-invalid');
+      return reason.focus();
+    }
+    if (!confirm(`Delete ${r.request_number} "${r.title || 'Untitled'}" for good? It disappears for everyone, with its items, history and files.`)) return;
+    e.target.querySelector('button').disabled = true;
+    try {
+      await api.purgeRequest(r.id, reason.value);
+      setFlash(`${r.request_number} was deleted.`);
+      location.hash = auth.can('request.order') ? '#/treasurer' : '#/requests';
+    } catch (err) {
+      errs.innerHTML = errorBox(err);
+      e.target.querySelector('button').disabled = false;
+    }
+  });
+
+  // ---- Items arriving one by one (025) ----------------------------------------------------------
+  const ticks = () => [...el.querySelectorAll('#items-body [data-tick]')];
+  const ticked = () => ticks().filter((t) => t.checked).map((t) => t.closest('tr').dataset.item);
+  const syncTicks = () => {
+    const n = ticked().length;
+    el.querySelectorAll('[data-arrive="ticked"], [data-arrive="undo"]').forEach((b) => (b.disabled = !n));
+    const all = el.querySelector('[data-tick-all]');
+    if (all) all.checked = n > 0 && n === ticks().length;
+  };
+  el.querySelector('#items-body').addEventListener('change', (e) => {
+    if (e.target.matches('[data-tick-all]')) {
+      ticks().forEach((t) => (t.checked = e.target.checked));
+      el.querySelectorAll('#items-body tr.item-extra').forEach((tr) => (tr.hidden = false)); // show what's ticked
+      el.querySelector('#items-body .items-more-row')?.remove();
+    }
+    if (e.target.matches('[data-tick], [data-tick-all]')) syncTicks();
+  });
+  el.querySelector('#items-body').addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-arrive]');
+    if (!btn) return;
+    const mode = btn.dataset.arrive;
+    const ids = mode === 'all' ? r.items.filter((i) => !i.arrived_on).map((i) => i.id) : ticked();
+    const errs = el.querySelector('#arrive-errors');
+    errs.innerHTML = '';
+    el.querySelectorAll('[data-arrive]').forEach((b) => (b.disabled = true));
+    try {
+      const left = await api.setItemsArrived(r.id, ids, mode !== 'undo', { date: el.querySelector('#arrive-date').value, note: el.querySelector('#arrive-note').value });
+      setFlash(mode === 'undo'
+        ? `Marked ${ids.length} item${ids.length === 1 ? '' : 's'} as not arrived.`
+        : left
+          ? `${ids.length} item${ids.length === 1 ? '' : 's'} marked arrived; ${left} still to come.`
+          : 'Everything has arrived. Mark the request Received (say where it is) when you\'re ready.');
+      await rerender();
+      if (!left && mode !== 'undo') el.querySelector('#d-notes')?.focus();
+    } catch (err) {
+      errs.innerHTML = errorBox(err);
+      syncTicks();
+      el.querySelectorAll('[data-arrive="all"]').forEach((b) => (b.disabled = false));
+    }
   });
 
   el.querySelector('#receive-form')?.addEventListener('submit', (e) => {

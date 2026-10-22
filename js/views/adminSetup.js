@@ -420,16 +420,18 @@ const WHAT = {
   workflow: 'Approval rules & budgets',
   notifications: 'Notifications',
   sponsors: 'Sponsors board',
+  ledger: 'Purchasing steps & budget notes',
   permissions: 'Permissions',
 };
 // Which permission restoring each kind of version needs (the database checks it too).
 const RESTORE_PERM = {
   general: 'settings.edit', form: 'settings.edit', lists: 'site.customize', appearance: 'site.customize', layout: 'site.customize',
-  exports: 'site.customize', workflow: 'workflow.edit', notifications: 'workflow.edit', permissions: 'users.manage',
+  exports: 'site.customize', workflow: 'workflow.edit', notifications: 'workflow.edit', ledger: 'finances.edit', permissions: 'users.manage',
 };
 
 const PART = {
   requestFields: 'request fields', itemFields: 'item fields', subsystems: 'subsystem list', priorities: 'priority list',
+  steps: 'purchasing steps', categoryNotes: 'budget category notes',
   rules: 'approval rules', budgets: 'budgets', enabled: 'on/off', events: 'who gets what', templates: 'message wording', siteUrl: 'website address',
   defaultPriority: 'default priority', oneVendorPerRequest: 'one-vendor rule', shippingPerRequest: 'shipping rule', requireOrderNumber: 'ticket number rule', teamName: 'team name',
   requestIdPrefix: 'request ID prefix', allowedEmailDomains: 'allowed email domains', statuses: 'status labels & colors',

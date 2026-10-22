@@ -17,7 +17,7 @@ import { requestFields, fieldOptions } from '../formFields.js';
 import { workflowSettings } from '../workflow.js';
 import { loadExcelJS } from '../excel.js';
 import { cellText } from '../sheetImport.js';
-import { STEPS, stepOf, DEPTS, ledgerLines, budgetTable, fundingTotals, readFinancialsSheet } from '../ledger.js';
+import { STEPS, STANDARD_STEPS, STEP_TONES, COMMITTED, CATEGORY_NOTES, stepOf, stepChoices, isStandardStep, DEPTS, ledgerLines, budgetTable, fundingTotals, readFinancialsSheet } from '../ledger.js';
 import { openAttachmentsDialog } from '../attachments.js';
 import { renderSheets } from './financeSheets.js';
 
@@ -190,23 +190,24 @@ function drawPurchases(box, s) {
   };
 
   const paidOk = Number(s.config.schemaVersion) >= 22;
-  const cancelOnRequest = Number(s.config.schemaVersion) >= 24; // cancelling a request is done on it (024)
+  const v = Number(s.config.schemaVersion);
   const statusCell = (l) => {
     if (!canEdit) return stepChip(l.status);
-    // Ordered / Received / Cancelled are marked on the request (date, ticket # or reason; tells the requester).
-    if (l.kind === 'request' && (['ordered', 'received'].includes(l.status) || l.request.status === 'Cancelled')) {
-      const what = l.request.status === 'Cancelled' ? 'it records why, and tells the requester' : 'it records the date and ticket number';
+    const req = l.kind === 'request' ? l.request.status : '';
+    // Received / Cancelled requests: set on the request itself (it records when and where, or why).
+    if (req === 'Received' || req === 'Cancelled') {
+      const what = req === 'Cancelled' ? 'it records why, and can put it back' : 'it records the date and where it is';
       return `<a href="#/requests/${esc(l.number)}" class="step-chip step-${esc(stepOf(l.status).tone)} step-link" title="Set on the request itself (${what}). Open ${esc(l.number)} to change it.">${esc(stepOf(l.status).label)} ↗</a>`;
     }
-    // Paid (migration 022) is for purchases added here; requests are ordered from their own page.
-    const options = STEPS.filter((x) =>
-      l.kind === 'request'
-        ? !['ordered', 'received', 'paid'].includes(x.key) && (x.key !== 'cancelled' || !cancelOnRequest || l.status === 'cancelled')
-        : x.key !== 'paid' || paidOk || l.status === 'paid'
-    );
+    // Cancelling a request asks why and tells the requester: Approved (024) or Ordered too (025).
+    const cancel = req && v >= (req === 'Ordered' ? 25 : 24) ? '<option value="cancel">Cancelled… (asks why)</option>' : '';
+    let options;
+    if (req === 'Ordered') options = [stepOf('ordered')];
+    else if (req) options = stepChoices((x) => COMMITTED.has(x.key) || (x.key === 'cancelled' && l.status === 'cancelled'), l.status);
+    else options = stepChoices((x) => x.key !== 'paid' || paidOk || l.status === 'paid', l.status); // Paid: migration 022
     return `<select data-f="dept_status" class="step-select step-${esc(stepOf(l.status).tone)}" aria-label="Status">${options
-      .map((x) => `<option value="${x.key}" ${x.key === l.status ? 'selected' : ''}>${esc(x.label)}</option>`)
-      .join('')}${l.kind === 'request' ? `<option value="goto">Ordered… (on the request)</option>${cancelOnRequest ? '<option value="goto">Cancel… (on the request)</option>' : ''}` : ''}</select>`;
+      .map((x) => `<option value="${esc(x.key)}" ${x.key === l.status ? 'selected' : ''}>${esc(x.label)}</option>`)
+      .join('')}${req === 'Approved' ? '<option value="goto">Ordered… (on the request)</option>' : ''}${req === 'Ordered' ? '<option value="goto">Received… (on the request)</option>' : ''}${cancel}</select>`;
   };
   const input = (l, f, value, attrs = '') => `<input data-f="${f}" value="${esc(value ?? '')}" ${attrs}>`;
   // Requests count toward their answer to the budgets dropdown; the Treasurer can move one
@@ -251,8 +252,8 @@ function drawPurchases(box, s) {
 
   const counts = Object.fromEntries(STEPS.map((x) => [x.key, lines.filter((l) => l.status === x.key).length]));
   box.innerHTML = `
-    <div class="step-strip">${STEPS.map((x) => `<button type="button" class="step-pill step-${esc(x.tone)} ${view.status === x.key ? 'is-on' : ''}" data-step="${x.key}" title="${esc(x.hint)}">
-      ${esc(x.label)} <strong>${counts[x.key]}</strong></button>`).join('')}</div>
+    <div class="step-strip">${STEPS.filter((x) => !x.hidden || counts[x.key]).map((x) => `<button type="button" class="step-pill step-${esc(x.tone)} ${view.status === x.key ? 'is-on' : ''}" data-step="${esc(x.key)}" title="${esc(x.hint)}">
+      ${esc(x.label)} <strong>${counts[x.key]}</strong></button>`).join('')}${canEdit && v >= 25 ? '<button type="button" class="btn btn-sm btn-ghost" id="edit-steps" title="Rename, recolor, hide or add steps">Edit steps…</button>' : ''}</div>
     <div class="toolbar">
       <input type="search" id="ledger-q" placeholder="Search description, order #, notes…" value="${esc(view.q)}" aria-label="Search purchases">
       <select id="ledger-category" aria-label="Category"><option value="">All categories</option>${categories.map((c) => `<option ${c === view.category ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
@@ -296,6 +297,18 @@ function drawPurchases(box, s) {
       location.hash = `#/requests/${l.number}`;
       return;
     }
+    if (f === 'dept_status' && t.value === 'cancel') {
+      const reason = prompt(`Why is ${l.number} "${l.description}" cancelled? ${l.request.requester || 'The requester'} is told.`);
+      if (!reason?.trim()) return draw(); // put the dropdown back
+      try {
+        await api.cancelRequest(l.request.id, reason);
+        setFlash(`${l.number} cancelled. Put it back from the request if that was a mistake.`);
+        return rerender();
+      } catch (err) {
+        showError(err);
+        return draw();
+      }
+    }
     let value = t.value.trim();
     // Typing the request's own answer again (or nothing) goes back to following it.
     if (f === 'category' && l.kind === 'request' && value.toLowerCase() === l.answer.toLowerCase()) value = '';
@@ -325,6 +338,7 @@ function drawPurchases(box, s) {
     }
     const btn = e.target.closest('button');
     if (!btn) return;
+    if (btn.id === 'edit-steps') return editSteps(s);
     if (btn.id === 'ledger-add') {
       try {
         await api.savePurchase(null, { season: s.season, purchased_on: new Date().toISOString().slice(0, 10), category: view.category || '' });
@@ -372,8 +386,11 @@ function drawBudget(box, s) {
     const pipe = Math.min(100 - spent, (r.pipeline / r.budget) * 100);
     return `<span class="budget-bar two-part" title="${Math.round(((r.spent + r.pipeline) / r.budget) * 100)}% used"><span class="bar-spent" style="width:${spent}%"></span><span class="bar-pipe" style="width:${pipe}%"></span></span>`;
   };
-  // Reordering and renaming / combining need migration 021.
+  // Reordering and renaming / combining need migration 021; notes per category 025.
   const organize = Number(config.schemaVersion) >= 21;
+  const notesOn = Number(config.schemaVersion) >= 25;
+  const key = (c) => String(c || '').trim().toLowerCase();
+  const noteOf = (name) => Object.entries(CATEGORY_NOTES).find(([k]) => key(k) === key(name))?.[1] || '';
   const named = table.rows.filter((r) => r.category !== '(no category)');
   const actions = (r, i) => `<span class="category-actions">${organize
     ? `<button type="button" class="icon-btn" data-move-category="${i}" data-dir="-1" title="Move up" aria-label="Move ${esc(r.category)} up" ${i === 0 ? 'disabled' : ''}>↑</button>
@@ -383,7 +400,7 @@ function drawBudget(box, s) {
   box.innerHTML = `
     <div class="table-wrap">
       <table class="table stack-mobile budget-ledger">
-        <thead><tr><th>Category</th><th class="num">Budget</th><th class="num">Spent</th><th class="num">In the pipeline</th><th class="num">Left</th><th></th></tr></thead>
+        <thead><tr><th>Category</th><th class="num">Budget</th><th class="num">Spent</th><th class="num">In the pipeline</th><th class="num">Left</th><th></th>${notesOn ? '<th>Notes</th>' : ''}</tr></thead>
         <tbody>${table.rows
           .map(
             (r, i) => `<tr class="${r.left !== null && r.left < 0 ? 'is-over' : ''}">
@@ -395,11 +412,14 @@ function drawBudget(box, s) {
               <td class="num" data-label="In the pipeline">${fmtMoney(r.pipeline)}</td>
               <td class="num" data-label="Left"><strong>${r.left === null ? '—' : r.left < 0 ? `${fmtMoney(-r.left)} over` : fmtMoney(r.left)}</strong></td>
               <td class="budget-bar-cell" data-label=""><div class="budget-bar-row">${bar(r)}${canBudget && r.category !== '(no category)' ? actions(r, i) : ''}</div></td>
+              ${notesOn ? `<td class="budget-note-cell" data-label="Notes">${r.category === '(no category)' ? ''
+                : s.canEdit ? `<input class="budget-note-input" data-category-note="${esc(r.category)}" value="${esc(noteOf(r.category))}" maxlength="500" placeholder="Add a note" aria-label="Note for ${esc(r.category)}">`
+                : esc(noteOf(r.category))}</td>` : ''}
             </tr>`
           )
-          .join('') || '<tr><td colspan="6" class="muted sheet-empty">No budgets yet.</td></tr>'}</tbody>
+          .join('') || `<tr><td colspan="${notesOn ? 7 : 6}" class="muted sheet-empty">No budgets yet.</td></tr>`}</tbody>
         <tfoot><tr><td><strong>Total</strong></td><td class="num"><strong>${fmtMoney(table.total.budget)}</strong></td><td class="num"><strong>${fmtMoney(table.total.spent)}</strong></td>
-          <td class="num"><strong>${fmtMoney(table.total.pipeline)}</strong></td><td class="num"><strong>${!table.rows.some((r) => r.budget !== null) ? '—' : table.total.left < 0 ? `${fmtMoney(-table.total.left)} over` : fmtMoney(table.total.left)}</strong></td><td></td></tr></tfoot>
+          <td class="num"><strong>${fmtMoney(table.total.pipeline)}</strong></td><td class="num"><strong>${!table.rows.some((r) => r.budget !== null) ? '—' : table.total.left < 0 ? `${fmtMoney(-table.total.left)} over` : fmtMoney(table.total.left)}</strong></td><td></td>${notesOn ? '<td></td>' : ''}</tr></tfoot>
       </table>
     </div>
     ${canBudget ? `<form class="budget-add" id="budget-add" novalidate>
@@ -414,8 +434,8 @@ function drawBudget(box, s) {
         <label class="rule-toggle"><input type="checkbox" id="budget-block" ${budgets.block ? 'checked' : ''}>
           <span>Approving over budget needs a written reason <span class="hint">The approver has to say why; it's kept in the request's History.</span></span></label>
       </div></details>` : ''}
-    <p class="hint">Spent = ordered, received or paid. In the pipeline = approved but not ordered yet (to submit, sent, or approved by the department).
-      Purchases added by hand count too; cancelled ones don't. The same budgets warn approvers before a request goes over.</p>`;
+    <p class="hint">Spent = ${STEPS.filter((x) => x.counts === 'spent' && !x.hidden).map((x) => x.label).join(', ')}. In the pipeline = approved but not ordered yet (${STEPS.filter((x) => x.counts === 'pipeline' && !x.hidden).map((x) => x.label).join(', ')}).
+      Purchases added by hand count too; cancelled ones don't. The same budgets warn approvers before a request goes over.${notesOn && s.canEdit ? ' Notes are just for you (and whoever sees Finances).' : ''}</p>`;
 
   const saveBudgets = async (next) => {
     try {
@@ -437,6 +457,11 @@ function drawBudget(box, s) {
       return saveBudgets({ amounts });
     }
     if (t.id === 'budget-field') return saveBudgets({ field: t.value });
+    if (t.dataset.categoryNote !== undefined) {
+      const notes = Object.fromEntries(Object.entries(CATEGORY_NOTES).filter(([k]) => key(k) !== key(t.dataset.categoryNote)));
+      if (t.value.trim()) notes[t.dataset.categoryNote] = t.value.trim();
+      return api.updateSettings('ledger', { ...(config.ledger || {}), categoryNotes: notes }).then(reloadConfig).catch(showError);
+    }
     if (t.id === 'budget-block') return saveBudgets({ block: t.checked });
   });
   box.querySelector('#budget-add')?.addEventListener('submit', (e) => {
@@ -573,7 +598,7 @@ function drawNotes(box, s) {
 
 // ---- Download: one workbook with the ledger (in the old legend colors), budget and funding ----
 
-const FILLS = { gray: 'FFEEF1F4', pink: 'FFFFAAA4', lightgreen: 'FFC6E0B4', green: 'FF00B050', teal: 'FFB3E2E8', red: 'FFFF8A80' };
+const FILLS = { gray: 'FFEEF1F4', pink: 'FFFFAAA4', lightgreen: 'FFC6E0B4', green: 'FF00B050', teal: 'FFB3E2E8', red: 'FFFF8A80', blue: 'FFC9DAFC', amber: 'FFF7DF9F', orange: 'FFFBCFB3', purple: 'FFD6CAFB' };
 
 async function download({ season, lines, table, funds, funding, sponsorsIn, seasonInfo }) {
   const ExcelJS = await loadExcelJS();
@@ -639,6 +664,137 @@ async function download({ season, lines, table, funds, funding, sponsorsIn, seas
   a.remove();
 }
 
+/** A category's note follows it when it's renamed or combined (joined to the other's), and goes when it's deleted. */
+async function moveCategoryNote(config, from, to) {
+  const key = (c) => String(c || '').trim().toLowerCase();
+  const notes = { ...CATEGORY_NOTES };
+  const fromKey = Object.keys(notes).find((k) => key(k) === key(from));
+  if (!fromKey || Number(config.schemaVersion) < 25) return;
+  const text = notes[fromKey];
+  delete notes[fromKey];
+  if (to) {
+    const toKey = Object.keys(notes).find((k) => key(k) === key(to));
+    if (toKey) notes[toKey] = `${notes[toKey]}\n${text}`;
+    else notes[to] = text;
+  }
+  await api.updateSettings('ledger', { ...(config.ledger || {}), categoryNotes: notes });
+}
+
+/**
+ * The purchasing steps: rename them (e.g. to the Treasurer's legend), recolor, hide, reorder,
+ * or add new ones that count as in the pipeline or as spent. Saved in settings "ledger" (025).
+ * Removing a step that's in use moves its purchases first.
+ */
+function editSteps({ lines, config, reloadConfig, rerender }) {
+  const TONE_NAMES = { gray: 'Gray', pink: 'Pink', lightgreen: 'Light green', green: 'Green', teal: 'Teal', blue: 'Blue', amber: 'Yellow', orange: 'Orange', purple: 'Purple', red: 'Red' };
+  const COUNTS = { pipeline: 'In the pipeline', spent: 'Spent', none: "Doesn't count" };
+  const FIXED = { to_submit: 'Where approved requests start.', ordered: 'Set by Mark as Ordered on the request.', received: 'Set by Mark as Received on the request.', paid: 'For purchases added on Finances.', cancelled: 'Set by cancelling the request.' };
+  let steps = STEPS.map((x) => ({ ...x }));
+  const used = (k) => lines.filter((l) => l.status === k);
+  const dialog = document.createElement('dialog');
+  dialog.className = 'card sheet-dialog steps-dialog';
+  const draw = () => {
+    dialog.innerHTML = `<form method="dialog" novalidate>
+      <h2>Purchasing steps</h2>
+      <p class="muted small">Name them the way your legend does (e.g. "MAE ordered"), pick colors, hide ones you don't use, or add your own.
+        New steps count as in the pipeline (before ordering; requests can use them) or as spent (purchases added here).</p>
+      <div class="table-wrap flat"><table class="table steps-table">
+        <thead><tr><th></th><th>Name</th><th>Color</th><th>Counts as</th><th>Hide</th><th></th></tr></thead>
+        <tbody>${steps.map((x, i) => `<tr data-i="${i}">
+          <td class="nowrap"><button type="button" class="icon-btn" data-up="${i}" ${i ? '' : 'disabled'} aria-label="Move up">↑</button><button type="button" class="icon-btn" data-down="${i}" ${i < steps.length - 1 ? '' : 'disabled'} aria-label="Move down">↓</button></td>
+          <td><input data-label="${i}" value="${esc(x.label)}" maxlength="40" aria-label="Step name" required>
+            <div class="muted small">${esc(FIXED[x.key] || (isStandardStep(x.key) ? '' : 'Your own step.'))}</div></td>
+          <td><select data-tone="${i}" class="step-select step-${esc(x.tone)}" aria-label="Color">${STEP_TONES.map((t) => `<option value="${t}" ${t === x.tone ? 'selected' : ''}>${TONE_NAMES[t]}</option>`).join('')}</select></td>
+          <td>${isStandardStep(x.key)
+            ? `<span class="muted small">${COUNTS[x.counts]}</span>`
+            : `<select data-counts="${i}" aria-label="Counts as"><option value="pipeline" ${x.counts !== 'spent' ? 'selected' : ''}>${COUNTS.pipeline}</option><option value="spent" ${x.counts === 'spent' ? 'selected' : ''}>${COUNTS.spent}</option></select>`}</td>
+          <td>${['to_submit', 'ordered', 'received', 'cancelled'].includes(x.key) ? '' : `<input type="checkbox" data-hide="${i}" ${x.hidden ? 'checked' : ''} aria-label="Hide ${esc(x.label)}">`}</td>
+          <td>${isStandardStep(x.key) ? '' : `<button type="button" class="icon-btn" data-remove="${i}" title="Remove" aria-label="Remove ${esc(x.label)}">&times;</button>`}</td>
+        </tr>`).join('')}</tbody>
+      </table></div>
+      <button type="button" class="btn btn-sm" id="step-add">+ Add a step</button>
+      <div id="steps-errors"></div>
+      <div class="form-actions">
+        <button type="button" class="btn btn-ghost" id="steps-reset" title="Back to the standard names, colors and order">Reset</button>
+        <button type="button" class="btn btn-ghost" id="steps-cancel">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save steps</button>
+      </div>
+    </form>`;
+  };
+  const moves = []; // [{ lines, to }] for removed steps that had purchases
+  draw();
+  document.body.appendChild(dialog);
+  const close = () => (dialog.close(), dialog.remove());
+  dialog.addEventListener('cancel', close);
+  dialog.addEventListener('input', (e) => {
+    const t = e.target;
+    if (t.dataset.label !== undefined) steps[t.dataset.label].label = t.value;
+  });
+  dialog.addEventListener('change', (e) => {
+    const t = e.target;
+    if (t.dataset.tone !== undefined) (steps[t.dataset.tone].tone = t.value), (t.className = `step-select step-${t.value}`);
+    if (t.dataset.counts !== undefined) steps[t.dataset.counts].counts = t.value;
+    if (t.dataset.hide !== undefined) steps[t.dataset.hide].hidden = t.checked;
+  });
+  dialog.addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    const swap = (i, j) => ([steps[i], steps[j]] = [steps[j], steps[i]]);
+    if (b.dataset.up) swap(Number(b.dataset.up), Number(b.dataset.up) - 1), draw();
+    else if (b.dataset.down) swap(Number(b.dataset.down), Number(b.dataset.down) + 1), draw();
+    else if (b.dataset.remove) {
+      const x = steps[Number(b.dataset.remove)];
+      const at = used(x.key);
+      const to = x.counts === 'spent' ? 'paid' : 'to_submit';
+      if (at.length && !confirm(`${at.length} purchase${at.length === 1 ? ' is' : 's are'} at "${x.label}". Move ${at.length === 1 ? 'it' : 'them'} to "${stepOf(to).label}" and remove the step?`)) return;
+      if (at.length) moves.push({ lines: at, to });
+      steps.splice(Number(b.dataset.remove), 1);
+      draw();
+    } else if (b.id === 'step-add') {
+      const taken = new Set(steps.map((x) => x.key));
+      let n = 1;
+      while (taken.has(`step_${n}`)) n++;
+      // Before Ordered, so it's a step on the way there.
+      steps.splice(Math.max(0, steps.findIndex((x) => x.key === 'ordered')), 0, { key: `step_${n}`, label: '', tone: 'blue', hint: '', counts: 'pipeline' });
+      draw();
+      dialog.querySelectorAll('[data-label]')[Math.max(0, steps.findIndex((x) => x.key === `step_${n}`))]?.focus();
+    } else if (b.id === 'steps-reset') {
+      if (!confirm('Go back to the standard names, colors and order? Your own steps stay, at the end.')) return;
+      const own = steps.filter((x) => !isStandardStep(x.key));
+      steps = [...STANDARD_STEPS.map((x) => ({ ...x })), ...own];
+      draw();
+    } else if (b.id === 'steps-cancel') close();
+  });
+  dialog.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const errs = dialog.querySelector('#steps-errors');
+    if (steps.some((x) => !x.label.trim())) return (errs.innerHTML = errorBox(new Error('Give every step a name.')));
+    const btn = dialog.querySelector('[type="submit"]');
+    btn.disabled = true;
+    try {
+      for (const m of moves) {
+        for (const l of m.lines) {
+          const to = l.kind === 'request' ? 'to_submit' : m.to;
+          await api.savePurchase(l.purchaseId, { dept_status: to });
+        }
+      }
+      moves.length = 0;
+      await api.updateSettings('ledger', {
+        ...(config.ledger || {}),
+        steps: steps.map((x) => ({ key: x.key, label: x.label.trim(), tone: x.tone, hint: x.hint || '', counts: x.counts, ...(x.hidden ? { hidden: true } : {}) })),
+      });
+      close();
+      setFlash('Purchasing steps saved.');
+      await reloadConfig();
+      rerender();
+    } catch (err) {
+      errs.innerHTML = errorBox(err);
+      btn.disabled = false;
+    }
+  });
+  dialog.showModal();
+}
+
 /**
  * Rename a category, combine it with another (mode 'rename'), or delete it ('delete'):
  * every purchase in it (requests too) moves to the other category. Renaming carries
@@ -654,7 +810,7 @@ function moveCategory(name, mode, { lines, categories, budgets, season, config, 
     if (!confirm(`Delete the "${name}" category and its budget?`)) return;
     const amounts = Object.fromEntries(Object.entries(budgets.amounts || {}).filter(([k]) => key(k) !== key(name)));
     const order = (budgets.order || []).filter((c) => key(c) !== key(name));
-    return api.setBudgets({ ...budgets, amounts, order }).then(reloadConfig).then(rerender).catch(showError);
+    return api.setBudgets({ ...budgets, amounts, order }).then(() => moveCategoryNote(config, name, null)).then(reloadConfig).then(rerender).catch(showError);
   }
   const count = `${using.length} purchase${using.length === 1 ? '' : 's'}`;
   const dialog = document.createElement('dialog');
@@ -712,6 +868,7 @@ function moveCategory(name, mode, { lines, categories, budgets, season, config, 
         }
         await api.setBudgets({ ...budgets, amounts: Object.fromEntries(Object.entries(budgets.amounts || {}).filter(([k]) => key(k) !== key(name))) });
       }
+      await moveCategoryNote(config, name, deleting ? null : to);
       close();
       const what = `${moved} purchase${moved === 1 ? '' : 's'}`;
       setFlash(deleting ? `Deleted "${name}"; moved ${what} to "${to}".`

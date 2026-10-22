@@ -1,4 +1,5 @@
 /** Shared formatting and small UI helpers used by every view. */
+import { STEPS, COMMITTED, stepOf, stepChoices } from './ledger.js';
 
 // Workflow statuses. The database enforces the transitions (supabase/schema.sql);
 // keep this list in sync with the `status` check constraint there.
@@ -339,7 +340,47 @@ export const COLUMNS = {
     dirLabels: NUM_LABELS,
   },
   itemCount: { label: 'Items', className: 'num', cell: (r) => String(r.items.length), sort: (r) => r.items.length, defaultDir: 'desc', dirLabels: NUM_LABELS },
+  // The Treasurer's columns (025). `r.purchase` (its Finances line) is attached by the Queue page;
+  // `r.editable` makes the step a dropdown and the note editable there.
+  step: {
+    label: 'Step',
+    className: 'nowrap',
+    cell: (r) => {
+      const key = requestStep(r);
+      if (!key) return '—';
+      if (r.editable && r.status === STATUS.APPROVED) {
+        return `<select class="step-select step-${esc(stepOf(key).tone)}" data-step-for="${esc(r.id)}" aria-label="Purchasing step">${stepChoices((x) => COMMITTED.has(x.key), key)
+          .map((x) => `<option value="${esc(x.key)}" ${x.key === key ? 'selected' : ''}>${esc(x.label)}</option>`).join('')}</select>`;
+      }
+      return `<span class="step-chip step-${esc(stepOf(key).tone)}">${esc(stepOf(key).label)}</span>`;
+    },
+    sort: (r) => STEPS.findIndex((x) => x.key === requestStep(r)),
+  },
+  treasurerNote: {
+    label: 'Treasurer notes',
+    className: 'note-cell',
+    cell: (r) => `<span class="note-text">${esc(r.purchase?.notes || '')}</span>${r.editable
+      ? `<button type="button" class="icon-btn note-edit" data-note-for="${esc(r.id)}" title="${r.purchase?.notes ? 'Edit note' : 'Add a note'}" aria-label="Edit note">✎</button>` : ''}`,
+    sort: (r) => r.purchase?.notes || '',
+  },
+  arrived: {
+    label: 'Arrived',
+    className: 'nowrap',
+    cell: (r) => {
+      if (!r.items.some((i) => 'arrived_on' in i)) return '—';
+      const n = r.items.filter((i) => i.arrived_on).length;
+      return n ? `<span class="${n === r.items.length ? 'arrived-tag' : ''}">${n} of ${r.items.length}</span>` : '<span class="muted">None yet</span>';
+    },
+    sort: (r) => (r.items.length ? r.items.filter((i) => i.arrived_on).length / r.items.length : 0),
+    defaultDir: 'desc',
+  },
 };
+
+/** Where a request is with purchasing: the Treasurer's step before ordering, then from its status. */
+function requestStep(r) {
+  if (r.status === STATUS.APPROVED) return r.purchase === undefined ? '' : COMMITTED.has(r.purchase?.dept_status) ? r.purchase.dept_status : 'to_submit';
+  return { Ordered: 'ordered', Received: 'received', Cancelled: 'cancelled' }[r.status] || '';
+}
 for (const [key, col] of Object.entries(COLUMNS)) col.key = key;
 
 /**

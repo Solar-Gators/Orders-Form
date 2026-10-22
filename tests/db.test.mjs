@@ -293,7 +293,7 @@ await test('the website cannot change the schema version', async () => {
   const general = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
   await as(ce, () => rpc('update_settings', ['general', { ...general, schemaVersion: 99 }]));
   const after = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
-  assert.equal(after.schemaVersion, 24);
+  assert.equal(after.schemaVersion, 25);
 });
 
 console.log('Form fields');
@@ -1616,6 +1616,84 @@ await test('Cancelled: the Treasurer can cancel an approved request (with a reas
   assert.deepEqual(after.map((m) => `${m.event} ${m.status}`), ['cancelled cancelled']);
   await as(treasurer, () => rpc('mark_ordered', [id, null, 'PO-2', '']));
   assert.equal(await statusOf(number), 'Ordered');
+});
+
+const approved = async () => {
+  const number = numberOf(await submit(vendorRequest));
+  await review(ce, number, 'approve');
+  return { number, id: await idOf(number) };
+};
+
+await test('Purchasing steps: renamed and added in settings; the Treasurer sets a request\'s step (025)', async () => {
+  const steps = [
+    { key: 'to_submit', label: 'To submit' }, { key: 'sent', label: 'Request sent' }, { key: 'quote', label: 'Waiting on quote', counts: 'pipeline' },
+    { key: 'dept_approved', label: 'Approved' }, { key: 'ordered', label: 'MAE ordered' }, { key: 'received', label: 'Received' },
+    { key: 'paid', label: 'Paid' }, { key: 'cancelled', label: 'Cancelled' }, { key: 'refunded', label: 'Refunded', counts: 'spent' },
+  ];
+  await as(member, () => rejects(rpc('update_settings', ['ledger', { steps }]), /does not allow/));
+  await as(treasurer, () => rejects(rpc('update_settings', ['ledger', { steps: steps.filter((s) => s.key !== 'paid') }]), /not removed/));
+  await as(treasurer, () => rejects(rpc('update_settings', ['ledger', { steps: [...steps, { key: 'sent', label: 'Again' }] }]), /Two steps/));
+  await as(treasurer, () => rpc('update_settings', ['ledger', { steps, categoryNotes: { Electrical: 'Ask about the ECE grant' } }]));
+  const { id } = await approved();
+  await as(treasurer, () => rpc('save_purchase', [null, { request_id: id, dept_status: 'quote', notes: 'Emailed vendor 10/2' }]));
+  const p = (await db.query(`select dept_status, notes from finance_purchases where request_id = $1`, [id])).rows[0];
+  assert.deepEqual([p.dept_status, p.notes], ['quote', 'Emailed vendor 10/2']);
+  await as(treasurer, () => rejects(rpc('save_purchase', [null, { request_id: id, dept_status: 'refunded' }]), /from its own page/)); // a "spent" step
+  await as(treasurer, () => rejects(rpc('save_purchase', [null, { request_id: id, dept_status: 'cancelled' }]), /Cancel the request itself/));
+  await as(treasurer, () => rejects(rpc('save_purchase', [null, { request_id: id, dept_status: 'nope' }]), /Unknown status/));
+  // A step in use can't disappear.
+  await as(treasurer, () => rejects(rpc('update_settings', ['ledger', { steps: steps.filter((s) => s.key !== 'quote') }]), /Move them to another step/));
+  await as(treasurer, () => rejects(rpc('update_settings', ['ledger', { steps: steps.map((s) => (s.key === 'quote' ? { ...s, counts: 'spent' } : s)) }]), /in the pipeline/));
+  await as(treasurer, () => rpc('save_purchase', [null, { request_id: id, dept_status: 'sent' }]));
+  await as(treasurer, () => rpc('update_settings', ['ledger', { steps: steps.filter((s) => s.key !== 'quote') }]));
+  await as(treasurer, () => rpc('update_settings', ['ledger', {}]));
+});
+
+await test('Cancelled: an Ordered request can be cancelled too, and goes back to Ordered (025)', async () => {
+  const { number, id } = await approved();
+  await as(treasurer, () => rpc('mark_ordered', [id, '2026-10-01', 'PO-31', '']));
+  await as(treasurer, () => rpc('cancel_request', [id, 'Vendor cancelled the order']));
+  assert.equal(await statusOf(number), 'Cancelled');
+  assert.equal((await as(treasurer, () => rpc('restore_request', [id]))).rows[0].result, 'Ordered');
+  assert.equal(await statusOf(number), 'Ordered');
+  const kinds = (await db.query(`select kind, note from request_events where request_id = $1 order by id`, [id])).rows.map((e) => `${e.kind}:${e.note}`);
+  assert.deepEqual(kinds.slice(-2), ['cancelled:Vendor cancelled the order', 'restored:Ordered']);
+  const fresh = await approved();
+  await as(treasurer, () => rpc('cancel_request', [fresh.id, 'Not needed']));
+  assert.equal((await as(treasurer, () => rpc('restore_request', [fresh.id]))).rows[0].result, 'Approved');
+});
+
+await test('Deleting a request entirely: the Treasurer, with a reason; a copy is kept (025)', async () => {
+  const { number, id } = await approved();
+  await as(treasurer, () => rpc('save_purchase', [null, { request_id: id, notes: 'dup' }]));
+  await as(member, () => rejects(rpc('purge_request', [id, 'Duplicate']), /does not allow/));
+  await as(treasurer, () => rejects(rpc('purge_request', [id, ' ']), /Say why/));
+  const paths = (await as(treasurer, () => rpc('purge_request', [id, 'Duplicate of SG-001']))).rows[0].result;
+  assert.deepEqual(paths, []);
+  assert.equal((await db.query(`select count(*)::int n from requests where id = $1`, [id])).rows[0].n, 0);
+  assert.equal((await db.query(`select count(*)::int n from finance_purchases where request_id = $1`, [id])).rows[0].n, 0);
+  const kept = (await db.query(`select request_number, reason, deleted_by_name, snapshot from deleted_requests where request_number = $1`, [number])).rows[0];
+  assert.deepEqual([kept.reason, kept.deleted_by_name, kept.snapshot.items.length, kept.snapshot.ledger.notes], ['Duplicate of SG-001', 'Tess Treasurer', 1, 'dup']);
+  await as(member, async () => assert.equal((await db.query(`select * from deleted_requests`)).rows.length, 0)); // leads only
+});
+
+await test('Items arriving one by one; Received marks the rest (025)', async () => {
+  const number = numberOf(await submit(vendorRequest, [{ ...oneItem[0], item_name: 'Bolts' }, { ...oneItem[0], item_name: 'Nuts' }, { ...oneItem[0], item_name: 'Washers' }]));
+  await review(ce, number, 'approve');
+  const id = await idOf(number);
+  const items = (await db.query(`select id from request_items where request_id = $1 order by position`, [id])).rows.map((r) => r.id);
+  await as(treasurer, () => rejects(rpc('set_items_arrived', [id, [items[0]], true, null, '']), /not Ordered/));
+  await as(treasurer, () => rpc('mark_ordered', [id, null, 'PO-40', '']));
+  await as(other, () => rejects(rpc('set_items_arrived', [id, [items[0]], true, null, '']), /Only the Treasurer or the person/));
+  await as(member, () => rejects(rpc('set_items_arrived', [id, [], true, null, '']), /Tick the items/));
+  const left = (await as(member, () => rpc('set_items_arrived', [id, [items[0], items[1]], true, '2026-10-05', '1 bag short']))).rows[0].result;
+  assert.equal(left, 1);
+  assert.equal((await as(treasurer, () => rpc('set_items_arrived', [id, [items[1]], false, null, '']))).rows[0].result, 2);
+  const ev = (await db.query(`select note from request_events where request_id = $1 and kind = 'arrived' order by id`, [id])).rows.map((e) => e.note);
+  assert.deepEqual(ev, ['Bolts, Nuts — 1 bag short', 'Not arrived after all: Nuts']);
+  await as(treasurer, () => rpc('mark_received', [id, '2026-10-07', 'In our office']));
+  const arrived = (await db.query(`select arrived_on::text d, arrived_note from request_items where request_id = $1 order by position`, [id])).rows;
+  assert.deepEqual(arrived.map((r) => `${r.d} ${r.arrived_note}`), ['2026-10-05 1 bag short', '2026-10-07 ', '2026-10-07 ']);
 });
 
 console.log(`\n${passed} passed${process.exitCode ? ', some FAILED' : ''}`);

@@ -397,10 +397,35 @@ export const api = {
     deliver();
   },
 
-  /** The Treasurer: undo a cancel, back to Approved (To order). */
+  /** The Treasurer: undo a cancel. Returns where it went back to: 'Approved' or 'Ordered' (025). */
   async restoreRequest(id) {
-    unwrap(await supabase.rpc('restore_request', { p_id: id }));
+    const to = unwrap(await supabase.rpc('restore_request', { p_id: id }));
     deliver();
+    return to || 'Approved';
+  },
+
+  /** The Treasurer: delete a request entirely (a duplicate, a mistake). A copy is kept (025). */
+  async purgeRequest(id, reason) {
+    const paths = unwrap(await supabase.rpc('purge_request', { p_id: id, p_reason: reason })) || [];
+    if (paths.length) await supabase.storage.from('attachments').remove(paths).catch(() => {}); // its files
+  },
+
+  /** Requests deleted entirely, newest first (Treasurer / admins), or null before 025. */
+  async listDeletedRequests() {
+    const { data, error } = await supabase.from('deleted_requests')
+      .select('id, request_number, title, status, total, reason, deleted_by_name, deleted_at').order('deleted_at', { ascending: false }).limit(50);
+    return error ? null : data;
+  },
+
+  /** Mark items arrived (or not). Returns how many haven't arrived yet (025). */
+  async setItemsArrived(requestId, itemIds, arrived, { date = null, note = '' } = {}) {
+    return unwrap(await supabase.rpc('set_items_arrived', { p_request: requestId, p_items: itemIds, p_arrived: arrived, p_date: date || null, p_note: note }));
+  },
+
+  /** A request's line on the Treasurer's ledger (step, M/E, notes), or null (finance viewers only). */
+  async getRequestPurchase(requestId) {
+    const { data, error } = await supabase.from('finance_purchases').select('*').eq('request_id', requestId).maybeSingle();
+    return error ? null : data;
   },
 
   async markReceived(id, { received_date, received_notes }) {

@@ -3,7 +3,7 @@
  * table, funding totals, and reading the old Financials spreadsheet.   node tests/ledger.test.mjs
  */
 import assert from 'node:assert/strict';
-import { ledgerLines, budgetTable, fundingTotals, readFinancialsSheet } from '../js/ledger.js';
+import { ledgerLines, budgetTable, fundingTotals, readFinancialsSheet, setLedgerSettings, STEPS, stepOf } from '../js/ledger.js';
 
 let passed = 0;
 function test(name, fn) {
@@ -107,6 +107,28 @@ test("reading the old Financials sheet: ledger with status colors, budgets, rain
   assert.equal(out.rainyDay, '2128.75');
   assert.equal(out.notes, '$13,970 minimum for competition\ncould get $5400 from ECE');
   assert.throws(() => readFinancialsSheet({ rows: 3, cols: 3, value: () => 'x', fill: () => '' }), /Item Description/);
+});
+
+test("the Treasurer's own steps: renamed, hidden, and new ones counting as pipeline or spent (025)", () => {
+  setLedgerSettings({ steps: [
+    { key: 'to_submit', label: 'To submit' }, { key: 'sent', label: 'Request Sent', tone: 'pink' }, { key: 'quote', label: 'Waiting on quote', tone: 'blue', counts: 'pipeline' },
+    { key: 'dept_approved', label: 'Approved', tone: 'lightgreen' }, { key: 'ordered', label: 'MAE Ordered' }, { key: 'received', label: 'Received' },
+    { key: 'paid', label: 'Paid', hidden: true }, { key: 'refund', label: 'Refunded', tone: 'nope', counts: 'spent' },
+  ] });
+  try {
+    assert.deepEqual(STEPS.map((x) => x.key), ['to_submit', 'sent', 'quote', 'dept_approved', 'ordered', 'received', 'paid', 'refund', 'cancelled']); // a missing standard one is added back
+    assert.deepEqual([stepOf('ordered').label, stepOf('refund').tone, stepOf('paid').hidden], ['MAE Ordered', 'gray', true]);
+    const lines = ledgerLines({
+      requests: [req(1, 'Approved', 100, 'Aero')],
+      purchases: [{ id: 'p1', request_id: 1, dept_status: 'quote' }, { id: 'p2', season: '2026-2027', amount: 40, category: 'Aero', dept_status: 'refund' }],
+      field: 'c_cc', season: '2026-2027',
+    });
+    assert.deepEqual(lines.map((l) => l.status), ['quote', 'refund']);
+    const { rows } = budgetTable(lines, { Aero: 500 });
+    assert.deepEqual([rows[0].pipeline, rows[0].spent, rows[0].left], [100, 40, 360]);
+  } finally {
+    setLedgerSettings({});
+  }
 });
 
 console.log(`\n${passed} passed${process.exitCode ? ', some FAILED' : ''}`);

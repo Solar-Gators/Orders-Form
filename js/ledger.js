@@ -7,19 +7,59 @@
  * and notes, and can change the budget category it counts toward) or a purchase logged on its own (bought outside the site).
  */
 
-/** The purchasing steps, in order, with the colors of the Treasurer's old spreadsheet legend. */
-export const STEPS = [
-  { key: 'to_submit', label: 'To submit', tone: 'gray', hint: 'Approved here, not sent to the department yet' },
-  { key: 'sent', label: 'Request sent', tone: 'pink', hint: 'Sent to MAE / ECE purchasing' },
-  { key: 'dept_approved', label: 'Dept approved', tone: 'lightgreen', hint: 'The department approved it' },
-  { key: 'ordered', label: 'Ordered', tone: 'green', hint: 'Ordered by the department' },
-  { key: 'received', label: 'Received', tone: 'teal', hint: 'Arrived' },
-  { key: 'paid', label: 'Paid', tone: 'teal', hint: 'Paid with nothing to order (a debt, a reimbursement); counts as spent, like Received' },
-  { key: 'cancelled', label: 'Cancelled', tone: 'red', hint: "Not happening; doesn't count toward budgets" },
+/**
+ * The purchasing steps, in order, with the colors of the Treasurer's old spreadsheet legend.
+ * The Treasurer can rename, recolor and hide them, and add steps (Finances › Purchases ›
+ * Edit steps; settings "ledger", migration 025). The keys of these standard ones are fixed:
+ * Ordered / Received come from the request, Paid is for purchases added on Finances.
+ */
+export const STANDARD_STEPS = [
+  { key: 'to_submit', label: 'To submit', tone: 'gray', hint: 'Approved here, not sent to the department yet', counts: 'pipeline' },
+  { key: 'sent', label: 'Request sent', tone: 'pink', hint: 'Sent to MAE / ECE purchasing', counts: 'pipeline' },
+  { key: 'dept_approved', label: 'Dept approved', tone: 'lightgreen', hint: 'The department approved it', counts: 'pipeline' },
+  { key: 'ordered', label: 'Ordered', tone: 'green', hint: 'Ordered by the department', counts: 'spent' },
+  { key: 'received', label: 'Received', tone: 'teal', hint: 'Arrived', counts: 'spent' },
+  { key: 'paid', label: 'Paid', tone: 'teal', hint: 'Paid with nothing to order (a debt, a reimbursement); counts as spent, like Received', counts: 'spent' },
+  { key: 'cancelled', label: 'Cancelled', tone: 'red', hint: "Not happening; doesn't count toward budgets", counts: 'none' },
 ];
-export const stepOf = (key) => STEPS.find((s) => s.key === key) || STEPS[0];
-export const SPENT = new Set(['ordered', 'received', 'paid']);
-export const COMMITTED = new Set(['to_submit', 'sent', 'dept_approved']);
+export const STEP_TONES = ['gray', 'pink', 'lightgreen', 'green', 'teal', 'blue', 'amber', 'orange', 'purple', 'red'];
+const STANDARD_KEYS = new Set(STANDARD_STEPS.map((s) => s.key));
+export const isStandardStep = (key) => STANDARD_KEYS.has(key);
+
+// Live bindings: they change when the settings load (setLedgerSettings).
+export let STEPS = STANDARD_STEPS;
+export let SPENT = new Set(['ordered', 'received', 'paid']);
+/** Steps a request's line can be at before it's ordered (set by the Treasurer). */
+export let COMMITTED = new Set(['to_submit', 'sent', 'dept_approved']);
+export let CATEGORY_NOTES = {};
+
+/** Apply settings "ledger": { steps: [{ key, label, tone, hint, counts, hidden }], categoryNotes }. */
+export function setLedgerSettings(ledger = {}) {
+  const saved = Array.isArray(ledger?.steps) ? ledger.steps : [];
+  STEPS = saved.length
+    ? saved.map((x) => {
+        const std = STANDARD_STEPS.find((s) => s.key === x.key);
+        return {
+          ...(std || { hint: '', counts: x.counts === 'spent' ? 'spent' : 'pipeline' }),
+          key: x.key,
+          label: String(x.label || std?.label || x.key),
+          tone: STEP_TONES.includes(x.tone) ? x.tone : std?.tone || 'gray',
+          hint: x.hint ?? std?.hint ?? '',
+          hidden: !!x.hidden,
+          ...(std ? {} : { counts: x.counts === 'spent' ? 'spent' : 'pipeline' }),
+        };
+      })
+    : STANDARD_STEPS;
+  // Standard steps someone's saved list is missing (it shouldn't be) go at the end.
+  for (const std of STANDARD_STEPS) if (!STEPS.some((x) => x.key === std.key)) STEPS = [...STEPS, std];
+  SPENT = new Set(STEPS.filter((x) => x.counts === 'spent').map((x) => x.key));
+  COMMITTED = new Set(STEPS.filter((x) => x.counts === 'pipeline').map((x) => x.key));
+  CATEGORY_NOTES = ledger?.categoryNotes && typeof ledger.categoryNotes === 'object' ? ledger.categoryNotes : {};
+}
+
+export const stepOf = (key) => STEPS.find((s) => s.key === key) || { key, label: key, tone: 'gray', hint: '', counts: 'pipeline' };
+/** Steps to offer in a dropdown: not hidden, except the one it's at now. */
+export const stepChoices = (filter, current) => STEPS.filter((x) => (!x.hidden || x.key === current) && filter(x));
 
 /** Who places the order (the old sheet's M/E column). */
 export const DEPTS = [['M', 'MAE'], ['E', 'ECE'], ['A', 'Other']];
@@ -45,6 +85,7 @@ export function ledgerLines({ requests = [], purchases = [], field = '', season 
     if (season && r.season && r.season !== season) continue;
     const p = byRequest.get(r.id);
     // Ordered / Received / Cancelled come from the request itself; before that, the Treasurer's step.
+    // (A line marked Cancelled on Finances before 024 counts as cancelled; 025 makes those cancelled requests.)
     const before = p && (COMMITTED.has(p.dept_status) || p.dept_status === 'cancelled') ? p.dept_status : 'to_submit';
     const status = { Ordered: 'ordered', Received: 'received', Cancelled: 'cancelled' }[r.status] || before;
     lines.push({
