@@ -1275,6 +1275,9 @@ a.step-link:hover { text-decoration: underline; }
   .table.stack-mobile.detail-items tbody tr:has(.item-tick) { position: relative; }
   .table.stack-mobile.detail-items td.item-tick { position: absolute; top: 10px; right: 10px; padding: 0; width: auto; }
   .table.stack-mobile.detail-items tr:has(.item-tick) td.cell-primary { padding-right: 34px; }
+  .sponsor-import .table.stack-mobile tbody tr { position: relative; }
+  .sponsor-import .table.stack-mobile td.item-tick { position: absolute; top: 10px; right: 10px; padding: 0; width: auto; }
+  .sponsor-import .table.stack-mobile td.cell-primary { padding-right: 34px; }
   .table.stack-mobile.ledger-table tbody tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; position: relative; border-left: 4px solid transparent; }
   .table.stack-mobile.ledger-table tbody tr.step-row-pink { border-left-color: #ffaaa4; }
   .table.stack-mobile.ledger-table tbody tr.step-row-lightgreen { border-left-color: #a9d08e; }
@@ -1346,6 +1349,8 @@ a.step-link:hover { text-decoration: underline; }
 .import-more > .import-map { margin-top: 6px; }
 .import-preview { max-height: 240px; overflow: auto; margin: 6px 0; }
 .import-preview .table td, .import-preview .table th { padding: 5px 8px; font-size: 13px; }
+.sponsor-import { max-height: 420px; }
+.sponsor-import tr.is-muted td:not(:first-child) { opacity: 0.5; }
 .import-skipped ul { margin: 6px 0; padding-left: 18px; max-height: 140px; overflow: auto; }
 .import-vendors, .import-mode { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border-soft); }
 .import-vendors select { width: auto; display: inline-block; margin-left: 4px; }
@@ -1749,6 +1754,9 @@ a.step-link:hover { text-decoration: underline; }
 .table.stack-mobile.is-stacked.detail-items tbody tr:has(.item-tick) { position: relative; }
 .table.stack-mobile.is-stacked.detail-items td.item-tick { position: absolute; top: 10px; right: 10px; padding: 0; width: auto; }
 .table.stack-mobile.is-stacked.detail-items tr:has(.item-tick) td.cell-primary { padding-right: 34px; }
+.sponsor-import .table.stack-mobile.is-stacked tbody tr { position: relative; }
+.sponsor-import .table.stack-mobile.is-stacked td.item-tick { position: absolute; top: 10px; right: 10px; padding: 0; width: auto; }
+.sponsor-import .table.stack-mobile.is-stacked td.cell-primary { padding-right: 34px; }
 .table.stack-mobile.is-stacked.ledger-table tbody tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; position: relative; border-left: 4px solid transparent; }
 .table.stack-mobile.is-stacked.ledger-table tbody tr.step-row-pink { border-left-color: #ffaaa4; }
 .table.stack-mobile.is-stacked.ledger-table tbody tr.step-row-lightgreen { border-left-color: #a9d08e; }

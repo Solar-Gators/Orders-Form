@@ -8,12 +8,16 @@
  * Moving a card to a "money received" stage adds a row to the chosen Finances
  * sheet (once). Watchers get an email / Teams message when a card moves or gets
  * a note. Viewing needs sponsors.view; changing, sponsors.edit.
+ * Each card can say which car it was for (026), and old sponsor spreadsheets can be
+ * imported ("Import from spreadsheet…"), so earlier cars' sponsors stay findable.
  */
 import { api } from '../api.js';
 import { auth } from '../auth.js';
 import { esc, fmtMoney, fmtDate, fmtDateTime, errorBox, setFlash, takeFlash, renderRichText } from '../ui.js';
 import { guardLeaving, releaseGuard } from '../leaveGuard.js';
 import { renderAttachments } from '../attachments.js';
+import { readItemFile } from '../itemImport.js';
+import { readSponsorRows, toSponsorCard, guessCar } from '../sponsorImport.js';
 
 const STAGE_KINDS = [
   ['open', 'Working on it'],
@@ -42,11 +46,14 @@ function sponsorSettings(config) {
 }
 
 // Kept while moving around the app.
-const view = { mode: 'board', season: '', q: '', who: '' };
+const view = { mode: 'board', season: '', car: '', q: '', who: '' };
 
 const today = () => new Date().toISOString().slice(0, 10);
 const initials = (name) => String(name || '?').split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase();
 const canEdit = () => auth.can('sponsors.edit');
+const hasCars = (config) => Number(config.schemaVersion) >= 26;
+/** Cars named on any card, most recently added first. */
+const carsOf = (cards) => [...new Set([...cards].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).map((c) => c.car).filter(Boolean))];
 const isOpen = (stages, card) => ['open', undefined].includes(stages.find((s) => s.key === card.stage)?.kind);
 
 /** People who can see the board (so they can watch or lead a card). */
@@ -74,15 +81,18 @@ export async function renderSponsors(el, { config, rerender, reloadConfig }) {
   if (!view.season || (view.season !== 'all' && !seasons.includes(view.season))) view.season = config.season || seasons[0] || 'all';
   if (view.mode === 'board' && view.season === 'all') view.season = config.season;
   const me = auth.user.id;
+  const cars = hasCars(config) ? carsOf(cards) : [];
+  if (view.car && !cars.includes(view.car)) view.car = '';
 
   const matches = (c) => {
     const words = view.q.toLowerCase().split(/\s+/).filter(Boolean);
-    const text = [c.name, c.kind, c.contact_name, c.contact_email, c.website, ...(c.tags || []), c.description, c.playbook, nameOf(c.owner_id), c.season]
+    const text = [c.name, c.kind, c.contact_name, c.contact_email, c.website, ...(c.tags || []), c.description, c.playbook, nameOf(c.owner_id), c.season, c.car]
       .join(' ')
       .toLowerCase();
     return (
       words.every((w) => text.includes(w)) &&
       (view.season === 'all' || c.season === view.season) &&
+      (!view.car || c.car === view.car) &&
       (!view.who || (view.who === 'mine' ? c.owner_id === me : c.watchers.includes(me)))
     );
   };
@@ -96,6 +106,7 @@ export async function renderSponsors(el, { config, rerender, reloadConfig }) {
       </div>
       <div class="card-actions">
         ${canEdit() ? '<button type="button" class="btn btn-primary" id="new-card">+ New sponsor</button>' : ''}
+        ${canEdit() && hasCars(config) ? '<button type="button" class="btn" id="sp-import">Import from spreadsheet…</button>' : ''}
         ${canEdit() ? '<button type="button" class="btn" id="board-settings">Board settings</button>' : ''}
       </div>
     </div>
@@ -110,6 +121,10 @@ export async function renderSponsors(el, { config, rerender, reloadConfig }) {
         ${view.mode === 'list' ? `<option value="all" ${view.season === 'all' ? 'selected' : ''}>Every season</option>` : ''}
         ${seasons.map((s) => `<option value="${esc(s)}" ${s === view.season ? 'selected' : ''}>${esc(s)}</option>`).join('')}
       </select>
+      ${cars.length ? `<select id="sp-car" aria-label="Car">
+        <option value="">Every car</option>
+        ${cars.map((c) => `<option value="${esc(c)}" ${c === view.car ? 'selected' : ''}>${esc(c)}</option>`).join('')}
+      </select>` : ''}
       <select id="sp-who" aria-label="Whose">
         <option value="">Everyone's</option>
         <option value="mine" ${view.who === 'mine' ? 'selected' : ''}>I'm leading</option>
@@ -166,13 +181,14 @@ export async function renderSponsors(el, { config, rerender, reloadConfig }) {
     body.innerHTML = shown.length
       ? `<p class="muted small">${shown.length} sponsor card${shown.length === 1 ? '' : 's'}${total ? ` · ${fmtMoney(total)} received` : ''}</p>
         <div class="table-wrap"><table class="table stack-mobile sponsor-list">
-          <thead><tr><th>Sponsor</th><th>Season</th><th>Type</th><th>Stage</th><th class="num">Amount</th><th>Lead</th><th>Tags</th></tr></thead>
+          <thead><tr><th>Sponsor</th><th>Season</th>${cars.length ? '<th>Car</th>' : ''}<th>Type</th><th>Stage</th><th class="num">Amount</th><th>Lead</th><th>Tags</th></tr></thead>
           <tbody>${shown
             .map(
               (c) => `<tr class="clickable" data-href="#/sponsors/${esc(c.id)}">
                 <td class="cell-primary" data-label=""><a class="title-link" href="#/sponsors/${esc(c.id)}">${esc(c.name)}</a>${
                   c.playbook ? ' <span class="field-tag" title="Has tips for next time">Tips</span>' : ''}</td>
                 <td data-label="Season">${esc(c.season || '—')}</td>
+                ${cars.length ? `<td data-label="Car">${esc(c.car || '—')}</td>` : ''}
                 <td data-label="Type">${esc(c.kind || '—')}</td>
                 <td data-label="Stage">${esc(stageLabel(c.stage))}</td>
                 <td class="num" data-label="Amount">${c.amount !== null && c.amount !== undefined ? fmtMoney(c.amount) : '—'}</td>
@@ -181,14 +197,18 @@ export async function renderSponsors(el, { config, rerender, reloadConfig }) {
               </tr>`
             )
             .join('')}</tbody></table></div>`
-      : '<div class="empty">No sponsors match. Try another season or search.</div>';
+      : `<div class="empty">No sponsors match. Try another season${cars.length ? ', car' : ''} or search.${
+          view.mode === 'board' && cars.length ? ' Sponsors of earlier cars without a season are under <strong>All sponsors</strong> → Every season.' : ''}</div>`;
   };
 
   const draw = () => (view.mode === 'board' ? drawBoard() : drawList());
 
   const create = async (stage, name) => {
     try {
-      const id = await api.saveSponsorCard(null, { name, stage, season: view.season !== 'all' ? view.season : config.season });
+      const season = view.season !== 'all' ? view.season : config.season;
+      // The car: the one being looked at, or the one this season's cards are for.
+      const car = view.car || carsOf(cards.filter((c) => c.season === season))[0] || '';
+      const id = await api.saveSponsorCard(null, { name, stage, season, ...(car ? { car } : {}) });
       return id;
     } catch (err) {
       errors.innerHTML = errorBox(err);
@@ -259,6 +279,10 @@ export async function renderSponsors(el, { config, rerender, reloadConfig }) {
       view.season = e.target.value;
       return draw();
     }
+    if (e.target.id === 'sp-car') {
+      view.car = e.target.value;
+      return draw();
+    }
     if (e.target.id === 'sp-who') {
       view.who = e.target.value;
       return draw();
@@ -297,6 +321,10 @@ export async function renderSponsors(el, { config, rerender, reloadConfig }) {
       const id = await create(stages[0].key, name);
       if (id) location.hash = `#/sponsors/${id}`;
     }
+    if (btn.id === 'sp-import') {
+      btn.hidden = true;
+      openImport(el.querySelector('#settings-box'), { config, cards, cars, rerender, onDone: () => (btn.hidden = false) });
+    }
     if (btn.id === 'board-settings') {
       btn.hidden = true;
       openSettings(el.querySelector('#settings-box'), { config, reloadConfig, rerender, onDone: () => (btn.hidden = false) });
@@ -304,6 +332,149 @@ export async function renderSponsors(el, { config, rerender, reloadConfig }) {
   });
 
   draw();
+}
+
+// ---- Importing an old sponsor spreadsheet (026) -------------------------------------------
+
+function openImport(box, { config, cards, cars, rerender, onDone }) {
+  const { stages, kinds } = sponsorSettings(config);
+  const finished = stages.find((s) => s.kind === 'done') || stages.find((s) => s.kind === 'received') || stages[0];
+  const seasons = [...new Set(cards.map((c) => c.season).filter(Boolean))].sort().reverse();
+  const stageLabel = (k) => stages.find((s) => s.key === k)?.label || k;
+  const opts = { car: '', season: '', stage: stages[0].key };
+  let file = null;
+  let rows = [];
+  const close = () => {
+    box.innerHTML = '';
+    onDone();
+  };
+  const cardOf = (r) => toSponsorCard(r, { ...opts, stages, kinds });
+  const onBoard = (c) => cards.some((x) => x.name.toLowerCase() === c.name.toLowerCase() && x.season === c.season && (x.car || '') === c.car);
+
+  const drawPick = (err) => {
+    box.innerHTML = `<section class="card">
+      <h2>Import sponsors from a spreadsheet</h2>
+      <p class="muted small">An Excel (.xlsx) or CSV list of sponsors, e.g. an earlier car's sponsor list or this year's outreach tracker.
+        Every sheet with a <strong>Sponsor name</strong> or <strong>Company</strong> column is read. Columns like amount, level, what they gave,
+        contacts, team member, system, status and notes are recognised; anything else is kept in the card's "About this sponsor".
+        You'll see the list before anything is added.</p>
+      <div class="field"><label for="imp-file">Spreadsheet</label><input type="file" id="imp-file" accept=".xlsx,.csv,.tsv,.txt"></div>
+      <div id="imp-errors">${err ? errorBox(err) : ''}</div>
+      <div class="form-actions"><button type="button" class="btn btn-ghost" id="imp-cancel">Cancel</button></div>
+    </section>`;
+  };
+
+  const drawRows = () => {
+    const sheets = new Set(rows.map((r) => r.sheet)).size > 1;
+    const list = rows.map((r) => ({ r, c: cardOf(r) }));
+    box.querySelector('#imp-rows').innerHTML = list
+      .map(({ r, c }, i) => {
+        const note = onBoard(c) ? 'Already on the board; will be skipped' : r.junk || '';
+        return `<tr class="${r.on ? '' : 'is-muted'}">
+          <td class="item-tick"><input type="checkbox" data-imp-row="${i}" ${r.on ? 'checked' : ''} aria-label="Import ${esc(c.name)}"></td>
+          <td class="cell-primary" data-label="">${esc(c.name)}${note ? ` <span class="muted small">· ${esc(note)}</span>` : ''}</td>
+          ${sheets ? `<td data-label="Sheet">${esc(r.sheet)}</td>` : ''}
+          <td data-label="Type">${esc(c.kind || '—')}</td>
+          <td class="num" data-label="Amount">${c.amount ? fmtMoney(c.amount) : '—'}</td>
+          <td data-label="Stage">${esc(stageLabel(c.stage))}</td>
+          <td data-label="Tags">${c.tags.map((t) => `<span class="tag">${esc(t)}</span>`).join(' ') || '—'}</td>
+        </tr>`;
+      })
+      .join('');
+    const n = rows.filter((r) => r.on).length;
+    const btn = box.querySelector('#imp-go');
+    btn.textContent = `Import ${n} sponsor${n === 1 ? '' : 's'}`;
+    btn.disabled = !n;
+  };
+
+  const drawPreview = () => {
+    const hasStatus = rows.some((r) => r.status || r.outcome);
+    const sheets = new Set(rows.map((r) => r.sheet)).size > 1;
+    box.innerHTML = `<section class="card">
+      <h2>Import ${esc(file.name)}</h2>
+      <div class="form-grid">
+        <div class="field"><label for="imp-car">Car</label>
+          <input id="imp-car" maxlength="40" list="imp-cars" value="${esc(opts.car)}" placeholder="e.g. Sunrider, Flare, Blaze">
+          <datalist id="imp-cars">${cars.map((c) => `<option value="${esc(c)}">`).join('')}</datalist>
+          <div class="hint">Which car these sponsors were for. Find them later with the car filter in All sponsors.</div></div>
+        <div class="field"><label for="imp-season">Season <span class="muted small">(optional)</span></label>
+          <input id="imp-season" maxlength="9" list="imp-seasons" value="${esc(opts.season)}" placeholder="e.g. 2019-2020">
+          <datalist id="imp-seasons">${[config.season, ...seasons].filter(Boolean).filter((s, i, a) => a.indexOf(s) === i).map((s) => `<option value="${esc(s)}">`).join('')}</datalist>
+          <div class="hint">Cards with this season show on that season's board. Leave it empty if you don't know it.</div></div>
+        <div class="field"><label for="imp-stage">${hasStatus ? 'Stage for sponsors with no status' : 'Stage'}</label>
+          <select id="imp-stage">${stages.map((s) => `<option value="${esc(s.key)}" ${s.key === opts.stage ? 'selected' : ''}>${esc(s.label)}</option>`).join('')}</select>
+          <div class="hint">${hasStatus ? 'The outreach status and outcome columns set the rest (Email sent → Contacted, Declined → Not this year…).' : `For a past car's sponsors, ${esc(finished.label)}.`}
+            Imported cards never add money to Finances.</div></div>
+      </div>
+      <p class="muted small">${rows.length} row${rows.length === 1 ? '' : 's'}. Untick any you don't want. Nobody is set to watch the new cards; a team member's name becomes the card's lead when someone on the site has exactly that name.</p>
+      <div class="table-wrap import-preview sponsor-import"><table class="table stack-mobile">
+        <thead><tr><th><input type="checkbox" id="imp-all" aria-label="Tick or untick all" ${rows.every((r) => r.on) ? 'checked' : ''}></th><th>Sponsor</th>${sheets ? '<th>Sheet</th>' : ''}<th>Type</th><th class="num">Amount</th><th>Stage</th><th>Tags</th></tr></thead>
+        <tbody id="imp-rows"></tbody></table></div>
+      <div id="imp-errors"></div>
+      <div class="form-actions">
+        <button type="button" class="btn btn-ghost" id="imp-cancel">Cancel</button>
+        <button type="button" class="btn" id="imp-other">Choose another file</button>
+        <button type="button" class="btn btn-primary" id="imp-go">Import</button>
+      </div>
+    </section>`;
+    drawRows();
+  };
+
+  box.oninput = (e) => {
+    if (e.target.id === 'imp-car') opts.car = e.target.value.trim();
+    else if (e.target.id === 'imp-season') opts.season = e.target.value.trim();
+    else return;
+    drawRows();
+  };
+  box.onchange = async (e) => {
+    if (e.target.id === 'imp-file' && e.target.files[0]) {
+      file = e.target.files[0];
+      try {
+        const sheets = await readItemFile(file);
+        rows = sheets.flatMap((s) => readSponsorRows(s.grid, { sheet: sheets.length > 1 ? s.name : '' }));
+        if (!rows.length) throw new Error(`Couldn't find a list of sponsors in ${file.name}: no sheet has a "Sponsor name" or "Company" column.`);
+        rows.forEach((r) => (r.on = !r.junk));
+        const hasStatus = rows.some((r) => r.status || r.outcome);
+        Object.assign(opts, { car: guessCar(file.name), season: hasStatus ? config.season || '' : '', stage: hasStatus ? stages[0].key : finished.key });
+        drawPreview();
+      } catch (err) {
+        drawPick(err);
+      }
+    } else if (e.target.id === 'imp-stage') {
+      opts.stage = e.target.value;
+      drawRows();
+    } else if (e.target.dataset.impRow) {
+      rows[Number(e.target.dataset.impRow)].on = e.target.checked;
+      drawRows();
+    } else if (e.target.id === 'imp-all') {
+      rows.forEach((r) => (r.on = e.target.checked));
+      drawRows();
+    }
+  };
+  box.onclick = async (e) => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    if (btn.id === 'imp-cancel') return close();
+    if (btn.id === 'imp-other') return drawPick();
+    if (btn.id !== 'imp-go') return;
+    if (opts.season && !/^\d{4}-\d{4}$/.test(opts.season)) {
+      box.querySelector('#imp-errors').innerHTML = errorBox(new Error('Write the season like 2019-2020, or leave it empty.'));
+      return;
+    }
+    btn.disabled = true;
+    btn.textContent = 'Importing…';
+    try {
+      const { added, skipped } = await api.importSponsorCards(rows.filter((r) => r.on).map(cardOf), file.name);
+      setFlash(`Added ${added} sponsor${added === 1 ? '' : 's'} from ${file.name}${opts.car ? ` for ${opts.car}` : ''}.${
+        skipped.length ? ` Skipped ${skipped.length} already on the board: ${skipped.slice(0, 6).join(', ')}${skipped.length > 6 ? '…' : ''}.` : ''}`);
+      Object.assign(view, { mode: 'list', season: 'all', car: opts.car, q: '', who: '' });
+      rerender();
+    } catch (err) {
+      box.querySelector('#imp-errors').innerHTML = errorBox(err);
+      drawRows();
+    }
+  };
+  drawPick();
 }
 
 // ---- Board settings: stages, kinds, where received money goes ----------------------------
@@ -460,7 +631,9 @@ export async function renderSponsorCard(el, { config, params, rerender }) {
     .filter((x) => x.score > 0)
     .sort((a, b) => b.score - a.score)
     .slice(0, 6);
+  // An earlier car's card with no season: bring it to this season's board.
   const nextSeason = (() => {
+    if (!card.season && card.car) return config.season || '';
     const y = Number(String(card.season || config.season).split('-')[0]);
     return y ? `${y + 1}-${y + 2}` : '';
   })();
@@ -474,7 +647,7 @@ export async function renderSponsorCard(el, { config, params, rerender }) {
     <a class="back-link" href="#/sponsors">← Sponsors board</a>
     <div class="page-header">
       <div>
-        <p class="eyebrow">${esc(card.season || '')}${card.kind ? ` · ${esc(card.kind)}` : ''}</p>
+        <p class="eyebrow">${[card.season, card.car, card.kind].filter(Boolean).map(esc).join(' · ')}</p>
         <h1>${esc(card.name)}</h1>
         <p class="subtitle"><span class="badge tone-blue">${esc(stageLabel(card.stage))}</span>
           ${card.amount !== null ? `<strong>${fmtMoney(card.amount)}</strong>` : ''}
@@ -498,6 +671,7 @@ export async function renderSponsorCard(el, { config, params, rerender }) {
               ${field('Type', editable ? `<select name="kind"><option value=""></option>${[...new Set([...kinds, ...(card.kind ? [card.kind] : [])])].map((k) => `<option ${k === card.kind ? 'selected' : ''}>${esc(k)}</option>`).join('')}</select>` : read(esc(card.kind)))}
               ${field('Amount ($)', editable ? input('amount', card.amount ?? '', 'inputmode="decimal" placeholder="e.g. 2500"') : read(card.amount !== null ? fmtMoney(card.amount) : ''))}
               ${field('Season', editable ? input('season', card.season, 'maxlength="9"') : read(esc(card.season)))}
+              ${hasCars(config) ? field('Car', editable ? `${input('car', card.car, 'maxlength="40" list="car-names" placeholder="e.g. Blaze"')}<datalist id="car-names">${carsOf(cards).map((c) => `<option value="${esc(c)}">`).join('')}</datalist>` : read(esc(card.car))) : ''}
               ${field('Lead', editable ? `<select name="owner_id"><option value="">Nobody yet</option>${people.map((p) => `<option value="${esc(p.id)}" ${p.id === card.owner_id ? 'selected' : ''}>${esc(p.full_name || p.email)}</option>`).join('')}</select>` : read(esc(card.owner_id ? nameOf(card.owner_id) : '')))}
               ${field('Follow up on', editable ? input('follow_up', card.follow_up ?? '', 'type="date"') : read(card.follow_up ? fmtDate(card.follow_up) : ''))}
               ${field('Tags <span class="muted small">(comma-separated, e.g. aerospace, local, alumni)</span>', editable ? input('tags', (card.tags || []).join(', ')) : read((card.tags || []).map((t) => `<span class="tag">${esc(t)}</span>`).join(' ')), true)}
@@ -539,7 +713,7 @@ export async function renderSponsorCard(el, { config, params, rerender }) {
           <ol class="timeline sponsor-timeline">${card.activity
             .map((a) => {
               const what = {
-                created: 'Added the card',
+                created: a.body ? `Added the card <span class="muted">· ${esc(a.body)}</span>` : 'Added the card',
                 moved: `Moved from <strong>${esc(stageLabel(a.from_stage))}</strong> to <strong>${esc(stageLabel(a.to_stage))}</strong>`,
                 edited: esc(a.body),
                 comment: '',
@@ -573,7 +747,7 @@ export async function renderSponsorCard(el, { config, params, rerender }) {
         ${similar.length ? `<section class="card">
           <h2>Similar sponsors</h2>
           <ul class="similar-list">${similar
-            .map(({ c }) => `<li><a href="#/sponsors/${esc(c.id)}">${esc(c.name)}</a> <span class="muted small">${esc(c.season)} · ${esc(stageLabel(c.stage))}${c.amount ? ` · ${fmtMoney(c.amount)}` : ''}</span></li>`)
+            .map(({ c }) => `<li><a href="#/sponsors/${esc(c.id)}">${esc(c.name)}</a> <span class="muted small">${[c.season, c.car, stageLabel(c.stage)].filter(Boolean).map(esc).join(' · ')}${c.amount ? ` · ${fmtMoney(c.amount)}` : ''}</span></li>`)
             .join('')}</ul>
         </section>` : ''}
         <section class="card small muted">Added ${fmtDate(card.created_at)}${card.created_by ? ` by ${esc(nameOf(card.created_by))}` : ''}.</section>

@@ -293,7 +293,7 @@ await test('the website cannot change the schema version', async () => {
   const general = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
   await as(ce, () => rpc('update_settings', ['general', { ...general, schemaVersion: 99 }]));
   const after = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
-  assert.equal(after.schemaVersion, 25);
+  assert.equal(after.schemaVersion, 26);
 });
 
 console.log('Form fields');
@@ -1319,6 +1319,39 @@ await test('Sponsors: renewing copies the card into next season; stages can be r
   assert.equal((await db.query(`select stage from sponsor_cards where id = $1`, [next])).rows[0].stage, 'contacted'); // moved to the new first stage
   await as(member, () => rejects(rpc('add_sponsor_comment', [id, 'hi']), /does not allow/));
   await as(treasurer, () => rejects(db.query(`insert into sponsor_activity (card_id, kind) values ('${id}', 'comment')`), /permission denied/));
+});
+
+await test('Sponsors (026): old spreadsheets import as cards with a car, without watchers, once', async () => {
+  const sheet = [
+    { name: 'Matrix Composites', car: 'Sunrider', stage: 'thanked', kind: 'In-kind (parts or services)', amount: '4662.5', tags: ['gold', 'aerobody'], lead: 'Cora Coordinator', contact_email: 'cindy@matrix.example' },
+    { name: 'SKF', car: 'Sunrider', stage: 'thanked', amount: '466', contact_email: 'Customer service email' },
+    { name: 'SKF', car: 'Sunrider', stage: 'nowhere', amount: 'lots', lead: 'Nobody Here' }, // a second gift from the same sponsor
+    { name: '  ', car: 'Sunrider' },
+  ];
+  await as(ce, () => rejects(rpc('import_sponsor_cards', [sheet, 'Car 3 Sponsors.xlsx']), /does not allow/));
+  const first = await cardRpc(coordinator, 'import_sponsor_cards', [sheet, 'Car 3 Sponsors.xlsx']);
+  assert.deepEqual(first, { added: 3, skipped: [] });
+  const cards = (await db.query(`select * from sponsor_cards where car = 'Sunrider' order by position`)).rows;
+  assert.deepEqual(cards.map((c) => [c.name, c.stage, c.amount, c.season]), [
+    ['Matrix Composites', 'thanked', '4662.50', ''], ['SKF', 'thanked', '466.00', ''], ['SKF', 'contacted', null, '']]); // unknown stage: the first one
+  assert.equal(cards[0].owner_id, coordinator);
+  assert.equal(cards[2].owner_id, null);
+  assert.equal(cards[1].contact_email, '');
+  assert.match(cards[1].description, /Contact email: Customer service email/);
+  assert.match(cards[2].description, /Amount: lots/);
+  assert.equal((await db.query(`select count(*)::int n from sponsor_watchers w join sponsor_cards c on c.id = w.card_id where c.car = 'Sunrider'`)).rows[0].n, 0);
+  const log = (await db.query(`select kind, body from sponsor_activity where card_id = $1`, [cards[0].id])).rows;
+  assert.deepEqual(log, [{ kind: 'created', body: 'Imported from Car 3 Sponsors.xlsx' }]);
+
+  // Importing the same file again adds nothing; the same sponsor for another car or season is new.
+  const again = await cardRpc(coordinator, 'import_sponsor_cards', [[...sheet.slice(0, 2), { name: 'matrix composites', car: 'Flare' }], 'again.xlsx']);
+  assert.deepEqual(again, { added: 1, skipped: ['Matrix Composites', 'SKF'] });
+
+  // The car can be changed on the card, and renewing keeps it.
+  await as(coordinator, () => rpc('save_sponsor_card', [cards[0].id, { car: 'Sunrider (car 3)' }]));
+  assert.equal((await db.query(`select body from sponsor_activity where card_id = $1 and kind = 'edited'`, [cards[0].id])).rows[0].body, 'Changed car.');
+  const next = await cardRpc(coordinator, 'renew_sponsor_card', [cards[0].id, '2027-2028']);
+  assert.equal((await db.query(`select car from sponsor_cards where id = $1`, [next])).rows[0].car, 'Sunrider (car 3)');
 });
 
 console.log('Request watchers (016)');

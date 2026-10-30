@@ -311,6 +311,10 @@ export const api = {
   async saveSponsorSettings(value) {
     unwrap(await supabase.rpc('save_sponsor_settings', { p_value: value }));
   },
+  /** Many cards at once from a spreadsheet (migration 026). Returns { added, skipped: [names] }. */
+  async importSponsorCards(cards, source) {
+    return unwrap(await supabase.rpc('import_sponsor_cards', { p_cards: cards, p_source: source }));
+  },
 
   // ---- Finances (migration 014): the Treasurer's own sheets -----------------------
 
