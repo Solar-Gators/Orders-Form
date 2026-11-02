@@ -147,10 +147,11 @@ function kindFor(row, kinds) {
 export function toSponsorCard(row, { car = '', season = '', stage = '', stages = [], kinds = [] } = {}) {
   const amount = toMoney(row.amount);
   const emails = String(row.contact_email || '').match(EMAIL) || [];
+  const priority = /^\s*[1-5]\s*$/.test(row.priority || '') ? row.priority.trim() : '';
+  const contactedOn = /^\d{4}-\d{2}-\d{2}$/.test(row.contacted || '') ? row.contacted : '';
   const tags = [
     !isNone(row.level) && row.level,
     ...String(row.system || '').split(/[/,&+]|\band\b/i),
-    row.category,
     row.sheetTag,
   ]
     .map((t) => String(t || '').trim().toLowerCase())
@@ -158,7 +159,7 @@ export function toSponsorCard(row, { car = '', season = '', stage = '', stages =
   const about = [
     ['What they gave', row.gave],
     ['Why it matters', row.why],
-    ['Priority', row.priority],
+    ['Priority', priority ? '' : row.priority],
     ['Team member', row.lead],
     ['Other contact', row.other_contact],
     ['Address', row.address],
@@ -166,7 +167,7 @@ export function toSponsorCard(row, { car = '', season = '', stage = '', stages =
     ['Other emails', emails.slice(1).join(', ')],
     ['Amount', amount === null && !isNone(row.amount) ? row.amount : ''],
     ['Outreach status', row.status],
-    ['Date contacted', row.contacted],
+    ['Date contacted', contactedOn ? '' : row.contacted],
     ['Outcome', row.outcome],
     ...row.extra,
   ]
@@ -189,6 +190,9 @@ export function toSponsorCard(row, { car = '', season = '', stage = '', stages =
     description: about.join('\n'),
     playbook: String(row.notes || '').trim(),
     follow_up: followUp,
+    priority,
+    category: oneLine(row.category).slice(0, 80),
+    contacted_on: contactedOn,
     lead: oneLine(row.lead),
   };
 }

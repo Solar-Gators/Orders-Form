@@ -102,10 +102,11 @@ test('the outreach tracker\'s status and outcome pick the stage', () => {
   const rows = readSponsorRows(tracker, { sheet: 'Electrical Sponsors' });
   const cards = rows.map((r) => toSponsorCard(r, { car: 'Blaze', season: '2026-2027', stage: 'prospect', stages, kinds }));
   assert.deepEqual(cards.map((c) => c.stage), ['contacted', 'prospect', 'declined']);
-  assert.deepEqual(cards[0].tags, ['pcb sponsor', 'electrical']);
+  assert.deepEqual(cards[0].tags, ['electrical']);
+  assert.deepEqual([cards[0].priority, cards[0].category, cards[0].contacted_on], ['1', 'PCB Sponsor', '2026-09-24']);
   assert.deepEqual([cards[0].website, cards[0].follow_up, cards[0].season, cards[0].playbook], ['https://boards.example/', '2026-10-08', '2026-2027', 'Top priority']);
   assert.match(cards[0].description, /Why it matters:\*\* We order PCBs/);
-  assert.match(cards[0].description, /Date contacted:\*\* 2026-09-24/);
+  assert.doesNotMatch(cards[0].description, /Date contacted|Priority/);
   assert.equal(stageFor({ outcome: 'Secured!' }, stages), 'committed');
   assert.equal(stageFor({ outcome: 'Pending' }, stages), null);
 });

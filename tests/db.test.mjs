@@ -293,7 +293,7 @@ await test('the website cannot change the schema version', async () => {
   const general = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
   await as(ce, () => rpc('update_settings', ['general', { ...general, schemaVersion: 99 }]));
   const after = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
-  assert.equal(after.schemaVersion, 26);
+  assert.equal(after.schemaVersion, 27);
 });
 
 console.log('Form fields');
@@ -1352,6 +1352,56 @@ await test('Sponsors (026): old spreadsheets import as cards with a car, without
   assert.equal((await db.query(`select body from sponsor_activity where card_id = $1 and kind = 'edited'`, [cards[0].id])).rows[0].body, 'Changed car.');
   const next = await cardRpc(coordinator, 'renew_sponsor_card', [cards[0].id, '2027-2028']);
   assert.equal((await db.query(`select car from sponsor_cards where id = $1`, [next])).rows[0].car, 'Sunrider (car 3)');
+});
+
+await test('Sponsors (027): ask past sponsors again, claim and log contact, tracker fields, tags', async () => {
+  const past = (await db.query(`select id from sponsor_cards where car like 'Sunrider%' and season = '' order by position`)).rows.map((r) => r.id);
+  await as(ce, () => rejects(rpc('ask_sponsors_again', [past, '2026-2027', 'Blaze']), /does not allow/));
+  assert.equal(await cardRpc(coordinator, 'ask_sponsors_again', [past, '2026-2027', 'Blaze']), 3);
+  assert.equal(await cardRpc(coordinator, 'ask_sponsors_again', [past, '2026-2027', 'Blaze']), 0); // already asked
+  const asks = (await db.query(`select * from sponsor_cards where car = 'Blaze' and renewed_from = any($1) order by name`, [past])).rows;
+  assert.deepEqual(asks.map((c) => [c.name, c.stage, c.season, c.amount, c.owner_id]), [
+    ['Matrix Composites', 'contacted', '2026-2027', null, null], ['SKF', 'contacted', '2026-2027', null, null], ['SKF', 'contacted', '2026-2027', null, null]]);
+  const ask = asks[0];
+  assert.equal(ask.contact_email, 'cindy@matrix.example');
+  assert.match((await db.query(`select body from sponsor_activity where card_id = $1`, [ask.id])).rows[0].body, /they sponsored Sunrider/);
+
+  // (The first stage is Contacted here: an earlier test removed Prospect.)
+  await as(ce, () => rpc('claim_sponsor_card', [ask.id, true]));
+  await as(treasurer, () => rejects(rpc('claim_sponsor_card', [ask.id, true]), /Cora|Chief|already reaching out/));
+  await as(treasurer, () => rejects(rpc('log_sponsor_contact', [ask.id, null, 'Emailed']), /Only whoever/));
+  await as(member, () => rejects(rpc('claim_sponsor_card', [ask.id, true]), /does not allow/));
+  await as(ce, () => rpc('log_sponsor_contact', [ask.id, null, 'Emailed Cindy about honeycomb']));
+  const after = (await db.query(`select owner_id, contacted_on::text d from sponsor_cards where id = $1`, [ask.id])).rows[0];
+  assert.equal(after.owner_id, ce);
+  assert.equal(after.d, new Date().toISOString().slice(0, 10));
+  const kinds = (await db.query(`select kind, body from sponsor_activity where card_id = $1 order by id`, [ask.id])).rows;
+  assert.deepEqual(kinds.slice(1).map((k) => k.kind), ['claimed', 'contacted']);
+  assert.equal(kinds[2].body, 'Contacted them: Emailed Cindy about honeycomb');
+  await as(ce, () => rejects(rpc('log_sponsor_contact', [ask.id, '2999-01-01', '']), /future/));
+  await as(ce, () => rpc('claim_sponsor_card', [ask.id, false]));
+  assert.equal((await db.query(`select owner_id from sponsor_cards where id = $1`, [ask.id])).rows[0].owner_id, null);
+
+  await as(coordinator, () => rpc('save_sponsor_card', [ask.id, { priority: '2', category: 'Core material' }]));
+  await as(coordinator, () => rejects(rpc('save_sponsor_card', [ask.id, { priority: '9' }]), /1 \(highest\) to 5/));
+  const saved = (await db.query(`select priority, category from sponsor_cards where id = $1`, [ask.id])).rows[0];
+  assert.deepEqual([saved.priority, saved.category], [2, 'Core material']);
+
+  // Linking cards as one sponsor, and tags.
+  await as(coordinator, () => rpc('set_sponsor_key', [[ask.id, past[0]], 'matrix']));
+  assert.equal((await db.query(`select count(*)::int n from sponsor_cards where sponsor_key = 'matrix'`)).rows[0].n, 2);
+  await as(coordinator, () => rpc('save_sponsor_card', [ask.id, { tags: ['aero-body', 'gold'] }]));
+  await as(coordinator, () => rpc('save_sponsor_card', [past[0], { tags: ['aerobody', 'aero-body'] }]));
+  assert.equal(await cardRpc(coordinator, 'rename_sponsor_tag', ['aero-body', 'aerobody']), 2);
+  assert.deepEqual((await db.query(`select tags from sponsor_cards where id = $1`, [past[0]])).rows[0].tags, ['aerobody']);
+  assert.equal(await cardRpc(coordinator, 'rename_sponsor_tag', ['gold', '']), 2); // this card and the 2027-2028 renewal
+  assert.deepEqual((await db.query(`select tags from sponsor_cards where id = $1`, [ask.id])).rows[0].tags, ['aerobody']);
+
+  // Importing fills the tracker fields.
+  const res = await cardRpc(coordinator, 'import_sponsor_cards', [[{ name: 'Board House', car: 'Blaze', season: '2026-2027', priority: '1', category: 'PCB Sponsor', contacted_on: '2026-09-24' }], 'tracker.xlsx']);
+  assert.equal(res.added, 1);
+  const bh = (await db.query(`select priority, category, contacted_on::text d from sponsor_cards where name = 'Board House'`)).rows[0];
+  assert.deepEqual([bh.priority, bh.category, bh.d], [1, 'PCB Sponsor', '2026-09-24']);
 });
 
 console.log('Request watchers (016)');

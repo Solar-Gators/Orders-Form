@@ -929,6 +929,8 @@ body.nav-open .menu-icon::after { top: 0; transform: rotate(-45deg); }
   .page-header:has(> .card-actions) { flex-wrap: wrap; align-items: stretch; gap: 10px; }
   .page-header > .card-actions { width: 100%; flex-wrap: nowrap; }
   .page-header > .card-actions > .btn { flex: 1 1 0; width: auto; justify-content: center; text-align: center; }
+  .page-header > .card-actions.sp-actions { flex-wrap: wrap; }
+  .page-header > .card-actions.sp-actions > .btn { flex: 1 1 40%; }
 }
 
 /* Roles: a short table, not stretched across the page */
@@ -1275,9 +1277,9 @@ a.step-link:hover { text-decoration: underline; }
   .table.stack-mobile.detail-items tbody tr:has(.item-tick) { position: relative; }
   .table.stack-mobile.detail-items td.item-tick { position: absolute; top: 10px; right: 10px; padding: 0; width: auto; }
   .table.stack-mobile.detail-items tr:has(.item-tick) td.cell-primary { padding-right: 34px; }
-  .sponsor-import .table.stack-mobile tbody tr { position: relative; }
-  .sponsor-import .table.stack-mobile td.item-tick { position: absolute; top: 10px; right: 10px; padding: 0; width: auto; }
-  .sponsor-import .table.stack-mobile td.cell-primary { padding-right: 34px; }
+  .sponsor-import .table.stack-mobile tbody tr, .table.stack-mobile.ask-list tbody tr { position: relative; }
+  .sponsor-import .table.stack-mobile td.item-tick, .table.stack-mobile.ask-list td.item-tick { position: absolute; top: 10px; right: 10px; padding: 0; width: auto; }
+  .sponsor-import .table.stack-mobile td.cell-primary, .table.stack-mobile.ask-list td.cell-primary { padding-right: 34px; }
   .table.stack-mobile.ledger-table tbody tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; position: relative; border-left: 4px solid transparent; }
   .table.stack-mobile.ledger-table tbody tr.step-row-pink { border-left-color: #ffaaa4; }
   .table.stack-mobile.ledger-table tbody tr.step-row-lightgreen { border-left-color: #a9d08e; }
@@ -1350,6 +1352,29 @@ a.step-link:hover { text-decoration: underline; }
 .import-preview { max-height: 240px; overflow: auto; margin: 6px 0; }
 .import-preview .table td, .import-preview .table th { padding: 5px 8px; font-size: 13px; }
 .sponsor-import { max-height: 420px; }
+/* Sponsor outreach (027) */
+.sp-stats { display: flex; flex-wrap: wrap; gap: 10px; margin: 0 0 12px; }
+.sp-stat { flex: 1 1 110px; background: var(--surface, #fff); border: 1px solid var(--border, #e3e7ec); border-radius: 10px; padding: 8px 12px; display: flex; flex-direction: column; }
+.sp-stat strong { font-size: 20px; line-height: 1.2; }
+.sp-stat span { font-size: 12px; color: var(--muted, #667085); }
+.chip-return { background: #e7f6ec; color: #1d6b3a; font-weight: 600; }
+.prio { display: inline-block; min-width: 22px; text-align: center; border-radius: 4px; padding: 0 4px; font-size: 11px; font-weight: 700; background: #eef1f4; color: #475467; vertical-align: 1px; }
+.prio-1 { background: #fde4e2; color: #b42318; }
+.prio-2 { background: #fff1dc; color: #a15c07; }
+.kcard-claim { padding: 1px 8px; font-size: 12px; }
+.history-list { list-style: none; margin: 0 0 10px; padding: 0; }
+.history-list li { padding: 6px 0; border-bottom: 1px solid var(--border, #e3e7ec); line-height: 1.35; }
+.history-list li:last-child { border-bottom: 0; }
+.history-tip { margin-top: 2px; }
+.history-list .link-btn { display: block; margin-top: 2px; }
+.ask-bar p { margin: 0 0 8px; }
+.ask-go { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ask-go input { width: 160px; }
+.tag-merge { list-style: none; padding: 0; margin: 0 0 12px; }
+.tag-merge li { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 4px 0; }
+.tag-table { max-height: 420px; overflow: auto; }
+.tag-table input { width: 100%; min-width: 120px; }
+.contact-box { margin-bottom: 16px; }
 .sponsor-import tr.is-muted td:not(:first-child) { opacity: 0.5; }
 .import-skipped ul { margin: 6px 0; padding-left: 18px; max-height: 140px; overflow: auto; }
 .import-vendors, .import-mode { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border-soft); }
@@ -1572,6 +1597,10 @@ a.step-link:hover { text-decoration: underline; }
 [data-theme="dark"] .chip { background: var(--surface-2); }
 [data-theme="dark"] .season-tag { background: #241d4a; color: #c9bbff; }
 [data-theme="dark"] .tag { background: #10294a; color: #a9c6ff; }
+[data-theme="dark"] .chip-return { background: #123322; color: #8fe0ab; }
+[data-theme="dark"] .prio { background: var(--surface-2); color: var(--muted); }
+[data-theme="dark"] .prio-1 { background: #3d141c; color: #ff9d9d; }
+[data-theme="dark"] .prio-2 { background: #3a2a10; color: #ffc46b; }
 
 /* Alerts and announcements */
 [data-theme="dark"] .alert-error,
@@ -1754,9 +1783,12 @@ a.step-link:hover { text-decoration: underline; }
 .table.stack-mobile.is-stacked.detail-items tbody tr:has(.item-tick) { position: relative; }
 .table.stack-mobile.is-stacked.detail-items td.item-tick { position: absolute; top: 10px; right: 10px; padding: 0; width: auto; }
 .table.stack-mobile.is-stacked.detail-items tr:has(.item-tick) td.cell-primary { padding-right: 34px; }
-.sponsor-import .table.stack-mobile.is-stacked tbody tr { position: relative; }
-.sponsor-import .table.stack-mobile.is-stacked td.item-tick { position: absolute; top: 10px; right: 10px; padding: 0; width: auto; }
-.sponsor-import .table.stack-mobile.is-stacked td.cell-primary { padding-right: 34px; }
+.sponsor-import .table.stack-mobile.is-stacked tbody tr,
+.table.stack-mobile.is-stacked.ask-list tbody tr { position: relative; }
+.sponsor-import .table.stack-mobile.is-stacked td.item-tick,
+.table.stack-mobile.is-stacked.ask-list td.item-tick { position: absolute; top: 10px; right: 10px; padding: 0; width: auto; }
+.sponsor-import .table.stack-mobile.is-stacked td.cell-primary,
+.table.stack-mobile.is-stacked.ask-list td.cell-primary { padding-right: 34px; }
 .table.stack-mobile.is-stacked.ledger-table tbody tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; position: relative; border-left: 4px solid transparent; }
 .table.stack-mobile.is-stacked.ledger-table tbody tr.step-row-pink { border-left-color: #ffaaa4; }
 .table.stack-mobile.is-stacked.ledger-table tbody tr.step-row-lightgreen { border-left-color: #a9d08e; }

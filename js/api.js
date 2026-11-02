@@ -315,6 +315,25 @@ export const api = {
   async importSponsorCards(cards, source) {
     return unwrap(await supabase.rpc('import_sponsor_cards', { p_cards: cards, p_source: source }));
   },
+  // ---- Sponsor outreach (migration 027) ----
+  /** Copy past sponsors' cards onto a season's board for a car. Returns how many were added. */
+  async askSponsorsAgain(ids, season, car) {
+    return unwrap(await supabase.rpc('ask_sponsors_again', { p_ids: ids, p_season: season, p_car: car }));
+  },
+  /** Put cards in one sponsor group (key), or unlink one ('solo:<id>'). */
+  async setSponsorKey(ids, key) {
+    unwrap(await supabase.rpc('set_sponsor_key', { p_ids: ids, p_key: key }));
+  },
+  async claimSponsorCard(id, on) {
+    unwrap(await supabase.rpc('claim_sponsor_card', { p_id: id, p_on: on }));
+  },
+  async logSponsorContact(id, date, note) {
+    unwrap(await supabase.rpc('log_sponsor_contact', { p_id: id, p_date: date || null, p_note: note }));
+  },
+  /** Rename (or merge, or with '' remove) a tag on every card. Returns how many cards changed. */
+  async renameSponsorTag(from, to) {
+    return unwrap(await supabase.rpc('rename_sponsor_tag', { p_from: from, p_to: to }));
+  },
 
   // ---- Finances (migration 014): the Treasurer's own sheets -----------------------
 

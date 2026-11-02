@@ -10,6 +10,10 @@
  * a note. Viewing needs sponsors.view; changing, sponsors.edit.
  * Each card can say which car it was for (026), and old sponsor spreadsheets can be
  * imported ("Import from spreadsheet…"), so earlier cars' sponsors stay findable.
+ * 027: the same sponsor across cars ("By sponsor", "This sponsor over the years"),
+ * "Ask again" (past sponsors onto this season's board), the outreach tracker's
+ * priority / category / date contacted, claiming a card ("I'll reach out"), and
+ * renaming or merging tags.
  */
 import { api } from '../api.js';
 import { auth } from '../auth.js';
@@ -18,6 +22,7 @@ import { guardLeaving, releaseGuard } from '../leaveGuard.js';
 import { renderAttachments } from '../attachments.js';
 import { readItemFile } from '../itemImport.js';
 import { readSponsorRows, toSponsorCard, guessCar } from '../sponsorImport.js';
+import { groupSponsors, sponsorKey, tagLookalikes } from '../sponsorGroups.js';
 
 const STAGE_KINDS = [
   ['open', 'Working on it'],
@@ -46,7 +51,7 @@ function sponsorSettings(config) {
 }
 
 // Kept while moving around the app.
-const view = { mode: 'board', season: '', car: '', q: '', who: '' };
+const view = { mode: 'board', season: '', car: '', q: '', who: '', sort: '' };
 
 const today = () => new Date().toISOString().slice(0, 10);
 const initials = (name) => String(name || '?').split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase();
@@ -54,6 +59,14 @@ const canEdit = () => auth.can('sponsors.edit');
 const hasCars = (config) => Number(config.schemaVersion) >= 26;
 /** Cars named on any card, most recently added first. */
 const carsOf = (cards) => [...new Set([...cards].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).map((c) => c.car).filter(Boolean))];
+const hasOutreach = (config) => Number(config.schemaVersion) >= 27;
+const daysSince = (date) => Math.round((Date.parse(today()) - Date.parse(date)) / 864e5);
+/** What a card brought in: its amount once it's in a received / done stage. */
+const gaveOf = (stages, c) => (['received', 'done'].includes(stages.find((s) => s.key === c.stage)?.kind) ? Number(c.amount) || 0 : 0);
+/** "Flare · 2023-2024" */
+const whenOf = (c) => [c.car, c.season].filter(Boolean).join(' · ') || 'Earlier';
+/** The stage a card goes to once someone has emailed them. */
+const contactedStage = (stages) => (stages.find((s) => s.key === 'contacted') || stages[1] || stages[0]).key;
 const isOpen = (stages, card) => ['open', undefined].includes(stages.find((s) => s.key === card.stage)?.kind);
 
 /** People who can see the board (so they can watch or lead a card). */
@@ -83,17 +96,32 @@ export async function renderSponsors(el, { config, rerender, reloadConfig }) {
   const me = auth.user.id;
   const cars = hasCars(config) ? carsOf(cards) : [];
   if (view.car && !cars.includes(view.car)) view.car = '';
+  const outreach = hasOutreach(config);
+  if (!outreach && ['sponsors', 'again'].includes(view.mode)) view.mode = 'list';
+  const grouped = view.mode === 'sponsors' || view.mode === 'again';
+  const groups = outreach ? groupSponsors(cards) : new Map();
+  const groupOf = (c) => groups.get(sponsorKey(c)) || [c];
+  const canView = canEdit() || auth.can('sponsors.view');
+  const stageLabel = (k) => stages.find((s) => s.key === k)?.label || k;
 
-  const matches = (c) => {
-    const words = view.q.toLowerCase().split(/\s+/).filter(Boolean);
-    const text = [c.name, c.kind, c.contact_name, c.contact_email, c.website, ...(c.tags || []), c.description, c.playbook, nameOf(c.owner_id), c.season, c.car]
+  const textOf = (c) =>
+    [c.name, c.kind, c.category, c.contact_name, c.contact_email, c.website, ...(c.tags || []), c.description, c.playbook, nameOf(c.owner_id), c.season, c.car]
       .join(' ')
       .toLowerCase();
+  const words = () => view.q.toLowerCase().split(/\s+/).filter(Boolean);
+  /** By sponsor / Ask again: a group matches when the search words are on any of its cards. */
+  const groupMatches = (list) => {
+    const text = list.map(textOf).join(' ');
+    // (Ask again has no car filter: the car there is the one you're asking for.)
+    return words().every((w) => text.includes(w)) && (!view.car || view.mode === 'again' || list.some((c) => c.car === view.car));
+  };
+  const matches = (c) => {
+    const text = textOf(c);
     return (
-      words.every((w) => text.includes(w)) &&
+      words().every((w) => text.includes(w)) &&
       (view.season === 'all' || c.season === view.season) &&
       (!view.car || c.car === view.car) &&
-      (!view.who || (view.who === 'mine' ? c.owner_id === me : c.watchers.includes(me)))
+      (!view.who || (view.who === 'mine' ? c.owner_id === me : view.who === 'free' ? !c.owner_id && isOpen(stages, c) : c.watchers.includes(me)))
     );
   };
 
@@ -104,9 +132,10 @@ export async function renderSponsors(el, { config, rerender, reloadConfig }) {
         <h1>Sponsors</h1>
         <p class="subtitle">Sponsorships and donations, from first contact to thank-you. Every season stays here for the next team.</p>
       </div>
-      <div class="card-actions">
+      <div class="card-actions sp-actions">
         ${canEdit() ? '<button type="button" class="btn btn-primary" id="new-card">+ New sponsor</button>' : ''}
         ${canEdit() && hasCars(config) ? '<button type="button" class="btn" id="sp-import">Import from spreadsheet…</button>' : ''}
+        ${canEdit() && outreach ? '<button type="button" class="btn" id="sp-tags">Tags</button>' : ''}
         ${canEdit() ? '<button type="button" class="btn" id="board-settings">Board settings</button>' : ''}
       </div>
     </div>
@@ -115,21 +144,28 @@ export async function renderSponsors(el, { config, rerender, reloadConfig }) {
       <div class="segmented" role="tablist" aria-label="View">
         <button type="button" role="tab" data-mode="board" aria-selected="${view.mode === 'board'}">Board</button>
         <button type="button" role="tab" data-mode="list" aria-selected="${view.mode === 'list'}">All sponsors</button>
+        ${outreach ? `<button type="button" role="tab" data-mode="sponsors" aria-selected="${view.mode === 'sponsors'}">By sponsor</button>
+        <button type="button" role="tab" data-mode="again" aria-selected="${view.mode === 'again'}">Ask again</button>` : ''}
       </div>
       <input type="search" id="sp-q" placeholder="Search names, contacts, tags, notes…" value="${esc(view.q)}" aria-label="Search sponsors">
-      <select id="sp-season" aria-label="Season">
+      ${grouped ? '' : `<select id="sp-season" aria-label="Season">
         ${view.mode === 'list' ? `<option value="all" ${view.season === 'all' ? 'selected' : ''}>Every season</option>` : ''}
         ${seasons.map((s) => `<option value="${esc(s)}" ${s === view.season ? 'selected' : ''}>${esc(s)}</option>`).join('')}
-      </select>
-      ${cars.length ? `<select id="sp-car" aria-label="Car">
+      </select>`}
+      ${cars.length && view.mode !== 'again' ? `<select id="sp-car" aria-label="Car">
         <option value="">Every car</option>
         ${cars.map((c) => `<option value="${esc(c)}" ${c === view.car ? 'selected' : ''}>${esc(c)}</option>`).join('')}
       </select>` : ''}
-      <select id="sp-who" aria-label="Whose">
+      ${grouped ? '' : `<select id="sp-who" aria-label="Whose">
         <option value="">Everyone's</option>
         <option value="mine" ${view.who === 'mine' ? 'selected' : ''}>I'm leading</option>
         <option value="watching" ${view.who === 'watching' ? 'selected' : ''}>I'm watching</option>
-      </select>
+        ${outreach ? `<option value="free" ${view.who === 'free' ? 'selected' : ''}>Nobody's on it yet</option>` : ''}
+      </select>`}
+      ${outreach && view.mode === 'board' ? `<select id="sp-sort" aria-label="Order">
+        <option value="">As arranged</option>
+        <option value="priority" ${view.sort === 'priority' ? 'selected' : ''}>By priority</option>
+      </select>` : ''}
     </div>
     <div id="sp-errors"></div>
     <div id="sp-body"></div>`;
@@ -137,10 +173,20 @@ export async function renderSponsors(el, { config, rerender, reloadConfig }) {
   const errors = el.querySelector('#sp-errors');
   const body = el.querySelector('#sp-body');
 
+  const returning = (c) => {
+    const others = groupOf(c).filter((x) => x.id !== c.id);
+    return others.length
+      ? ` <span class="chip chip-return" title="Also on the board for ${esc(others.map(whenOf).join(', '))}">↺ Returning</span>`
+      : '';
+  };
   const cardHtml = (c) => {
     const due = c.follow_up && c.follow_up <= today() && isOpen(stages, c);
+    const ago = c.contacted_on ? daysSince(c.contacted_on) : null;
+    // Emailed two weeks ago and still waiting at Contacted: time to nudge them.
+    const quiet = ago !== null && ago >= 14 && c.stage === contactedStage(stages);
     return `<article class="kcard" data-card="${esc(c.id)}" ${canEdit() ? 'draggable="true"' : ''}>
-      <a class="kcard-name" href="#/sponsors/${esc(c.id)}">${esc(c.name)}</a>
+      <a class="kcard-name" href="#/sponsors/${esc(c.id)}">${c.priority ? `<span class="prio prio-${c.priority}" title="Priority ${c.priority} (1 = highest)">P${c.priority}</span> ` : ''}${esc(c.name)}</a>${returning(c)}
+      ${c.category ? `<div class="muted small">${esc(c.category)}</div>` : ''}
       <div class="kcard-meta">
         ${c.kind ? `<span class="chip">${esc(c.kind.replace(/ \(.*/, ''))}</span>` : ''}
         ${c.amount !== null && c.amount !== undefined ? `<strong>${fmtMoney(c.amount)}</strong>` : ''}
@@ -149,6 +195,8 @@ export async function renderSponsors(el, { config, rerender, reloadConfig }) {
       <div class="kcard-foot">
         ${c.owner_id ? `<span class="avatar" title="Lead: ${esc(nameOf(c.owner_id))}">${esc(initials(nameOf(c.owner_id)))}</span>` : ''}
         ${c.follow_up ? `<span class="${due ? 'late-tag' : 'muted small'}" title="Follow up">↻ ${fmtDate(c.follow_up)}</span>` : ''}
+        ${ago !== null ? `<span class="${quiet ? 'late-tag' : 'muted small'}" title="Last contacted ${esc(fmtDate(c.contacted_on))}">✉ ${ago <= 0 ? 'today' : `${ago}d ago`}</span>` : ''}
+        ${outreach && canView && !c.owner_id && isOpen(stages, c) ? `<button type="button" class="btn btn-sm kcard-claim" data-claim="${esc(c.id)}" title="Become the lead, so nobody else emails them too">I'll reach out</button>` : ''}
         ${c.watchers.length ? `<span class="muted small" title="${c.watchers.length} watching">👁 ${c.watchers.length}</span>` : ''}
         ${fileCounts[c.id] ? `<span class="muted small" title="${fileCounts[c.id]} file${fileCounts[c.id] === 1 ? '' : 's'} or link${fileCounts[c.id] === 1 ? '' : 's'}">📎 ${fileCounts[c.id]}</span>` : ''}
         ${canEdit() ? `<select class="kcard-move" data-move="${esc(c.id)}" aria-label="Move ${esc(c.name)} to">${stages
@@ -158,11 +206,26 @@ export async function renderSponsors(el, { config, rerender, reloadConfig }) {
     </article>`;
   };
 
+  /** The outreach tracker's summary: targets, someone on it, contacted, secured. */
+  const stats = (shown) => {
+    const first = stages[0]?.key;
+    const secured = shown.filter((c) => ['received', 'done'].includes(stages.find((s) => s.key === c.stage)?.kind) || /commit/i.test(c.stage));
+    const n = (label, value, hint) => `<div class="sp-stat" title="${esc(hint)}"><strong>${value}</strong><span>${esc(label)}</span></div>`;
+    return `<div class="sp-stats">
+      ${n('Targets', shown.filter((c) => stages.find((s) => s.key === c.stage)?.kind !== 'lost').length, 'Sponsors on the board, not counting "not this year"')}
+      ${n('Someone on it', shown.filter((c) => c.owner_id).length, 'Cards with a lead')}
+      ${n('Contacted', shown.filter((c) => c.contacted_on || c.stage !== first).length, 'Past the first stage, or a date contacted')}
+      ${n('Secured', secured.length, 'Committed, received or thanked')}
+      ${n('Raised', fmtMoney(secured.reduce((sum, c) => sum + (Number(c.amount) || 0), 0)), 'Amounts of the secured cards')}
+    </div>`;
+  };
+  const byOrder = (a, b) => (view.sort === 'priority' ? (a.priority ?? 9) - (b.priority ?? 9) : 0) || a.position - b.position;
+
   const drawBoard = () => {
     const shown = cards.filter(matches);
-    body.innerHTML = `<div class="kanban">${stages
+    body.innerHTML = `${outreach ? stats(shown) : ''}<div class="kanban">${stages
       .map((s) => {
-        const list = shown.filter((c) => c.stage === s.key).sort((a, b) => a.position - b.position);
+        const list = shown.filter((c) => c.stage === s.key).sort(byOrder);
         const total = list.reduce((sum, c) => sum + (Number(c.amount) || 0), 0);
         return `<section class="kanban-col kind-${esc(s.kind || 'open')}${list.length ? '' : ' is-empty'}" data-stage="${esc(s.key)}" aria-label="${esc(s.label)}">
           <header><h2>${esc(s.label)}</h2><span class="muted small">${list.length}${total ? ` · ${fmtMoney(total)}` : ''}</span></header>
@@ -174,9 +237,74 @@ export async function renderSponsors(el, { config, rerender, reloadConfig }) {
       <p class="hint hide-touch">Drag cards between columns. Click a card for its details, notes and history.</p>`;
   };
 
+  // ---- By sponsor: one row per sponsor, every car and season they were on ----
+  const sponsorRows = () =>
+    [...groups.values()]
+      .filter(groupMatches)
+      .map((list) => ({ list, latest: list[0], gave: list.reduce((sum, c) => sum + gaveOf(stages, c), 0) }))
+      .sort((a, b) => b.gave - a.gave || b.list.length - a.list.length || a.latest.name.localeCompare(b.latest.name));
+  const drawSponsors = () => {
+    const rows = sponsorRows();
+    body.innerHTML = rows.length
+      ? `<p class="muted small">${rows.length} sponsor${rows.length === 1 ? '' : 's'} · ${rows.filter((r) => r.list.length > 1).length} on more than one car or season.
+          Biggest givers first. Cards with different names for the same sponsor can be linked on the card (This sponsor over the years).</p>
+        <div class="table-wrap"><table class="table stack-mobile sponsor-list">
+          <thead><tr><th>Sponsor</th><th>Cars &amp; seasons</th><th class="num">Given in all</th><th>Latest</th><th>Tags</th></tr></thead>
+          <tbody>${rows
+            .map(({ list, latest, gave }) => `<tr class="clickable" data-href="#/sponsors/${esc(latest.id)}">
+              <td class="cell-primary" data-label=""><a class="title-link" href="#/sponsors/${esc(latest.id)}">${esc(latest.name)}</a>${
+                list.some((c) => c.playbook) ? ' <span class="field-tag" title="Has tips for next time">Tips</span>' : ''}</td>
+              <td data-label="Cars &amp; seasons">${list.map((c) => `<a class="chip" href="#/sponsors/${esc(c.id)}">${esc(whenOf(c))}</a>`).join(' ')}</td>
+              <td class="num" data-label="Given in all">${gave ? fmtMoney(gave) : '—'}</td>
+              <td data-label="Latest">${esc(stageLabel(latest.stage))}</td>
+              <td data-label="Tags">${[...new Set(list.flatMap((c) => c.tags || []))].slice(0, 6).map((t) => `<span class="tag">${esc(t)}</span>`).join(' ') || '—'}</td>
+            </tr>`)
+            .join('')}</tbody></table></div>`
+      : '<div class="empty">No sponsors match.</div>';
+  };
+
+  // ---- Ask again: past sponsors who aren't on this season's board yet ----
+  const picked = new Set();
+  const askCar = () => el.querySelector('#ask-car')?.value.trim() ?? (carsOf(cards.filter((c) => c.season === config.season))[0] || cars[0] || '');
+  const drawAgain = () => {
+    const car = askCar();
+    const rows = sponsorRows().filter(({ list }) => !list.some((c) => c.season === config.season || (car && c.car === car && !c.season)));
+    for (const k of [...picked]) if (!rows.some((r) => sponsorKey(r.latest) === k)) picked.delete(k);
+    const lost = (c) => stages.find((s) => s.key === c.stage)?.kind === 'lost';
+    body.innerHTML = `<section class="card ask-bar">
+        <p>Sponsors from earlier cars and seasons who aren't on the <strong>${esc(config.season)}</strong> board yet, biggest givers first.
+          Tick the ones to ask again: each gets a card in <strong>${esc(stages[0].label)}</strong> with their latest contacts, notes and tips (no lead or amount yet).</p>
+        ${canEdit() ? `<div class="ask-go">
+          <label for="ask-car">For the car</label>
+          <input id="ask-car" maxlength="40" list="ask-cars" value="${esc(car)}" placeholder="e.g. Blaze">
+          <datalist id="ask-cars">${cars.map((c) => `<option value="${esc(c)}">`).join('')}</datalist>
+          <button type="button" class="btn btn-primary" id="ask-go" ${picked.size ? '' : 'disabled'}>Add ${picked.size} to ${esc(config.season)}</button>
+        </div>` : ''}
+      </section>
+      ${rows.length ? `<div class="table-wrap"><table class="table stack-mobile sponsor-list ask-list">
+        <thead><tr>${canEdit() ? `<th><input type="checkbox" id="ask-all" aria-label="Tick or untick all" ${picked.size === rows.length ? 'checked' : ''}></th>` : ''}<th>Sponsor</th><th>Before</th><th class="num">Gave</th><th>Last time</th><th>Contact</th></tr></thead>
+        <tbody>${rows
+          .map(({ list, latest, gave }) => `<tr>
+            ${canEdit() ? `<td class="item-tick"><input type="checkbox" data-ask="${esc(sponsorKey(latest))}" ${picked.has(sponsorKey(latest)) ? 'checked' : ''} aria-label="Ask ${esc(latest.name)} again"></td>` : ''}
+            <td class="cell-primary" data-label=""><a class="title-link" href="#/sponsors/${esc(latest.id)}">${esc(latest.name)}</a>${
+              list.some((c) => c.playbook) ? ' <span class="field-tag" title="Has tips for next time (see This sponsor over the years on the card)">Tips</span>' : ''}
+              ${latest.kind || latest.tags?.length ? `<div class="muted small">${esc([latest.kind?.replace(/ \(.*/, ''), ...(latest.tags || []).slice(0, 3)].filter(Boolean).join(' · '))}</div>` : ''}</td>
+            <td data-label="Before">${list.map((c) => esc(whenOf(c))).join(', ')}</td>
+            <td class="num" data-label="Gave">${gave ? fmtMoney(gave) : '—'}</td>
+            <td data-label="Last time">${lost(latest) ? `<span class="late-tag">${esc(stageLabel(latest.stage))}</span>` : esc(stageLabel(latest.stage))}</td>
+            <td data-label="Contact">${latest.contact_email ? `<a href="mailto:${esc(latest.contact_email)}">${esc(latest.contact_name || latest.contact_email)}</a>` : esc(latest.contact_name || '—')}</td>
+          </tr>`)
+          .join('')}</tbody></table></div>` : `<div class="empty">Every past sponsor${view.q ? ' that matches' : ''} is already on the ${esc(config.season)} board.</div>`}`;
+  };
+  const updateAskButton = () => {
+    const btn = el.querySelector('#ask-go');
+    if (!btn) return;
+    btn.disabled = !picked.size;
+    btn.textContent = `Add ${picked.size} to ${config.season}`;
+  };
+
   const drawList = () => {
     const shown = cards.filter(matches).sort((a, b) => (b.season || '').localeCompare(a.season || '') || a.name.localeCompare(b.name));
-    const stageLabel = (k) => stages.find((s) => s.key === k)?.label || k;
     const total = shown.reduce((s, c) => s + (['received', 'done'].includes(stages.find((x) => x.key === c.stage)?.kind) ? Number(c.amount) || 0 : 0), 0);
     body.innerHTML = shown.length
       ? `<p class="muted small">${shown.length} sponsor card${shown.length === 1 ? '' : 's'}${total ? ` · ${fmtMoney(total)} received` : ''}</p>
@@ -186,7 +314,7 @@ export async function renderSponsors(el, { config, rerender, reloadConfig }) {
             .map(
               (c) => `<tr class="clickable" data-href="#/sponsors/${esc(c.id)}">
                 <td class="cell-primary" data-label=""><a class="title-link" href="#/sponsors/${esc(c.id)}">${esc(c.name)}</a>${
-                  c.playbook ? ' <span class="field-tag" title="Has tips for next time">Tips</span>' : ''}</td>
+                  c.playbook ? ' <span class="field-tag" title="Has tips for next time">Tips</span>' : ''}${returning(c)}</td>
                 <td data-label="Season">${esc(c.season || '—')}</td>
                 ${cars.length ? `<td data-label="Car">${esc(c.car || '—')}</td>` : ''}
                 <td data-label="Type">${esc(c.kind || '—')}</td>
@@ -201,7 +329,7 @@ export async function renderSponsors(el, { config, rerender, reloadConfig }) {
           view.mode === 'board' && cars.length ? ' Sponsors of earlier cars without a season are under <strong>All sponsors</strong> → Every season.' : ''}</div>`;
   };
 
-  const draw = () => (view.mode === 'board' ? drawBoard() : drawList());
+  const draw = () => ({ board: drawBoard, sponsors: drawSponsors, again: drawAgain }[view.mode] || drawList)();
 
   const create = async (stage, name) => {
     try {
@@ -287,6 +415,24 @@ export async function renderSponsors(el, { config, rerender, reloadConfig }) {
       view.who = e.target.value;
       return draw();
     }
+    if (e.target.id === 'sp-sort') {
+      view.sort = e.target.value;
+      return draw();
+    }
+    if (e.target.dataset.ask) {
+      if (e.target.checked) picked.add(e.target.dataset.ask);
+      else picked.delete(e.target.dataset.ask);
+      return updateAskButton();
+    }
+    if (e.target.id === 'ask-all') {
+      el.querySelectorAll('[data-ask]').forEach((box) => {
+        box.checked = e.target.checked;
+        if (box.checked) picked.add(box.dataset.ask);
+        else picked.delete(box.dataset.ask);
+      });
+      return updateAskButton();
+    }
+    if (e.target.id === 'ask-car') return draw();
   });
   el.querySelector('#sp-q').addEventListener('input', (e) => {
     view.q = e.target.value;
@@ -321,6 +467,36 @@ export async function renderSponsors(el, { config, rerender, reloadConfig }) {
       const id = await create(stages[0].key, name);
       if (id) location.hash = `#/sponsors/${id}`;
     }
+    if (btn.dataset.claim) {
+      btn.disabled = true;
+      try {
+        await api.claimSponsorCard(btn.dataset.claim, true);
+        setFlash(`You're on ${cards.find((c) => c.id === btn.dataset.claim)?.name || 'it'}. Log it on the card once you've emailed them.`);
+        return rerender();
+      } catch (err) {
+        errors.innerHTML = errorBox(err);
+        btn.disabled = false;
+      }
+    }
+    if (btn.id === 'ask-go') {
+      const car = askCar();
+      const ids = [...picked].map((k) => groups.get(k)?.[0]?.id).filter(Boolean);
+      if (!confirm(`Add ${ids.length} past sponsor${ids.length === 1 ? '' : 's'} to the ${config.season} board${car ? ` for ${car}` : ''}, in "${stages[0].label}"?`)) return;
+      btn.disabled = true;
+      try {
+        const n = await api.askSponsorsAgain(ids, config.season, car);
+        setFlash(`Added ${n} past sponsor${n === 1 ? '' : 's'} to the ${config.season} board${car ? ` for ${car}` : ''}. Claim one with "I'll reach out".`);
+        Object.assign(view, { mode: 'board', season: config.season, q: '', who: '' });
+        return rerender();
+      } catch (err) {
+        errors.innerHTML = errorBox(err);
+        btn.disabled = false;
+      }
+    }
+    if (btn.id === 'sp-tags') {
+      btn.hidden = true;
+      openTags(el.querySelector('#settings-box'), { cards, rerender, onDone: () => (btn.hidden = false) });
+    }
     if (btn.id === 'sp-import') {
       btn.hidden = true;
       openImport(el.querySelector('#settings-box'), { config, cards, cars, rerender, onDone: () => (btn.hidden = false) });
@@ -331,6 +507,75 @@ export async function renderSponsors(el, { config, rerender, reloadConfig }) {
     }
   });
 
+  draw();
+}
+
+// ---- Tags: rename or merge across every card (027) ---------------------------------------
+
+function openTags(box, { cards, rerender, onDone }) {
+  let all = cards;
+  const draw = (message = '') => {
+    const counts = {};
+    all.forEach((c) => (c.tags || []).forEach((t) => (counts[t] = (counts[t] || 0) + 1)));
+    const sets = tagLookalikes(counts);
+    const tags = Object.keys(counts).sort((a, b) => a.localeCompare(b));
+    box.innerHTML = `<section class="card">
+      <h2>Tags</h2>
+      <p class="muted small">Rename a tag on every card. Renaming it to a tag that's already used merges the two; × removes it from every card.</p>
+      ${message ? `<div class="alert alert-success" role="status">${esc(message)}</div>` : ''}
+      ${sets.length ? `<h3 class="sub-heading">Spelled differently, probably the same</h3>
+        <ul class="tag-merge">${sets
+          .map((set) => `<li>${set.map((t) => `<span class="tag">${esc(t)}</span> <span class="muted small">${counts[t]}</span>`).join(' ')}
+            <button type="button" class="btn btn-sm" data-merge="${esc(JSON.stringify(set))}">Merge into "${esc(set[0])}"</button></li>`)
+          .join('')}</ul>` : ''}
+      ${tags.length ? `<div class="table-wrap tag-table"><table class="table">
+        <thead><tr><th>Tag</th><th class="num">Cards</th><th>Rename to</th><th></th></tr></thead>
+        <tbody>${tags
+          .map((t) => `<tr data-tag="${esc(t)}"><td><span class="tag">${esc(t)}</span></td><td class="num">${counts[t]}</td>
+            <td><input type="text" data-new-name value="${esc(t)}" maxlength="40" aria-label="New name for ${esc(t)}"></td>
+            <td class="nowrap"><button type="button" class="btn btn-sm" data-rename>Rename</button>
+              <button type="button" class="icon-btn" data-remove aria-label="Remove ${esc(t)} from every card" title="Remove from every card">&times;</button></td></tr>`)
+          .join('')}</tbody></table></div>` : '<p class="muted">No tags yet.</p>'}
+      <div id="tag-errors"></div>
+      <div class="form-actions"><button type="button" class="btn btn-primary" id="tags-done">Done</button></div>
+    </section>`;
+  };
+  const run = async (pairs, message) => {
+    try {
+      let n = 0;
+      for (const [from, to] of pairs) n += await api.renameSponsorTag(from, to);
+      all = await api.listSponsorCards();
+      draw(message.replace('{n}', `${n} card${n === 1 ? '' : 's'}`));
+    } catch (err) {
+      box.querySelector('#tag-errors').innerHTML = errorBox(err);
+    }
+  };
+  box.onclick = (e) => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    if (btn.id === 'tags-done') {
+      box.innerHTML = '';
+      onDone();
+      return rerender();
+    }
+    if (btn.dataset.merge) {
+      const [into, ...rest] = JSON.parse(btn.dataset.merge);
+      return run(rest.map((t) => [t, into]), `Merged into "${into}" on {n}.`);
+    }
+    const row = btn.closest('tr[data-tag]');
+    if (!row) return;
+    const from = row.dataset.tag;
+    if (btn.hasAttribute('data-remove')) {
+      if (!confirm(`Remove the tag "${from}" from every card?`)) return;
+      return run([[from, '']], `Removed "${from}" from {n}.`);
+    }
+    const to = row.querySelector('[data-new-name]').value.trim();
+    if (!to) return alert('Write the new name, or use × to remove the tag.');
+    if (to !== from) run([[from, to]], `Renamed "${from}" to "${to}" on {n}.`);
+  };
+  box.onkeydown = (e) => {
+    if (e.key === 'Enter' && e.target.matches('[data-new-name]')) e.target.closest('tr').querySelector('[data-rename]').click();
+  };
   draw();
 }
 
@@ -624,9 +869,18 @@ export async function renderSponsorCard(el, { config, params, rerender }) {
   const watching = card.watchers.includes(me);
   const renewedFrom = cards.find((c) => c.id === card.renewed_from);
   const renewals = cards.filter((c) => c.renewed_from === card.id);
+  // The same sponsor on other cars and seasons (027).
+  const outreach = hasOutreach(config);
+  const groups = outreach ? groupSponsors(cards) : new Map();
+  const myKey = sponsorKey(card);
+  const group = groups.get(myKey) || [card];
+  const others = group.filter((c) => c.id !== card.id);
+  const isLead = card.owner_id === me;
+  const canView = editable || auth.can('sponsors.view');
+  const categories = [...new Set(cards.map((c) => c.category).filter(Boolean))].sort();
   // Similar sponsors (other cards with a shared tag or the same type), most in common first.
   const similar = cards
-    .filter((c) => c.id !== card.id && c.id !== card.renewed_from && c.renewed_from !== card.id)
+    .filter((c) => c.id !== card.id && c.id !== card.renewed_from && c.renewed_from !== card.id && !group.includes(c))
     .map((c) => ({ c, score: (c.tags || []).filter((t) => (card.tags || []).includes(t)).length * 2 + (c.kind && c.kind === card.kind ? 1 : 0) }))
     .filter((x) => x.score > 0)
     .sort((a, b) => b.score - a.score)
@@ -651,15 +905,30 @@ export async function renderSponsorCard(el, { config, params, rerender }) {
         <h1>${esc(card.name)}</h1>
         <p class="subtitle"><span class="badge tone-blue">${esc(stageLabel(card.stage))}</span>
           ${card.amount !== null ? `<strong>${fmtMoney(card.amount)}</strong>` : ''}
-          ${renewedFrom ? `<span class="muted small">Renewed from <a href="#/sponsors/${esc(renewedFrom.id)}">${esc(renewedFrom.season)}</a></span>` : ''}
-          ${renewals.map((r) => `<span class="muted small">Renewed for <a href="#/sponsors/${esc(r.id)}">${esc(r.season)}</a></span>`).join('')}</p>
+          ${others.length ? `<span class="chip chip-return">↺ Returning sponsor</span>` : ''}
+          ${renewedFrom ? `<span class="muted small">Renewed from <a href="#/sponsors/${esc(renewedFrom.id)}">${esc(whenOf(renewedFrom))}</a></span>` : ''}
+          ${renewals.map((r) => `<span class="muted small">Renewed for <a href="#/sponsors/${esc(r.id)}">${esc(whenOf(r))}</a></span>`).join('')}
+          ${outreach && card.owner_id && isOpen(stages, card) ? `<span class="muted small">${isLead ? 'You are' : `${esc(nameOf(card.owner_id))} is`} reaching out${card.contacted_on ? ` · contacted ${esc(fmtDate(card.contacted_on))}` : ''}</span>` : ''}</p>
       </div>
       <div class="card-actions">
+        ${outreach && canView && isOpen(stages, card) && !card.owner_id ? '<button type="button" class="btn btn-primary" id="claim" title="Become the lead, so nobody else emails them too">I\'ll reach out</button>' : ''}
+        ${outreach && (editable || isLead) ? '<button type="button" class="btn" id="log-contact">✉ Log contact…</button>' : ''}
+        ${outreach && isLead && isOpen(stages, card) ? '<button type="button" class="btn btn-ghost" id="unclaim">Stop reaching out</button>' : ''}
         <button type="button" class="btn" id="watch">${watching ? '👁 Watching · Stop' : '👁 Watch'}</button>
         ${editable && nextSeason && finished && !renewals.some((r) => r.season === nextSeason) ? `<button type="button" class="btn" id="renew">Renew for ${esc(nextSeason)}</button>` : ''}
       </div>
     </div>
     <div id="card-errors"></div>
+    ${outreach && (editable || isLead) ? `<form id="contact-form" class="card contact-box" hidden novalidate>
+      <h2>Log contact</h2>
+      <p class="muted small">After emailing or calling them. It goes in Notes &amp; history, sets the date contacted, and moves a card in ${esc(stages[0].label)} to ${esc(stageLabel(contactedStage(stages)))}.</p>
+      <div class="form-grid">
+        <div class="field"><label for="contact-date">When</label><input type="date" id="contact-date" value="${today()}" max="${today()}"></div>
+        <div class="field span-2"><label for="contact-note">What happened <span class="muted small">(optional)</span></label>
+          <textarea id="contact-note" rows="2" placeholder="e.g. Emailed Cindy the sponsorship packet; she'll ask her manager."></textarea></div>
+      </div>
+      <div class="form-actions"><button type="button" class="btn btn-ghost" id="contact-cancel">Cancel</button><button type="submit" class="btn btn-primary">Log it</button></div>
+    </form>` : ''}
     <div class="detail-layout">
       <div>
         <form id="card-form" novalidate>
@@ -674,6 +943,10 @@ export async function renderSponsorCard(el, { config, params, rerender }) {
               ${hasCars(config) ? field('Car', editable ? `${input('car', card.car, 'maxlength="40" list="car-names" placeholder="e.g. Blaze"')}<datalist id="car-names">${carsOf(cards).map((c) => `<option value="${esc(c)}">`).join('')}</datalist>` : read(esc(card.car))) : ''}
               ${field('Lead', editable ? `<select name="owner_id"><option value="">Nobody yet</option>${people.map((p) => `<option value="${esc(p.id)}" ${p.id === card.owner_id ? 'selected' : ''}>${esc(p.full_name || p.email)}</option>`).join('')}</select>` : read(esc(card.owner_id ? nameOf(card.owner_id) : '')))}
               ${field('Follow up on', editable ? input('follow_up', card.follow_up ?? '', 'type="date"') : read(card.follow_up ? fmtDate(card.follow_up) : ''))}
+              ${outreach ? `
+              ${field('Priority', editable ? `<select name="priority"><option value="">—</option>${[1, 2, 3, 4, 5].map((n) => `<option value="${n}" ${n === card.priority ? 'selected' : ''}>${n}${n === 1 ? ' (highest)' : ''}</option>`).join('')}</select>` : read(card.priority ? String(card.priority) : ''))}
+              ${field('Date contacted', editable ? input('contacted_on', card.contacted_on ?? '', `type="date" max="${today()}"`) : read(card.contacted_on ? fmtDate(card.contacted_on) : ''))}
+              ${field('Request category <span class="muted small">(what we\'re asking for, e.g. PCB sponsor, core material)</span>', editable ? `${input('category', card.category, 'maxlength="80" list="category-names"')}<datalist id="category-names">${categories.map((c) => `<option value="${esc(c)}">`).join('')}</datalist>` : read(esc(card.category)), true)}` : ''}
               ${field('Tags <span class="muted small">(comma-separated, e.g. aerospace, local, alumni)</span>', editable ? input('tags', (card.tags || []).join(', ')) : read((card.tags || []).map((t) => `<span class="tag">${esc(t)}</span>`).join(' ')), true)}
             </div>
             <h3 class="sub-heading">Contact</h3>
@@ -719,6 +992,8 @@ export async function renderSponsorCard(el, { config, params, rerender }) {
                 comment: '',
                 income: esc(a.body),
                 renewed: esc(a.body),
+                claimed: esc(a.body),
+                contacted: esc(a.body.replace(/^Contacted/, 'contacted')),
               }[a.kind];
               return `<li class="tl-${esc(a.kind)}">
                 <div><strong>${esc(a.actor_name || 'Someone')}</strong> ${what}</div>
@@ -731,6 +1006,27 @@ export async function renderSponsorCard(el, { config, params, rerender }) {
       </div>
 
       <aside class="detail-side">
+        ${outreach && (others.length || editable) ? `<section class="card">
+          <h2>This sponsor over the years</h2>
+          ${others.length
+            ? `<ul class="history-list">${others
+                .map((c) => `<li>
+                  <a href="#/sponsors/${esc(c.id)}">${esc(whenOf(c))}</a>
+                  <span class="muted small">${[stageLabel(c.stage), c.amount !== null && c.amount !== undefined ? fmtMoney(c.amount) : '', c.kind?.replace(/ \(.*/, '')].filter(Boolean).map(esc).join(' · ')}</span>
+                  ${c.name.trim().toLowerCase() !== card.name.trim().toLowerCase() ? `<div class="muted small">as "${esc(c.name)}"</div>` : ''}
+                  ${c.playbook ? `<div class="small history-tip">💡 ${esc(c.playbook.length > 160 ? `${c.playbook.slice(0, 160)}…` : c.playbook)}</div>` : ''}
+                  ${editable ? `<button type="button" class="link-btn small" data-unlink="${esc(c.id)}">Not the same sponsor</button>` : ''}
+                </li>`)
+                .join('')}</ul>`
+            : '<p class="muted small">Not on any other car or season yet.</p>'}
+          ${editable ? `<select id="link-sponsor" aria-label="Same sponsor as another card"><option value="">+ Same sponsor as…</option>${[...groups]
+            .filter(([k]) => k !== myKey)
+            .map(([, list]) => list[0])
+            .sort((a, b) => a.name.localeCompare(b.name))
+            .map((c) => `<option value="${esc(c.id)}">${esc(c.name)} (${esc(groups.get(sponsorKey(c)).map(whenOf).join(', '))})</option>`)
+            .join('')}</select>
+            <p class="hint">For the same sponsor under another name, e.g. "Digikey" and "Digikey Parts Distributor".</p>` : ''}
+        </section>` : ''}
         <section class="card">
           <h2>Watchers</h2>
           <p class="muted small">Get an email / Teams message when this card moves or gets a note.</p>
@@ -812,7 +1108,32 @@ export async function renderSponsorCard(el, { config, params, rerender }) {
     }
   });
 
+  el.querySelector('#contact-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (dirty && !confirm('You have unsaved changes to the details. Log this anyway? (Your other changes will be lost.)')) return;
+    try {
+      await api.logSponsorContact(card.id, el.querySelector('#contact-date').value, el.querySelector('#contact-note').value);
+      dirty = false;
+      releaseGuard();
+      setFlash('Logged. The date contacted is set.');
+      rerender();
+    } catch (err) {
+      errors.innerHTML = errorBox(err);
+    }
+  });
+
   el.addEventListener('change', async (e) => {
+    if (e.target.id === 'link-sponsor' && e.target.value) {
+      const other = cards.find((c) => c.id === e.target.value);
+      const key = sponsorKey(other);
+      try {
+        await api.setSponsorKey([...group, ...groups.get(key)].map((c) => c.id), key);
+        if (!dirty) rerender();
+      } catch (err) {
+        errors.innerHTML = errorBox(err);
+      }
+      return;
+    }
     if (e.target.id !== 'add-watcher' || !e.target.value) return;
     try {
       await api.setSponsorWatch(card.id, e.target.value, true);
@@ -829,6 +1150,25 @@ export async function renderSponsorCard(el, { config, params, rerender }) {
       if (btn.id === 'watch') {
         await api.setSponsorWatch(card.id, me, !watching);
         return rerender();
+      }
+      if (btn.id === 'claim' || btn.id === 'unclaim') {
+        if (dirty && !confirm('You have unsaved changes to the details. Continue anyway? (Your other changes will be lost.)')) return;
+        await api.claimSponsorCard(card.id, btn.id === 'claim');
+        dirty = false;
+        releaseGuard();
+        setFlash(btn.id === 'claim' ? `You're the lead for ${card.name}. Use "Log contact" once you've emailed them.` : `You're no longer the lead for ${card.name}.`);
+        return rerender();
+      }
+      if (btn.id === 'log-contact' || btn.id === 'contact-cancel') {
+        const box = el.querySelector('#contact-form');
+        box.hidden = btn.id === 'contact-cancel';
+        if (!box.hidden) box.querySelector('#contact-note').focus();
+        return;
+      }
+      if (btn.dataset.unlink) {
+        await api.setSponsorKey([btn.dataset.unlink], `solo:${btn.dataset.unlink}`);
+        if (!dirty) rerender();
+        return;
       }
       if (btn.dataset.unwatch) {
         await api.setSponsorWatch(card.id, btn.dataset.unwatch, false);
