@@ -24,6 +24,7 @@ export const EVENTS = [
   { key: 'received', label: 'Received', who: 'The requester' },
   { key: 'request_update', label: 'Watched request changed', who: 'People watching the request (not the requester)' },
   { key: 'sponsor_update', label: 'Sponsor card updated', who: 'People watching the card (Sponsors board)' },
+  { key: 'eval_update', label: 'Solar Evals', who: 'The CE when a member submits a self-eval; the member when their meeting is scheduled and when their eval is shared' },
 ];
 export const PLACEHOLDERS = [
   ['request_number', 'e.g. SG26-014'],
@@ -42,8 +43,11 @@ export const PLACEHOLDERS = [
   ['link', 'Link to the request (or sponsor card)'],
   ['sponsor', 'Sponsors board: the sponsor\'s name'],
   ['stage', 'Sponsors board: the card\'s stage'],
-  ['what', 'Sponsors board: what happened, e.g. "moved from In talks to Committed"'],
-  ['actor', 'Sponsors board: who did it'],
+  ['what', 'Sponsors board / Solar Evals: what happened, e.g. "moved from In talks to Committed"'],
+  ['actor', 'Sponsors board / Solar Evals: who did it'],
+  ['details', 'Solar Evals: the full sentence, e.g. "Elle CE scheduled your eval meeting for …"'],
+  ['member', 'Solar Evals: the member being evaluated'],
+  ['semester', 'Solar Evals: the semester'],
 ];
 
 export const workflowSettings = (config) => ({

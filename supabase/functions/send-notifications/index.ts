@@ -2,7 +2,8 @@
  * send-notifications — delivers queued messages from notification_outbox.
  *
  * The database queues a message whenever a request moves through the workflow
- * (see migration 010), and when a watched Sponsors card moves or gets a note (015). The website calls this function right after each action,
+ * (see migration 010), when a watched Sponsors card moves or gets a note (015), and at the
+ * Solar Evals steps (031: self-eval submitted, meeting scheduled, eval shared). The website calls this function right after each action,
  * and Admin → Notifications has a "Send now" button; each run sends everything
  * that's waiting and retries earlier failures (up to 5 tries).
  *
@@ -44,6 +45,7 @@ const FALLBACK: Record<string, Template> = {
   received: { subject: '{request_number} has arrived', body: '"{title}" was marked received by {received_by}.\nWhere: {where}' },
   request_update: { subject: '{request_number} is now {status}', body: '"{title}" ({requester}) is now {status}. You\'re getting this because you watch it.' },
   sponsor_update: { subject: '{sponsor}: {what}', body: '{actor} updated {sponsor} on the Sponsors board: {what}.' },
+  eval_update: { subject: 'Solar Evals: {what}', body: 'Hi {first_name}, {details}' },
   test: {
     subject: 'Test message from the order form',
     body: 'Hi {first_name}, notifications are working. You will get messages like this when requests need you or change status.',
@@ -57,6 +59,9 @@ const money = (n: unknown) =>
 export function placeholders(payload: Record<string, unknown>, siteUrl: string): Record<string, string> {
   const s = (k: string) => (payload[k] == null ? '' : String(payload[k]).trim());
   const base = siteUrl ? siteUrl.replace(/#.*$/, '').replace(/\/?$/, '/') : '';
+  // Other OneSolar apps on the same site (e.g. /Custom-Apps/solarevals#/evals/...).
+  const origin = base.match(/^https?:\/\/[^/]+/)?.[0] || '';
+  const appPath = s('app_path').startsWith('/') ? s('app_path') : '';
   return {
     request_number: s('request_number'),
     title: s('title'),
@@ -80,7 +85,11 @@ export function placeholders(payload: Record<string, unknown>, siteUrl: string):
     actor: s('actor'),
     kind: s('kind'),
     amount: payload.amount == null ? '' : money(payload.amount),
-    link: base && s('path') ? `${base}#${s('path')}` : base && s('request_number') ? `${base}#/requests/${encodeURIComponent(s('request_number'))}` : base,
+    // Solar Evals
+    details: s('details'),
+    member: s('member'),
+    semester: s('semester'),
+    link: origin && appPath ? origin + appPath : base && s('path') ? `${base}#${s('path')}` : base && s('request_number') ? `${base}#/requests/${encodeURIComponent(s('request_number'))}` : base,
   };
 }
 
@@ -104,7 +113,10 @@ export function render(row: Pick<Row, 'event' | 'payload'>, settings: Record<str
   const values = placeholders(row.payload || {}, settings?.siteUrl || '');
   const t: Template = { ...FALLBACK[row.event], ...(settings?.templates?.[row.event] || {}) };
   const sponsor = row.event.startsWith('sponsor_');
-  const all: [string, string][] = sponsor
+  const evals = row.event.startsWith('eval_');
+  const all: [string, string][] = evals
+    ? [['Member', values.member], ['Semester', values.semester]]
+    : sponsor
     ? [['Sponsor', values.sponsor], ['Stage', values.stage], ['Type', values.kind], ['Amount', values.amount]]
     : [
         ['Request', values.request_number],
@@ -119,7 +131,7 @@ export function render(row: Pick<Row, 'event' | 'payload'>, settings: Record<str
     subject: fill(t.subject || '{request_number}', values).split('\n')[0] || 'Order form',
     lines: fill(t.body || '', values).split('\n').filter(Boolean),
     link: values.link,
-    linkLabel: sponsor ? 'Open on the Sponsors board' : values.request_number ? `Open ${values.request_number}` : 'Open the order form',
+    linkLabel: evals ? 'Open Solar Evals' : sponsor ? 'Open on the Sponsors board' : values.request_number ? `Open ${values.request_number}` : 'Open the order form',
     facts: row.event === 'test' ? [] : facts,
     logo: logoUrl(settings?.siteUrl || ''),
   };

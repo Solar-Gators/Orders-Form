@@ -293,7 +293,7 @@ await test('the website cannot change the schema version', async () => {
   const general = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
   await as(ce, () => rpc('update_settings', ['general', { ...general, schemaVersion: 99 }]));
   const after = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
-  assert.equal(after.schemaVersion, 30);
+  assert.equal(after.schemaVersion, 31);
 });
 
 console.log('Form fields');
@@ -1878,6 +1878,93 @@ console.log('Solar Evals (028)');
     await as(evalCe, () => rpc('eval_set_status', [evalId, 'draft']));
     for (const u of [evalCe2, eboard, lead, kid]) assert.deepEqual(await visible(u), []);
     assert.equal((await db.query(`select finalized_at from evals where id = $1`, [evalId])).rows[0].finalized_at, null);
+  });
+
+  console.log('Solar Evals self-evaluations and meetings (031)');
+  let selfId, ceEvalId;
+  await as(admin, () => rpc('update_settings', ['notifications', { enabled: true, events: { eval_update: { email: true } } }]));
+  const outbox = async () => (await db.query(`select email, payload from notification_outbox where event = 'eval_update' order by id`)).rows;
+
+  await test('a member starts a self-eval on their rubric; it is theirs alone and they pick a CE who writes evals', async () => {
+    await as(kid, () => rejects(rpc('eval_self_save', [null, { template_id: null }]), /division's rubric/));
+    selfId = (await as(kid, () => rpc('eval_self_save', [null, {
+      template_id: versionId, semester: 'Spring 2027', division: 'Electrical', subsystem: 'BMS', lead_id: lead,
+      ratings: { communication: 5, technical: 4 }, answers: { evidence: 'Wrote the cell balancing code.' },
+    }]))).rows[0].result;
+    const e = (await db.query(`select kind, member_name, member_email, member_id, evaluator_id, status from evals where id = $1`, [selfId])).rows[0];
+    assert.deepEqual(e, { kind: 'self', member_name: 'Kit Member', member_email: 'kid@ufl.edu', member_id: kid, evaluator_id: kid, status: 'draft' });
+    await as(kid, () => rejects(rpc('eval_self_save', [selfId, { ce_id: lead }]), /doesn't fill out evals/));
+    await as(kid, () => rejects(rpc('eval_self_save', [selfId, { ratings: { communication: 9 } }]), /1 to 5/));
+    await as(stranger, () => rejects(rpc('eval_self_save', [selfId, { semester: 'x' }]), /Only the member who wrote/));
+    await as(evalCe, () => rejects(rpc('eval_save', [selfId, { member_name: 'x' }]), /Only the CE who wrote/));
+    await as(kid, () => rejects(rpc('eval_self_submit', [selfId, true]), /Pick your CE/));
+    await as(kid, () => rpc('eval_self_save', [selfId, { ce_id: evalCe }]));
+    assert.deepEqual(await visible(kid), [selfId]);
+    for (const u of [evalCe, evalCe2, eboard, lead]) assert.ok(!(await visible(u)).includes(selfId));
+  });
+
+  await test('submitting emails the CE; the CE sees who is waiting but not the answers', async () => {
+    await as(kid, () => rpc('eval_self_submit', [selfId, true]));
+    const sent = await outbox();
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].email, 'evalce@ufl.edu');
+    assert.equal(sent[0].payload.what, "Kit Member's self-eval is in");
+    assert.equal(sent[0].payload.app_path, '/Custom-Apps/solarevals#/evals');
+    await as(kid, () => rejects(rpc('eval_self_save', [selfId, { semester: 'x' }]), /Take it back/));
+    const inboxOf = (u) => sel(u, `select * from eval_inbox()`);
+    const inbox = await inboxOf(evalCe);
+    assert.equal(inbox.length, 1);
+    assert.equal(inbox[0].self_id, selfId);
+    assert.equal(inbox[0].ce_eval_id, null);
+    assert.equal((await inboxOf(evalCe2)).length, 0);
+    for (const u of [evalCe, evalCe2, eboard, lead]) assert.ok(!(await visible(u)).includes(selfId));
+  });
+
+  await test('the member can take it back until the CE starts; only their CE can start from it', async () => {
+    await as(kid, () => rpc('eval_self_submit', [selfId, false]));
+    assert.equal((await sel(evalCe, `select * from eval_inbox()`)).length, 0);
+    await as(kid, () => rpc('eval_self_submit', [selfId, true]));
+    await as(evalCe2, () => rejects(rpc('eval_start_review', [selfId]), /isn't waiting for you/));
+    ceEvalId = (await as(evalCe, () => rpc('eval_start_review', [selfId]))).rows[0].result;
+    assert.equal((await as(evalCe, () => rpc('eval_start_review', [selfId]))).rows[0].result, ceEvalId); // once only
+    const c = (await db.query(`select kind, self_eval_id, member_name, semester, lead_id, template_label, ratings from evals where id = $1`, [ceEvalId])).rows[0];
+    assert.deepEqual(c, { kind: 'ce', self_eval_id: selfId, member_name: 'Kit Member', semester: 'Spring 2027', lead_id: lead, template_label: 'Electrical CE · Fall 2026', ratings: {} });
+    await as(kid, () => rejects(rpc('eval_self_submit', [selfId, false]), /already started/));
+    await as(kid, () => rejects(rpc('eval_set_status', [selfId, 'shared']), /does not allow/));
+    await as(evalCe, () => rejects(rpc('eval_set_status', [selfId, 'final']), /submitted by its member/));
+  });
+
+  await test('the CE sees the self-eval only once their own eval is finished (so do the lead and e-board)', async () => {
+    await as(evalCe, () => rpc('eval_save', [ceEvalId, { ratings: { communication: 3 } }]));
+    for (const u of [evalCe, lead, eboard]) assert.ok(!(await visible(u)).includes(selfId));
+    await as(evalCe, () => rejects(rpc('eval_schedule_meeting', [ceEvalId, '2027-04-20T21:00:00Z', 'Lab']), /finished first/));
+    await as(evalCe, () => rpc('eval_set_status', [ceEvalId, 'final']));
+    for (const u of [evalCe, lead, eboard, evalCe2]) assert.ok((await visible(u)).includes(selfId));
+    assert.ok(!(await visible(stranger)).includes(selfId));
+    assert.ok(!(await visible(kid)).includes(ceEvalId)); // not the member yet
+  });
+
+  await test('scheduling the meeting emails the member; after the meeting sharing shows them the CE\'s eval', async () => {
+    await as(evalCe2, () => rejects(rpc('eval_schedule_meeting', [ceEvalId, '2027-04-20T21:00:00Z', 'Lab']), /Only the CE who wrote/));
+    await as(evalCe, () => rpc('eval_schedule_meeting', [ceEvalId, '2027-04-20T21:00:00Z', 'MAE-B lab']));
+    const self = (await sel(kid, `select meeting_place, meeting_at is not null as set from evals where id = $1`, [selfId]))[0];
+    assert.deepEqual(self, { meeting_place: 'MAE-B lab', set: true });
+    let sent = await outbox();
+    assert.equal(sent.at(-1).email, 'kid@ufl.edu');
+    assert.equal(sent.at(-1).payload.what, 'Eval meeting: Tuesday, April 20 at 5:00 PM');
+    assert.match(sent.at(-1).payload.details, /^Elle CE scheduled your eval meeting for Tuesday, April 20 at 5:00 PM \(MAE-B lab\)\.$/);
+    assert.equal(sent.at(-1).payload.app_path, `/Custom-Apps/solarevals#/evals/${selfId}`);
+    await as(evalCe, () => rpc('eval_set_status', [ceEvalId, 'shared']));
+    assert.deepEqual((await visible(kid)).sort(), [ceEvalId, selfId].sort());
+    sent = await outbox();
+    assert.equal(sent.at(-1).email, 'kid@ufl.edu');
+    assert.equal(sent.at(-1).payload.what, 'Your evaluation is ready');
+    assert.equal(sent.length, 4); // submitted, (taken back and) submitted again, meeting, shared
+    await as(kid, () => rpc('eval_member_comment', [ceEvalId, 'Fair.']));
+  });
+
+  await test('CE-only evals (no self-eval) still work as before and have no meeting', async () => {
+    await as(evalCe, () => rejects(rpc('eval_schedule_meeting', [evalId, '2027-04-20T21:00:00Z', '']), /self-eval have a meeting/));
   });
 }
 

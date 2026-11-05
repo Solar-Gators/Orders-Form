@@ -85,6 +85,18 @@ test('Sponsors board messages link to the card and list sponsor facts', () => {
   assert.deepEqual(m.facts, [['Sponsor', 'Acme Aerospace'], ['Stage', 'Committed'], ['Type', 'Sponsorship'], ['Amount', '$2,500.00']]);
 });
 
+test('Solar Evals messages link to the Solar Evals page on the same site', () => {
+  const m = render(
+    { event: 'eval_update', payload: { what: 'Eval meeting: Tuesday, April 20 at 5:00 PM', details: 'Elle CE scheduled your eval meeting for Tuesday, April 20 at 5:00 PM.', member: 'Kit Member', semester: 'Spring 2027', app_path: '/Custom-Apps/solarevals#/evals/abc', recipient_name: 'Kit Member' } },
+    settings
+  );
+  assert.equal(m.subject, 'Solar Evals: Eval meeting: Tuesday, April 20 at 5:00 PM');
+  assert.deepEqual(m.lines, ['Hi Kit, Elle CE scheduled your eval meeting for Tuesday, April 20 at 5:00 PM.']);
+  assert.equal(m.link, 'https://solar-gators.github.io/Custom-Apps/solarevals#/evals/abc');
+  assert.equal(m.linkLabel, 'Open Solar Evals');
+  assert.deepEqual(m.facts, [['Member', 'Kit Member'], ['Semester', 'Spring 2027']]);
+});
+
 test('the team logo sits under the email and the Teams card (when the website address is set)', () => {
   const m = render({ event: 'approved', payload }, settings);
   const logo = 'https://solar-gators.github.io/Orders-Form/assets/solar-gators-logo.png';
