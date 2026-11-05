@@ -293,7 +293,7 @@ await test('the website cannot change the schema version', async () => {
   const general = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
   await as(ce, () => rpc('update_settings', ['general', { ...general, schemaVersion: 99 }]));
   const after = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
-  assert.equal(after.schemaVersion, 27);
+  assert.equal(after.schemaVersion, 28);
 });
 
 console.log('Form fields');
@@ -522,7 +522,7 @@ const permsOf = async (role) =>
 
 await test('everyone signed in can read the permission list', async () => {
   const { rows } = await as(member, () => db.query(`select key from permissions order by sort`));
-  assert.deepEqual(rows.map((r) => r.key), ['request.review', 'request.order', 'settings.edit', 'site.customize', 'seasons.manage', 'workflow.edit', 'finances.view', 'finances.edit', 'sponsors.view', 'sponsors.edit', 'users.manage']);
+  assert.deepEqual(rows.map((r) => r.key), ['request.review', 'request.order', 'settings.edit', 'site.customize', 'seasons.manage', 'workflow.edit', 'finances.view', 'finances.edit', 'sponsors.view', 'sponsors.edit', 'evals.templates', 'evals.write', 'evals.view', 'users.manage']);
 });
 
 await test('members cannot change permissions', async () => {
@@ -693,7 +693,7 @@ await test('no roles means Member; unknown roles are refused', async () => {
 
 await test('Admin has every permission, including the new ones', async () => {
   const perms = (await db.query(`select string_agg(permission, ',' order by permission) as p from role_permissions where role = 'admin'`)).rows[0].p;
-  assert.equal(perms, 'finances.edit,finances.view,request.order,request.review,seasons.manage,settings.edit,site.customize,sponsors.edit,sponsors.view,users.manage,workflow.edit');
+  assert.equal(perms, 'evals.templates,evals.view,evals.write,finances.edit,finances.view,request.order,request.review,seasons.manage,settings.edit,site.customize,sponsors.edit,sponsors.view,users.manage,workflow.edit');
 });
 
 await test('custom roles: create, rename, grant, and delete', async () => {
@@ -1778,5 +1778,107 @@ await test('Items arriving one by one; Received marks the rest (025)', async () 
   const arrived = (await db.query(`select arrived_on::text d, arrived_note from request_items where request_id = $1 order by position`, [id])).rows;
   assert.deepEqual(arrived.map((r) => `${r.d} ${r.arrived_note}`), ['2026-10-05 1 bag short', '2026-10-07 ', '2026-10-07 ']);
 });
+
+console.log('Solar Evals (028)');
+{
+  const evalCe = await signUp('evalce@ufl.edu', 'Elle CE');
+  const evalCe2 = await signUp('evalce2@ufl.edu', 'Otto CE');
+  const eboard = await signUp('eboard@ufl.edu', 'Eve Board');
+  const lead = await signUp('lead@ufl.edu', 'Lee Lead');
+  const kid = await signUp('kid@ufl.edu', 'Kit Member');
+  const stranger = await signUp('stranger@ufl.edu', 'Sam Stranger');
+  await setRole(evalCe, 'ce'); await setRole(evalCe2, 'ce'); await setRole(eboard, 'eboard');
+  // Earlier tests reset the CE role's permissions; put back what 028 gives it.
+  await db.exec(`insert into role_permissions (role, permission) values ('ce', 'evals.templates'), ('ce', 'evals.write'), ('ce', 'evals.view') on conflict do nothing`);
+  assert.deepEqual((await db.query(`select permission from role_permissions where role = 'eboard' order by 1`)).rows.map((r) => r.permission), ['evals.templates', 'evals.view']);
+  const MASTER = '00000000-0000-4000-8000-0000000000a1';
+  const sel = (uid, sql, args = []) => as(uid, async () => (await db.query(sql, args)).rows);
+  const visible = (uid) => sel(uid, `select id from evals`).then((r) => r.map((x) => x.id));
+  let evalId, versionId;
+
+  await test('the master rubric v1.0 and four CE divisions are there for everyone signed in', async () => {
+    const t = await sel(stranger, `select label, rubric -> 'pages' -> 0 ->> 'name' as p from eval_templates`);
+    assert.deepEqual(t, [{ label: 'v1.0', p: 'Universal rubric' }]);
+    assert.equal((await sel(stranger, `select count(*)::int n from eval_tracks`))[0].n, 5);
+    assert.equal((await sel(null, `select count(*)::int n from eval_templates`).catch(() => [{ n: 0 }]))[0].n, 0);
+  });
+
+  await test('members cannot save rubrics; CEs and the E-board can, and names must be unique per division', async () => {
+    const rubric = (await db.query(`select rubric from eval_templates where id = $1`, [MASTER])).rows[0].rubric;
+    await as(kid, () => rejects(rpc('eval_template_save', ['electrical', 'Fall 2026', '', MASTER, rubric]), /does not allow/));
+    versionId = (await as(evalCe, () => rpc('eval_template_save', ['electrical', 'Fall 2026', 'Our criteria', MASTER, rubric]))).rows[0].result;
+    await as(eboard, () => rejects(rpc('eval_template_save', ['electrical', ' fall 2026 ', '', MASTER, rubric]), /already has a version/));
+    await as(evalCe, () => rejects(rpc('eval_template_save', ['electrical', 'Bad', '', MASTER, { pages: [] }]), /missing its pages/));
+    const t = (await sel(kid, `select author_name, based_on from eval_templates where id = $1`, [versionId]))[0];
+    assert.deepEqual(t, { author_name: 'Elle CE', based_on: MASTER });
+  });
+
+  await test('removing a version hides it; the last master version cannot go', async () => {
+    await as(evalCe, () => rejects(rpc('eval_template_remove', [MASTER]), /at least one version/));
+    const rubric = (await db.query(`select rubric from eval_templates where id = $1`, [MASTER])).rows[0].rubric;
+    const oops = (await as(evalCe, () => rpc('eval_template_save', ['electrical', 'Oops', '', MASTER, rubric]))).rows[0].result;
+    await as(evalCe, () => rpc('eval_template_remove', [oops]));
+    assert.equal((await sel(kid, `select count(*)::int n from eval_templates where id = $1`, [oops]))[0].n, 0);
+    const id = (await as(eboard, () => rpc('eval_track_save', [null, 'Strategy CE', '#123456']))).rows[0].result;
+    assert.match(id, /^strategy-ce-[0-9a-f]{4}$/);
+    await as(eboard, () => rejects(rpc('eval_track_save', ['master', 'Mine', null]), /can't be renamed/));
+  });
+
+  await test('only CEs start evals, and the rubric is copied from the template', async () => {
+    await as(eboard, () => rejects(rpc('eval_save', [null, { template_id: versionId }]), /does not allow/));
+    evalId = (await as(evalCe, () => rpc('eval_save', [null, {
+      template_id: versionId, member_name: 'Kit Member', member_email: ' KID@ufl.edu ', semester: 'Fall 2026',
+      division: 'Electrical', subsystem: 'BMS', lead_id: lead, ratings: { communication: 4, learning: 'NO' },
+      answers: { evidence: 'Led the BMS bring-up.' }, rubric: { tampered: true },
+    }]))).rows[0].result;
+    const e = (await db.query(`select member_email, template_label, rubric ? 'pages' as ok, status, evaluator_id from evals where id = $1`, [evalId])).rows[0];
+    assert.deepEqual(e, { member_email: 'kid@ufl.edu', template_label: 'Electrical CE · Fall 2026', ok: true, status: 'draft', evaluator_id: evalCe });
+    await as(evalCe, () => rejects(rpc('eval_save', [evalId, { ratings: { communication: 7 } }]), /1 to 5 or N\/O/));
+    await as(evalCe2, () => rejects(rpc('eval_save', [evalId, { member_name: 'x' }]), /Only the CE who wrote/));
+    await as(member, () => rejects(db.query(`update evals set status = 'shared'`), /permission denied/));
+  });
+
+  await test('a draft is visible only to the CE writing it', async () => {
+    assert.deepEqual(await visible(evalCe), [evalId]);
+    for (const u of [evalCe2, eboard, lead, kid]) assert.deepEqual(await visible(u), []);
+  });
+
+  await test('a finished eval: other CEs, the E-board and the chosen lead can read it; the member and others cannot', async () => {
+    await as(evalCe, () => rpc('eval_set_status', [evalId, 'final']));
+    for (const u of [evalCe, evalCe2, eboard, lead]) assert.deepEqual(await visible(u), [evalId]);
+    for (const u of [kid, stranger]) assert.deepEqual(await visible(u), []);
+    await as(kid, () => rejects(rpc('eval_member_comment', [evalId, 'hi']), /shared with you/));
+  });
+
+  await test('sharing needs an account with the member\'s email; then only that account sees it and can comment', async () => {
+    await as(evalCe, () => rpc('eval_save', [evalId, { member_email: 'nobody@ufl.edu' }]));
+    await as(evalCe, () => rejects(rpc('eval_set_status', [evalId, 'shared']), /Nobody has an Order Form account/));
+    await as(evalCe, () => rpc('eval_save', [evalId, { member_email: 'kid@ufl.edu' }]));
+    await as(evalCe, () => rpc('eval_set_status', [evalId, 'shared']));
+    assert.deepEqual(await visible(kid), [evalId]);
+    assert.deepEqual(await visible(stranger), []);
+    await as(kid, () => rpc('eval_member_comment', [evalId, 'Thanks, agreed on goals.']));
+    await as(evalCe, () => rejects(rpc('eval_save', [evalId, { member_name: 'Changed' }]), /Stop sharing/));
+    await as(evalCe, () => rpc('eval_set_status', [evalId, 'final']));
+    assert.deepEqual(await visible(kid), []);
+    assert.equal((await db.query(`select member_comments from evals where id = $1`, [evalId])).rows[0].member_comments, 'Thanks, agreed on goals.');
+  });
+
+  await test('only the writer deletes, and only drafts (even CEs who manage people)', async () => {
+    await as(evalCe, () => rejects(rpc('eval_delete', [evalId]), /Only drafts/));
+    await as(admin, () => rejects(rpc('eval_delete', [evalId]), /Only the CE who wrote/));
+    const d = (await as(evalCe, () => rpc('eval_save', [null, { template_id: MASTER, member_name: 'Temp' }]))).rows[0].result;
+    await as(evalCe2, () => rejects(rpc('eval_delete', [d]), /Only the CE who wrote/));
+    await as(evalCe, () => rpc('eval_delete', [d]));
+    assert.equal((await db.query(`select count(*)::int n from evals where id = $1`, [d])).rows[0].n, 0);
+    assert.equal((await db.query(`select count(*)::int n from evals where id = $1`, [evalId])).rows[0].n, 1);
+  });
+
+  await test('moving back to draft hides it from everyone but its CE again', async () => {
+    await as(evalCe, () => rpc('eval_set_status', [evalId, 'draft']));
+    for (const u of [evalCe2, eboard, lead, kid]) assert.deepEqual(await visible(u), []);
+    assert.equal((await db.query(`select finalized_at from evals where id = $1`, [evalId])).rows[0].finalized_at, null);
+  });
+}
 
 console.log(`\n${passed} passed${process.exitCode ? ', some FAILED' : ''}`);
