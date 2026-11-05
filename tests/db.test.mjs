@@ -130,7 +130,7 @@ await test('sign-up creates a Member profile (subdomains allowed)', async () => 
 await test('anon can read general and appearance settings but not requests or profiles', async () => {
   await as(null, async () => {
     const { rows } = await db.query(`select key from app_settings order by key`);
-    assert.deepEqual(rows.map((r) => r.key), ['appearance', 'general']); // sign-in page: team name, logo, colors
+    assert.deepEqual(rows.map((r) => r.key).filter((k) => k !== 'onesolar'), ['appearance', 'general']); // sign-in page: team name, logo, colors
     await rejects(db.query(`select * from settings_history`), /permission denied/);
     await rejects(db.query(`select * from requests`), /permission denied/);
     await rejects(db.query(`select * from profiles`), /permission denied/);
@@ -293,7 +293,7 @@ await test('the website cannot change the schema version', async () => {
   const general = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
   await as(ce, () => rpc('update_settings', ['general', { ...general, schemaVersion: 99 }]));
   const after = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
-  assert.equal(after.schemaVersion, 28);
+  assert.equal(after.schemaVersion, 29);
 });
 
 console.log('Form fields');
@@ -1880,5 +1880,20 @@ console.log('Solar Evals (028)');
     assert.equal((await db.query(`select finalized_at from evals where id = $1`, [evalId])).rows[0].finalized_at, null);
   });
 }
+
+console.log('OneSolar home screen (029)');
+
+await test('OneSolar: admins choose who sees each card; anyone can read it; bad choices are refused', async () => {
+  const cards = { finances: { show: 'roles', roles: ['treasurer', 'admin'] }, scope: { show: 'hidden' }, orders: { show: 'default' } };
+  await as(member, () => rejects(rpc('update_settings', ['onesolar', { cards }]), /does not allow/));
+  await as(admin, () => rpc('update_settings', ['onesolar', { cards }]));
+  await as(null, async () => {
+    const { rows } = await db.query(`select value from app_settings where key = 'onesolar'`);
+    assert.deepEqual(rows[0].value.cards.scope, { show: 'hidden' }); // the signed-out home screen follows it too
+  });
+  await as(admin, () => rejects(rpc('update_settings', ['onesolar', { cards: { evals: { show: 'roles', roles: [] } } }]), /at least one position/));
+  await as(admin, () => rejects(rpc('update_settings', ['onesolar', { cards: { evals: { show: 'sometimes' } } }]), /Choose who sees/));
+  await as(admin, () => rejects(rpc('update_settings', ['onesolar', { cards: { 'Bad Id!': { show: 'hidden' } } }]), /Bad app id/));
+});
 
 console.log(`\n${passed} passed${process.exitCode ? ', some FAILED' : ''}`);
