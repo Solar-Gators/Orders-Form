@@ -162,6 +162,14 @@ The **Sponsors** tab tracks sponsorships and donations on a board, and keeps eve
 - **Tags:** the **Tags** button renames a tag on every card, merges two (rename one to the other) or removes one, and lists tags spelled differently that are probably the same ("aero-body" / "aerobody") with a one-click merge.
 - Permissions: **See sponsors** / **Edit sponsors**. A **Business Coordinator** role has both (and can see Finances). Chief Engineers and the Treasurer can see the board and watch cards.
 
+### Solar Evals (semester member reviews)
+**[Solar Evals](https://solar-gators.github.io/Custom-Apps/solarevals)** is a separate page (in the Custom-Apps repo) that signs in with Order Form accounts and keeps its data in this database. (Needs `028_solar_evals.sql`.)
+- **Rubrics:** the master template (from the master PDF) and a version per CE division. Saving always adds a new version; history, compare, and print the blank form.
+- **Evaluations:** a CE fills out the form on the page: ratings, N/O, header blanks, feedback boxes. It saves as they go, and keeps its own copy of the rubric it was written on.
+- **Who sees what** (enforced by the database): a **draft** only by its CE. **Finished**: also every CE, the **E-board**, and the subsystem lead picked on the eval. **Shared**: also the member, through the Order Form account that has the email the CE typed (sharing fails if no account has it yet), and the member can add comments. A shared eval is locked until the CE stops sharing it. Only drafts can be deleted.
+- Permissions: **Edit eval rubrics**, **Fill out evals**, **See all evals**. Chief Engineers have all three; the new **E-board** role has rubrics and see-all. Admins have all three too, so Admins can read every finished eval. Leads and members need no role: what they see depends on the eval.
+- Keep **Confirm email** on in Supabase (**Authentication → Sign In / Providers → Email**) once evals are in use. With it off, someone could sign up with a member's email before the member does and then read that member's shared evals.
+
 ### Finding things
 - **Requests:** this season's requests, with three tabs at the top: **Requests**, **Archive** and **Download Excel**. A season picker lets you look back at earlier seasons.
 - **Your name (top right):** My account & notifications, Help (once your team writes it), and Sign out.
