@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Solar Gators Orders</title>
+  <title>OneSolar</title>
   <link rel="icon" type="image/png" href="assets/favicon.png">
   <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
   <!-- Installable as an app (PWA): manifest.webmanifest + sw.js. -->
@@ -20,7 +20,7 @@
     })();
   </script>
   <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-title" content="SG Orders">
+  <meta name="apple-mobile-web-app-title" content="OneSolar">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <!-- Relative paths so the site works under a GitHub Pages sub-path (/<repo>/). -->
   <link rel="stylesheet" href="css/styles.css">
@@ -28,10 +28,11 @@
 <body class="signed-out">
   <header class="topbar">
     <div class="topbar-inner">
-      <a class="brand" href="#/home" aria-label="Solar Gators Orders — home page">
+      <!-- The logo goes to the OneSolar home screen (every Solar Gators app); Home in the menu is this app's dashboard. -->
+      <a class="brand" href="https://solar-gators.github.io/one.solar/" aria-label="OneSolar: all Solar Gators apps">
         <img class="brand-logo" src="assets/solar-gators-logo.png" alt="Solar Gators" width="800" height="237">
         <span class="brand-divider" aria-hidden="true"></span>
-        <span id="brand-name">Orders</span>
+        <span id="brand-name">One<span class="brand-accent">Solar</span></span>
       </a>
 
       <!-- Phones and tablets: the links fold into this menu. -->
@@ -42,6 +43,7 @@
       <!-- Each role only sees what it uses. Requests also holds the Archive and Excel download;
            Queue holds approving (Chief Engineer) and ordering (Treasurer). -->
       <nav class="nav signed-in-only" id="main-nav" aria-label="Main">
+        <a href="#/home" data-nav="home">Home</a>
         <a href="#/requests" data-nav="requests">Requests <span class="nav-count" id="count-requests" hidden title="Your requests sent back for changes"></span></a>
         <a href="#/queue" data-nav="queue" data-perm="request.review request.order" hidden>Queue <span class="nav-count" id="count-queue" hidden title="Waiting on you"></span></a>
         <a href="#/finances" data-nav="finances" data-perm="finances.view finances.edit" hidden>Finances</a>

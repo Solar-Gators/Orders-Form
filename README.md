@@ -1,10 +1,17 @@
-# Solar Gators Orders
+# OneSolar · Orders
 
-**https://solar-gators.github.io/Orders-Form/**
+**https://solar-gators.github.io/Orders-Form/** · part of **[OneSolar](https://solar-gators.github.io/one.solar/)**, the home screen for every Solar Gators app
 
 The Solar Gators purchasing website. It replaces the shared Excel order sheet. Members request parts, a Chief Engineer approves them, and the Treasurer orders them and tracks delivery. Every step is recorded, so anyone on the team can see where an order stands and what was bought in past seasons.
 
 It works on phones and laptops. Sign in with your **@ufl.edu** email.
+
+**OneSolar:** this site's accounts are the OneSolar accounts. The logo at the top left goes to the
+OneSolar home screen ([Solar-Gators/one.solar](https://github.com/Solar-Gators/one.solar)); **Home** in the
+menu is this site's own dashboard. The home screen's **Sign in** comes to this site's sign-in page with
+`?next=/one.solar/` and goes back there afterwards (only paths on this site's address are followed). Emails
+are sent as "OneSolar · Solar Gators" once the `send-notifications` function is redeployed (or set
+`SMTP_FROM_NAME`). The address stays `/Orders-Form/` so bookmarks, installed apps and email links keep working.
 
 ---
 

@@ -293,7 +293,7 @@ await test('the website cannot change the schema version', async () => {
   const general = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
   await as(ce, () => rpc('update_settings', ['general', { ...general, schemaVersion: 99 }]));
   const after = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
-  assert.equal(after.schemaVersion, 29);
+  assert.equal(after.schemaVersion, 30);
 });
 
 console.log('Form fields');
@@ -1852,7 +1852,7 @@ console.log('Solar Evals (028)');
 
   await test('sharing needs an account with the member\'s email; then only that account sees it and can comment', async () => {
     await as(evalCe, () => rpc('eval_save', [evalId, { member_email: 'nobody@ufl.edu' }]));
-    await as(evalCe, () => rejects(rpc('eval_set_status', [evalId, 'shared']), /Nobody has an Order Form account/));
+    await as(evalCe, () => rejects(rpc('eval_set_status', [evalId, 'shared']), /Nobody has a OneSolar account/));
     await as(evalCe, () => rpc('eval_save', [evalId, { member_email: 'kid@ufl.edu' }]));
     await as(evalCe, () => rpc('eval_set_status', [evalId, 'shared']));
     assert.deepEqual(await visible(kid), [evalId]);

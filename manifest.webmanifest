@@ -1,7 +1,7 @@
 {
-  "name": "Solar Gators Orders",
-  "short_name": "SG Orders",
-  "description": "Request parts for Solar Gators and follow them through approval, ordering and delivery.",
+  "name": "OneSolar",
+  "short_name": "OneSolar",
+  "description": "Solar Gators' team app: parts requests, approvals, ordering and delivery, sponsors and finances.",
   "id": "./",
   "start_url": "./#/home",
   "scope": "./",

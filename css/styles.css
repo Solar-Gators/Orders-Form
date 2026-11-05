@@ -70,6 +70,8 @@ p { margin: 0 0 10px; }
 .brand { display: flex; align-items: center; gap: 10px; color: var(--navy); text-decoration: none; font-weight: 700; font-size: 17px; white-space: nowrap; }
 .brand-logo { height: 36px; width: auto; display: block; }
 .brand-divider { width: 1px; height: 24px; background: var(--border); }
+.brand-accent { color: var(--orange); }
+.auth-sub { margin: -6px 0 14px; }
 .nav { display: flex; gap: 2px; flex: 1; flex-wrap: wrap; }
 .nav a {
   color: var(--muted); text-decoration: none; padding: 7px 12px; border-radius: 6px; font-weight: 600;

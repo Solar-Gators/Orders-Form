@@ -7,6 +7,10 @@ import { esc, errorBox, renderRichText } from '../ui.js';
 
 let mode = 'signin'; // 'signin' | 'signup' | 'forgot'
 let notice = '';
+/** Sent here by the OneSolar home screen (main.js keeps ?next until signed in). */
+const returning = () => {
+  try { return !!sessionStorage.getItem('sg-next'); } catch { return false; }
+};
 
 /** Friendlier wording for common Supabase auth errors. */
 function explain(err) {
@@ -46,7 +50,7 @@ export async function renderLogin(el, { config }) {
 
   const links = {
     signin: `<button type="button" class="link-btn" data-mode="forgot">Forgot password?</button>
-             <span>First time using the Order Form? <button type="button" class="link-btn" data-mode="signup">Create an account</button></span>`,
+             <span>First time using OneSolar? <button type="button" class="link-btn" data-mode="signup">Create an account</button></span>`,
     signup: `<span>Already have an account? <button type="button" class="link-btn" data-mode="signin">Sign in</button></span>`,
     forgot: `<button type="button" class="link-btn" data-mode="signin">← Back to sign in</button>`,
   };
@@ -57,8 +61,9 @@ export async function renderLogin(el, { config }) {
   el.innerHTML = `
     <div class="auth-wrap">
       <div class="auth-card card">
-        <div class="auth-brand">${esc(config.teamName)} Orders</div>
+        <div class="auth-brand">OneSolar · ${esc(config.teamName)}</div>
         <h1>${titles[mode]}</h1>
+        ${mode === 'signin' ? `<p class="muted small auth-sub">One account for every Solar Gators app${returning() ? '. You\'ll go back to the OneSolar home screen after signing in' : ''}.</p>` : ''}
         ${urlError ? `<div class="alert alert-error">${esc(urlError)}</div>` : ''}
         ${notice ? `<div class="alert alert-success">${esc(notice)}</div>` : ''}
         <div id="auth-errors"></div>

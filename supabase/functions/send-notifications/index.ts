@@ -202,7 +202,7 @@ async function sendViaSmtp(env: (k: string) => string | undefined, to: string, m
     });
   }
   await transport.sendMail({
-    from: { name: env('SMTP_FROM_NAME') || `${teamName} Orders`, address: env('SMTP_USER')! },
+    from: { name: env('SMTP_FROM_NAME') || `OneSolar · ${teamName}`, address: env('SMTP_USER')! },
     to,
     subject: m.subject,
     text: emailText(m),
