@@ -293,7 +293,7 @@ await test('the website cannot change the schema version', async () => {
   const general = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
   await as(ce, () => rpc('update_settings', ['general', { ...general, schemaVersion: 99 }]));
   const after = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
-  assert.equal(after.schemaVersion, 33);
+  assert.equal(after.schemaVersion, 34);
 });
 
 console.log('Form fields');
@@ -1797,6 +1797,66 @@ await test('Items arriving one by one; Received marks the rest (025)', async () 
   await as(member, () => rpc('undo_received', [id]));
   const again = (await db.query(`select arrived_on::text d from request_items where request_id = $1 order by position`, [id])).rows.map((r) => r.d);
   assert.deepEqual(again, ['2026-10-05', '2026-10-06', null]);
+});
+
+await test('The Treasurer edits the items on an approved / ordered request (034)', async () => {
+  await setWorkflow({ rules: [{ name: 'Small', when: { maxTotal: '50' }, then: { type: 'auto' } }] });
+  await as(admin, () => rpc('update_settings', ['notifications', { enabled: true, events: { items_changed: { email: true }, submitted: { email: true } } }]));
+  const number = numberOf(await submit(vendorRequest, [
+    { ...oneItem[0], item_name: 'Bolts', quantity: 4, unit_price: 2 },
+    { ...oneItem[0], item_name: 'Nuts', quantity: 4, unit_price: 1 },
+  ]));
+  assert.equal(await statusOf(number), 'Approved'); // $12, auto-approved by "Small"
+  const id = await idOf(number);
+  const [bolts, nuts] = (await db.query(`select id from request_items where request_id = $1 order by position`, [id])).rows.map((r) => r.id);
+  const item = (o) => ({ part_number: '', product_link: '', shipping_cost: '', notes: '', ...o });
+
+  await as(member, () => rejects(rpc('edit_request_items', [id, [item({ id: bolts, item_name: 'Bolts', quantity: 4, unit_price: 2 })], 'x']), /does not allow/));
+  await as(treasurer, () => rejects(rpc('edit_request_items', [id, [item({ id: bolts, item_name: 'Bolts', quantity: 4, unit_price: 2 })], ' ']), /Say why/));
+  await as(treasurer, () => rejects(rpc('edit_request_items', [id, [], 'x']), /at least one item/));
+  await as(treasurer, () => rejects(rpc('edit_request_items', [id, [item({ id: bolts, item_name: 'Bolts', quantity: 0, unit_price: 2 })], 'x']), /more than 0/));
+
+  // Nuts out of stock: swap for lock nuts, fewer bolts. Total down, stays Approved.
+  const r1 = (await as(treasurer, () => rpc('edit_request_items', [id, [
+    item({ id: bolts, item_name: 'Bolts', quantity: 3, unit_price: 2 }),
+    item({ item_name: 'Lock nuts', part_number: '91831A005', quantity: 4, unit_price: 1.25 }),
+  ], 'Nuts out of stock; McMaster suggested lock nuts']))).rows[0].result;
+  assert.deepEqual(r1, { changes: 3, reapproval: false, total: 11 });
+  assert.equal(await statusOf(number), 'Approved');
+  const items = (await db.query(`select item_name, quantity::int q, vendor, part_number from request_items where request_id = $1 order by position`, [id])).rows;
+  assert.deepEqual(items, [{ item_name: 'Bolts', q: 3, vendor: 'McMaster-Carr', part_number: '' }, { item_name: 'Lock nuts', q: 4, vendor: 'McMaster-Carr', part_number: '91831A005' }]);
+  const ev = (await db.query(`select changes, note, actor_name from request_events where request_id = $1 and kind = 'items_edited'`, [id])).rows[0];
+  assert.deepEqual(ev.changes, ['Bolts: quantity 4 → 3', 'Added 4 × Lock nuts at $1.25', 'Removed 4 × Nuts', 'Total $12.00 → $11.00']);
+  assert.equal(ev.note, 'Nuts out of stock; McMaster suggested lock nuts');
+  const msg = (await db.query(`select email, payload from notification_outbox where request_id = $1 and event = 'items_changed'`, [id])).rows;
+  assert.equal(msg.length, 1);
+  assert.equal(msg[0].email, 'member@ufl.edu');
+  assert.equal(msg[0].payload.comment, 'Nuts out of stock; McMaster suggested lock nuts');
+  assert.match(msg[0].payload.changes, /Removed 4 × Nuts/);
+
+  // Up but within the same rule ($11 → $20, still "Small"): stays Approved.
+  const lock = (await db.query(`select id from request_items where request_id = $1 and item_name = 'Lock nuts'`, [id])).rows[0].id;
+  const r2 = (await as(treasurer, () => rpc('edit_request_items', [id, [item({ id: bolts, item_name: 'Bolts', quantity: 3, unit_price: 2 }), item({ id: lock, item_name: 'Lock nuts', quantity: 4, unit_price: 3.5 })], 'Price went up']))).rows[0].result;
+  assert.deepEqual([r2.reapproval, await statusOf(number)], [false, 'Approved']);
+  // Nothing changed: nothing logged.
+  assert.equal((await as(treasurer, () => rpc('edit_request_items', [id, [item({ id: bolts, item_name: 'Bolts', quantity: 3, unit_price: 2 }), item({ id: lock, item_name: 'Lock nuts', quantity: 4, unit_price: 3.5 })], 'Again']))).rows[0].result.changes, 0);
+
+  // Over $50 leaves "Small": once ordered that's refused; while Approved it goes back to Submitted for a CE.
+  await as(treasurer, () => rpc('mark_ordered', [id, null, 'PO-77', '']));
+  await as(treasurer, () => rejects(rpc('edit_request_items', [id, [item({ id: bolts, item_name: 'Bolts', quantity: 30, unit_price: 2 }), item({ id: lock, item_name: 'Lock nuts', quantity: 4, unit_price: 3.5 })], 'More']), /already ordered, so put the extra on a new request/));
+  await as(treasurer, () => rpc('set_items_arrived', [id, [lock], true, null, '']));
+  await as(treasurer, () => rejects(rpc('edit_request_items', [id, [item({ id: bolts, item_name: 'Bolts', quantity: 3, unit_price: 2 })], 'Drop lock nuts']), /Lock nuts has already arrived/));
+
+  const number2 = numberOf(await submit(vendorRequest, [{ ...oneItem[0], item_name: 'Rivets', quantity: 2, unit_price: 5 }]));
+  const id2 = await idOf(number2);
+  const rivets = (await db.query(`select id from request_items where request_id = $1`, [id2])).rows[0].id;
+  const r3 = (await as(treasurer, () => rpc('edit_request_items', [id2, [item({ id: rivets, item_name: 'Rivets', quantity: 20, unit_price: 5 })], 'They need 20']))).rows[0].result;
+  assert.deepEqual([r3.reapproval, await statusOf(number2), (await planOf(number2)).type], [true, 'Submitted', 'any']);
+  const asked = (await db.query(`select count(*)::int n from notification_outbox where request_id = $1 and event = 'submitted'`, [id2])).rows[0].n;
+  assert.ok(asked > 0); // the CEs are asked again
+  await review(ce, number2, 'approve');
+  assert.equal(await statusOf(number2), 'Approved');
+  await setWorkflow({ rules: [] });
 });
 
 console.log('Solar Evals (028)');

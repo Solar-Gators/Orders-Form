@@ -130,6 +130,47 @@ function itemsTable(r, config) {
 const COST_EDITABLE = [STATUS.APPROVED, STATUS.ORDERED, STATUS.RECEIVED];
 const canEditCosts = (r) => auth.can('request.order') && COST_EDITABLE.includes(r.status);
 
+/** The Treasurer can change what's being bought while it's Approved or Ordered (034), e.g. something is out of stock. */
+const canEditItems = (r, config) => auth.can('request.order') && [STATUS.APPROVED, STATUS.ORDERED].includes(r.status) && Number(config.schemaVersion) >= 34;
+
+/** "Edit items": remove, change quantity / part / link / price, or add a substitute, with a reason. */
+function itemsEditor(r, config) {
+  const perRequest = shippingPerRequest(config);
+  const num = (v) => (v === null || v === undefined || v === '' ? '' : String(Number(v)));
+  const row = (i) => `<tr ${i.id ? `data-id="${esc(i.id)}"` : 'data-new'}${i.arrived_on ? ' data-arrived' : ''}>
+      <td data-label="Item"><input name="item_name" value="${esc(i.item_name || '')}" maxlength="300" placeholder="Item name" aria-label="Item name">
+        <div class="item-sub"><input name="part_number" class="small-input" value="${esc(i.part_number || '')}" maxlength="200" placeholder="Part #" aria-label="Part number">
+          <input name="product_link" class="small-input" type="url" value="${esc(i.product_link || '')}" maxlength="2000" placeholder="Link (https://…)" aria-label="Link"></div>
+        <input name="notes" class="small-input" value="${esc(i.notes || '')}" maxlength="2000" placeholder="Notes (optional)" aria-label="Notes"></td>
+      <td class="w-number" data-label="Qty"><input name="quantity" type="number" min="0" step="any" inputmode="decimal" value="${esc(num(i.quantity))}" aria-label="Quantity"></td>
+      <td class="w-number" data-label="Unit price"><input name="unit_price" type="number" min="0" step="any" inputmode="decimal" value="${esc(num(i.unit_price))}" aria-label="Unit price"></td>
+      ${perRequest ? '' : `<td class="w-number" data-label="Shipping"><input name="shipping_cost" type="number" min="0" step="0.01" inputmode="decimal" value="${esc(num(i.shipping_cost))}" placeholder="—" aria-label="Shipping"></td>`}
+      <td class="num w-total" data-label="Line total" data-role="line"></td>
+      <td>${i.arrived_on ? '<span class="muted small" title="Already arrived: mark it not arrived first to remove it">Arrived</span>'
+        : '<button type="button" class="btn btn-sm btn-ghost" data-remove title="Remove this item">Remove</button>'}</td>
+    </tr>`;
+  return `<form id="items-form" novalidate>
+    <p class="muted small">For when the supplier is out of stock or suggests something else: remove items, change quantities, swap a part, or add a substitute.
+      ${esc(r.requester || 'The requester')} is told what changed and why, and it's all in the History.
+      If the total goes up into a different approval rule${r.status === STATUS.APPROVED ? ', it goes back for approval' : ' it can’t be saved here (it’s already ordered: put the extra on a new request)'}.</p>
+    <div class="table-wrap flat"><table class="table cost-table stack-form items-edit-table">
+      <thead><tr><th>Item · part # · link · notes</th><th class="num">Qty</th><th class="num">Unit price</th>${perRequest ? '' : '<th class="num">Shipping</th>'}<th class="num">Line total</th><th></th></tr></thead>
+      <tbody>${r.items.map(row).join('')}</tbody>
+    </table></div>
+    <button type="button" class="btn btn-sm" id="items-add">+ Add an item</button>
+    <div class="field">
+      <label for="items-reason">Why? <span class="req">*</span></label>
+      <input id="items-reason" name="reason" type="text" maxlength="500" placeholder='e.g. "Out of stock; McMaster suggested 91251A540"'>
+    </div>
+    <div id="items-errors"></div>
+    <div class="form-actions">
+      <span class="muted small" id="items-new-total"></span>
+      <button type="button" class="btn btn-ghost" id="items-cancel">Cancel</button>
+      <button type="submit" class="btn btn-primary">Save items</button>
+    </div>
+  </form>`;
+}
+
 /** Treasurer's "Edit costs" mode: unit price per item, shipping per item or for the whole order, with a reason. */
 function costEditor(r, config) {
   const perRequest = shippingPerRequest(config);
@@ -296,6 +337,16 @@ function historyCard(r) {
         text: `<strong>${e.kind === 'cancelled' ? 'Cancelled' : back}</strong> by ${esc(e.actor_name || 'unknown')}`,
         comment: e.kind === 'cancelled' ? e.note : '',
         kind: e.kind,
+      });
+      continue;
+    }
+    if (e.kind === 'items_edited') {
+      // The Treasurer changed the items (034): what changed, and why.
+      events.push({
+        when: e.created_at,
+        text: `<strong>Items changed</strong> by ${esc(e.actor_name || 'unknown')}<ul class="change-list">${(e.changes || []).map((c) => `<li>${esc(c)}</li>`).join('')}</ul>`,
+        comment: e.note,
+        kind: 'cost',
       });
       continue;
     }
@@ -733,6 +784,7 @@ export async function renderRequestDetail(el, { config, params, rerender }) {
             <div class="card-actions">
               ${showCopy() && r.items.length ? `<button type="button" class="btn btn-sm" data-copy="${esc(itemsAsTable(r, config))}" data-copied-label="Copied ✓"
                 title="Copies every item as a table — paste into Excel, Sheets, or a form">Copy all items</button>` : ''}
+              ${canEditItems(r, config) && r.items.length ? '<button type="button" class="btn btn-sm" id="edit-items" title="Out of stock? Remove, swap or add items">Edit items</button>' : ''}
               ${canEditCosts(r) && r.items.length ? '<button type="button" class="btn btn-sm" id="edit-costs">Edit costs</button>' : ''}
               ${r.items.length ? `<a class="btn btn-sm" href="#/requests/${esc(r.request_number)}/again" title="Start a new request with these items. You can change anything before submitting.">Order again</a>` : ''}
             </div>
@@ -1029,6 +1081,91 @@ export async function renderRequestDetail(el, { config, params, rerender }) {
     if (!more) return;
     el.querySelectorAll('#items-body tr.item-extra').forEach((tr) => (tr.hidden = false));
     more.closest('tr').remove();
+  });
+  el.querySelector('#edit-items')?.addEventListener('click', () => {
+    el.querySelectorAll('#edit-items, #edit-costs').forEach((b) => (b.hidden = true));
+    const body = el.querySelector('#items-body');
+    body.innerHTML = itemsEditor(r, config);
+    const form = body.querySelector('#items-form');
+    const tbody = form.querySelector('tbody');
+    const blankRow = () => {
+      const tr = document.createElement('tbody');
+      tr.innerHTML = itemsEditor({ ...r, items: [{}] }, config).match(/<tbody>([\s\S]*)<\/tbody>/)[1];
+      return tr.firstElementChild;
+    };
+    const live = () => [...tbody.querySelectorAll('tr')].filter((tr) => !tr.classList.contains('is-removed'));
+    const recalc = () => {
+      let total = 0;
+      for (const tr of tbody.querySelectorAll('tr')) {
+        const v = (n) => Number(tr.querySelector(`[name=${n}]`)?.value) || 0;
+        const line = v('quantity') * v('unit_price') + v('shipping_cost');
+        tr.querySelector('[data-role=line]').textContent = tr.classList.contains('is-removed') ? 'Removed' : fmtMoney(line);
+        if (!tr.classList.contains('is-removed')) total += line;
+      }
+      // Whole-order shipping stays on the first item; it isn't edited here.
+      if (shippingPerRequest(config)) total += Number(r.shipping) || 0;
+      body.querySelector('#items-new-total').innerHTML = Math.abs(total - r.total) > 0.004
+        ? `New total <strong>${fmtMoney(total)}</strong> (was ${fmtMoney(r.total)})` : '';
+    };
+    recalc();
+    form.addEventListener('input', recalc);
+    tbody.addEventListener('click', (ev) => {
+      const b = ev.target.closest('[data-remove]');
+      if (!b) return;
+      const tr = b.closest('tr');
+      if (tr.hasAttribute('data-new')) tr.remove();
+      else {
+        const off = tr.classList.toggle('is-removed');
+        tr.querySelectorAll('input').forEach((x) => (x.disabled = off));
+        b.textContent = off ? 'Keep' : 'Remove';
+      }
+      recalc();
+    });
+    body.querySelector('#items-add').addEventListener('click', () => {
+      const tr = blankRow();
+      tbody.append(tr);
+      tr.querySelector('[name=item_name]').focus();
+      recalc();
+    });
+    body.querySelector('#items-cancel').addEventListener('click', () => rerender());
+    form.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const errs = body.querySelector('#items-errors');
+      errs.innerHTML = '';
+      const val = (tr, n) => tr.querySelector(`[name=${n}]`)?.value.trim() ?? '';
+      const items = live().map((tr) => {
+        const old = r.items.find((i) => i.id === tr.dataset.id);
+        return {
+          ...(tr.dataset.id ? { id: tr.dataset.id } : {}),
+          item_name: val(tr, 'item_name'), notes: val(tr, 'notes'), part_number: val(tr, 'part_number'), product_link: val(tr, 'product_link'),
+          quantity: val(tr, 'quantity'), unit_price: val(tr, 'unit_price'),
+          // Whole-order shipping isn't edited here: keep what each item had.
+          shipping_cost: shippingPerRequest(config) ? (old?.shipping_cost ?? '') : val(tr, 'shipping_cost'),
+        };
+      });
+      if (!form.reason.value.trim()) {
+        errs.innerHTML = errorBox(new Error('Say why the items changed, e.g. "Out of stock; McMaster suggested 91251A540". It goes in the History and to the requester.'));
+        form.reason.focus();
+        return;
+      }
+      const removed = tbody.querySelectorAll('tr.is-removed').length;
+      if (removed && !confirm(`Remove ${removed} item${removed === 1 ? '' : 's'} from ${r.request_number}?`)) return;
+      const buttons = form.querySelectorAll('button');
+      buttons.forEach((b) => (b.disabled = true));
+      try {
+        const res = await api.editRequestItems(r.id, items, form.reason.value.trim());
+        setFlash(!res.changes ? 'Nothing changed.'
+          : res.reapproval
+            ? `Items changed. The total is now ${fmtMoney(res.total)}, which needs approval again, so ${r.request_number} is back to Submitted and the approvers were asked.`
+            : `Items changed on ${r.request_number} (now ${fmtMoney(res.total)}).${r.created_by === auth.user.id ? '' : ` ${r.requester || 'The requester'} is told what changed.`}`);
+        await rerender();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      } catch (err) {
+        errs.innerHTML = errorBox(err);
+        buttons.forEach((b) => (b.disabled = false));
+      }
+    });
+    form.querySelector('[name=item_name]')?.focus();
   });
   el.querySelector('#edit-costs')?.addEventListener('click', (e) => {
     e.target.hidden = true;

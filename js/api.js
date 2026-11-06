@@ -405,6 +405,13 @@ export const api = {
     unwrap(await supabase.rpc('set_request_owner', { p_id: id, p_user_id: userId }));
   },
 
+  /** The Treasurer changes the items on an Approved / Ordered request (034). Returns { changes, reapproval, total }. */
+  async editRequestItems(id, items, reason) {
+    const result = unwrap(await supabase.rpc('edit_request_items', { p_id: id, p_items: items, p_reason: reason }));
+    deliver();
+    return result;
+  },
+
   async updateItemCosts(id, items, reason) {
     return unwrap(await supabase.rpc('update_item_costs', { p_request_id: id, p_items: items, p_reason: reason }));
   },

@@ -47,6 +47,7 @@ function myEvents(config) {
     { key: 'cancelled', mine: 'Your approved request was cancelled before ordering' },
     { key: 'ordered', mine: 'Your request was ordered' },
     { key: 'received', mine: 'Your request arrived' },
+    { key: 'items_changed', mine: 'The Treasurer changed the items on your request (e.g. something was out of stock)' },
     { key: 'request_update', mine: 'A request you watch changes status' },
     (auth.can('sponsors.view') || auth.can('sponsors.edit')) && { key: 'sponsor_update', mine: 'A sponsor card you watch moves or gets a note' },
     { key: 'eval_update', mine: auth.can('evals.write') ? 'Solar Evals: a member submits a self-eval to you, or your own eval meeting / eval is ready' : 'Solar Evals: your eval meeting is scheduled, or your eval is ready to read' },
