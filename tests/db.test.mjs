@@ -293,7 +293,7 @@ await test('the website cannot change the schema version', async () => {
   const general = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
   await as(ce, () => rpc('update_settings', ['general', { ...general, schemaVersion: 99 }]));
   const after = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
-  assert.equal(after.schemaVersion, 31);
+  assert.equal(after.schemaVersion, 32);
 });
 
 console.log('Form fields');
@@ -1880,21 +1880,38 @@ console.log('Solar Evals (028)');
     assert.equal((await db.query(`select finalized_at from evals where id = $1`, [evalId])).rows[0].finalized_at, null);
   });
 
-  console.log('Solar Evals self-evaluations and meetings (031)');
+  console.log('Solar Evals self-evaluations, questions and meetings (031, 032)');
   let selfId, ceEvalId;
   await as(admin, () => rpc('update_settings', ['notifications', { enabled: true, events: { eval_update: { email: true } } }]));
   const outbox = async () => (await db.query(`select email, payload from notification_outbox where event = 'eval_update' order by id`)).rows;
 
-  await test('a member starts a self-eval on their rubric; it is theirs alone and they pick a CE who writes evals', async () => {
-    await as(kid, () => rejects(rpc('eval_self_save', [null, { template_id: null }]), /division's rubric/));
+  await test('CEs set their own questions (members cannot); anyone signed in can read them to copy', async () => {
+    await as(kid, () => rejects(rpc('eval_questions_save', [[{ id: 'a', text: 'Hi?' }]]), /does not allow/));
+    await as(evalCe, () => rejects(rpc('eval_questions_save', [[]]), /between 1 and 20/));
+    await as(evalCe, () => rejects(rpc('eval_questions_save', [[{ id: 'a', text: '  ' }]]), /needs some text/));
+    await as(evalCe, () => rejects(rpc('eval_questions_save', [[{ id: 'a', text: 'x' }, { id: 'a', text: 'y' }]]), /same id/));
+    await as(evalCe, () => rpc('eval_questions_save', [[{ id: 'bms-win', text: ' What was your biggest BMS win? ' }, { id: 'next', text: 'What next?', hint: 'Be specific' }]]));
+    const q = (await sel(stranger, `select questions from eval_questions where owner_id = $1`, [evalCe]))[0].questions;
+    assert.deepEqual(q, [{ id: 'bms-win', text: 'What was your biggest BMS win?', hint: '' }, { id: 'next', text: 'What next?', hint: 'Be specific' }]);
+  });
+
+  await test('a member starts a self-eval; its questions follow the CE they pick; it is theirs alone', async () => {
+    await as(kid, () => rejects(rpc('eval_self_save', [null, { template_id: null }]), /Pick your division/));
     selfId = (await as(kid, () => rpc('eval_self_save', [null, {
       template_id: versionId, semester: 'Spring 2027', division: 'Electrical', subsystem: 'BMS', lead_id: lead,
-      ratings: { communication: 5, technical: 4 }, answers: { evidence: 'Wrote the cell balancing code.' },
+      answers: { 'worked-on': 'Wrote the cell balancing code.' },
     }]))).rows[0].result;
+    const qs = async () => (await db.query(`select rubric -> 'questions' q from evals where id = $1`, [selfId])).rows[0].q.map((x) => x.id);
+    assert.deepEqual(await qs(), ['worked-on', 'blockers', 'team', 'next', 'else']); // no CE yet: the defaults
+    await as(kid, () => rpc('eval_self_save', [selfId, { ce_id: evalCe2 }]));
+    assert.deepEqual(await qs(), ['worked-on', 'blockers', 'team', 'next', 'else']); // Otto has none of his own
+    await as(kid, () => rpc('eval_self_save', [selfId, { ce_id: evalCe, answers: { 'bms-win': 'Balancing works.', next: 'Thermal model.' } }]));
+    assert.deepEqual(await qs(), ['bms-win', 'next']);
+    await as(kid, () => rejects(rpc('eval_self_save', [selfId, { answers: { next: 5 } }]), /up to 4000/));
+    await as(kid, () => rpc('eval_self_save', [selfId, { ce_id: null }]));
     const e = (await db.query(`select kind, member_name, member_email, member_id, evaluator_id, status from evals where id = $1`, [selfId])).rows[0];
     assert.deepEqual(e, { kind: 'self', member_name: 'Kit Member', member_email: 'kid@ufl.edu', member_id: kid, evaluator_id: kid, status: 'draft' });
     await as(kid, () => rejects(rpc('eval_self_save', [selfId, { ce_id: lead }]), /doesn't fill out evals/));
-    await as(kid, () => rejects(rpc('eval_self_save', [selfId, { ratings: { communication: 9 } }]), /1 to 5/));
     await as(stranger, () => rejects(rpc('eval_self_save', [selfId, { semester: 'x' }]), /Only the member who wrote/));
     await as(evalCe, () => rejects(rpc('eval_save', [selfId, { member_name: 'x' }]), /Only the CE who wrote/));
     await as(kid, () => rejects(rpc('eval_self_submit', [selfId, true]), /Pick your CE/));
@@ -1903,8 +1920,10 @@ console.log('Solar Evals (028)');
     for (const u of [evalCe, evalCe2, eboard, lead]) assert.ok(!(await visible(u)).includes(selfId));
   });
 
-  await test('submitting emails the CE; the CE sees who is waiting but not the answers', async () => {
+  await test('submitting emails the CE and freezes the questions; the CE sees who is waiting but not the answers', async () => {
     await as(kid, () => rpc('eval_self_submit', [selfId, true]));
+    await as(evalCe, () => rpc('eval_questions_save', [[{ id: 'other', text: 'Changed my mind' }]]));
+    assert.deepEqual((await db.query(`select rubric -> 'questions' -> 0 ->> 'id' q from evals where id = $1`, [selfId])).rows[0].q, 'bms-win');
     const sent = await outbox();
     assert.equal(sent.length, 1);
     assert.equal(sent[0].email, 'evalce@ufl.edu');
@@ -1927,8 +1946,8 @@ console.log('Solar Evals (028)');
     await as(evalCe2, () => rejects(rpc('eval_start_review', [selfId]), /isn't waiting for you/));
     ceEvalId = (await as(evalCe, () => rpc('eval_start_review', [selfId]))).rows[0].result;
     assert.equal((await as(evalCe, () => rpc('eval_start_review', [selfId]))).rows[0].result, ceEvalId); // once only
-    const c = (await db.query(`select kind, self_eval_id, member_name, semester, lead_id, template_label, ratings from evals where id = $1`, [ceEvalId])).rows[0];
-    assert.deepEqual(c, { kind: 'ce', self_eval_id: selfId, member_name: 'Kit Member', semester: 'Spring 2027', lead_id: lead, template_label: 'Electrical CE · Fall 2026', ratings: {} });
+    const c = (await db.query(`select kind, self_eval_id, member_name, semester, lead_id, template_label, ratings, rubric ? 'pages' as rubric from evals where id = $1`, [ceEvalId])).rows[0];
+    assert.deepEqual(c, { kind: 'ce', self_eval_id: selfId, member_name: 'Kit Member', semester: 'Spring 2027', lead_id: lead, template_label: 'Electrical CE · Fall 2026', ratings: {}, rubric: true });
     await as(kid, () => rejects(rpc('eval_self_submit', [selfId, false]), /already started/));
     await as(kid, () => rejects(rpc('eval_set_status', [selfId, 'shared']), /does not allow/));
     await as(evalCe, () => rejects(rpc('eval_set_status', [selfId, 'final']), /submitted by its member/));
