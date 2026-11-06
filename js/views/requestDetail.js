@@ -299,6 +299,13 @@ function historyCard(r) {
       });
       continue;
     }
+    if (e.kind === 'unreceived') {
+      // Undo received (033); the Received it undid is listed too.
+      const prev = [...logged].filter((x) => x.kind === 'received' && x.created_at < e.created_at).pop();
+      if (prev) events.push({ when: prev.created_at, text: `<strong>Marked received</strong> by ${esc(prev.actor_name || 'unknown')}`, kind: 'received' });
+      events.push({ when: e.created_at, text: `<strong>Received undone</strong> by ${esc(e.actor_name || 'unknown')}: back to Ordered`, comment: e.note, kind: 'restored' });
+      continue;
+    }
     if (e.kind === 'arrived') {
       // Items arriving one by one (025).
       const undo = /^Not arrived after all: /.test(e.note || '');
@@ -346,7 +353,7 @@ function historyCard(r) {
       const receivedBy = by('received');
       events.push({
         when: r.order.received_date,
-        sortAt: logged.find((e) => e.kind === 'received')?.created_at,
+        sortAt: [...logged].reverse().find((e) => e.kind === 'received')?.created_at,
         dateOnly: true,
         text: `<strong>Received</strong>${receivedBy ? ` by ${esc(receivedBy)}` : ''}${r.order.received_date ? '' : ' <span class="muted small">(date not recorded)</span>'}`,
         comment: r.order.received_notes,
@@ -550,6 +557,7 @@ function actionPanel(r, config, { names = {}, budget = null, purchase = null } =
           <textarea id="d-notes" name="received_notes" rows="2" required
             placeholder="${treasurer ? 'e.g. In our office, on the shelf by the door' : 'e.g. MAE receiving room'}"></textarea>
         </div>
+        ${receiveNote(r, config)}
         <div id="action-errors"></div>
         <button type="submit" class="btn btn-primary btn-block">Mark as Received</button>
       </form>
@@ -557,7 +565,36 @@ function actionPanel(r, config, { names = {}, budget = null, purchase = null } =
     </section>`;
   }
 
+  if (r.status === STATUS.RECEIVED && canUndoReceived(r, config)) {
+    const auto = r.items.filter((i) => i.arrived_with_request).length;
+    const own = r.items.filter((i) => i.arrived_on && !i.arrived_with_request).length;
+    return `<section class="card action-card">
+      <h2>Received</h2>
+      <p class="muted small">Marked received by mistake, or not everything is here? Undo puts it back to <strong>Ordered</strong>.
+        ${arrivals(r) ? `${own ? `The ${own} item${own === 1 ? '' : 's'} ticked off one by one stay arrived` : 'Nothing was ticked off one by one'}${auto ? `; the ${auto} that arrived with "Mark as Received" go back to <em>Not yet</em>` : ''}.` : ''}
+        Nobody is emailed.</p>
+      <div id="action-errors"></div>
+      <button type="button" class="btn btn-block" id="undo-received">↶ Undo received</button>
+    </section>`;
+  }
+
   return ''; // Rejected / Received: nothing left to do
+}
+
+/** Ticked-but-unsaved items on the request page being shown (warned about before leaving). */
+let unsavedTicks = () => 0;
+window.addEventListener('beforeunload', (e) => { if (unsavedTicks()) { e.preventDefault(); e.returnValue = ''; } });
+
+/** Whoever could mark it Received can undo it (033). */
+const canUndoReceived = (r, config) => Number(config.schemaVersion) >= 33 && (auth.can('request.order') || r.created_by === auth.user.id);
+
+/** Under the Received form: what happens to items that haven't arrived yet. */
+function receiveNote(r, config) {
+  if (!arrivals(r)) return '';
+  const done = r.items.filter((i) => i.arrived_on).length, rest = r.items.length - done;
+  if (!rest) return '';
+  return `<p class="muted small receive-note">${done ? `${done} of ${r.items.length} items have arrived. ` : ''}The other ${rest} will be marked arrived too.${
+    Number(config.schemaVersion) >= 33 ? ' You can undo this afterwards; items you ticked off stay ticked.' : ''}</p>`;
 }
 
 /**
@@ -939,8 +976,22 @@ export async function renderRequestDetail(el, { config, params, rerender }) {
       where.focus();
       return;
     }
-    run(e.target, () => api.markReceived(r.id, Object.fromEntries(new FormData(e.target))), `${r.request_number} marked as received.`);
+    // Ticked boxes aren't saved until "Ticked ones arrived" is clicked: don't let Received swallow them.
+    const unsaved = ticked().length;
+    if (unsaved && !confirm(`You ticked ${unsaved} item${unsaved === 1 ? '' : 's'} but didn't click "Ticked ones arrived", so they aren't saved.\n\nMarking the whole request Received marks every item arrived. Do that anyway?\n\n(Cancel, then click "Ticked ones arrived" to save just those.)`)) return;
+    run(e.target, () => api.markReceived(r.id, Object.fromEntries(new FormData(e.target))),
+      canUndoReceived(r, config) ? `${r.request_number} marked as received. Didn't mean to? Use "Undo received" on this page.` : `${r.request_number} marked as received.`);
   });
+  el.querySelector('#undo-received')?.addEventListener('click', (e) => {
+    const auto = r.items.filter((i) => i.arrived_with_request).length;
+    if (!confirm(`Undo received for ${r.request_number}? It goes back to Ordered (Awaiting delivery).${
+      auto ? `\n\n${auto} item${auto === 1 ? '' : 's'} that arrived with "Mark as Received" go back to not arrived. Items ticked off one by one stay arrived.` : ''}`)) return;
+    let n = 0;
+    run(e.target.closest('section'), async () => (n = await api.undoReceived(r.id)),
+      () => `${r.request_number} is back to Ordered.${n ? ` ${n} item${n === 1 ? '' : 's'} back to not arrived; the ones you ticked off are still ticked.` : ''}`);
+  });
+  // Unsaved ticks: warn before leaving the page.
+  unsavedTicks = () => (el.isConnected && el.querySelector('#items-body') ? ticked().length : 0);
 
   // ---- Fix wording after submitting (019) -------------------------------------------
   el.querySelector('#fix-wording')?.addEventListener('click', (e) => {

@@ -456,6 +456,11 @@ export const api = {
     deliver();
   },
 
+  /** Back to Ordered; items ticked off one by one stay arrived. Returns how many items went back to not arrived (033). */
+  async undoReceived(id) {
+    return unwrap(await supabase.rpc('undo_received', { p_id: id }));
+  },
+
   // ---- Archive & import -----------------------------------------------------
 
   async listArchiveImports() {

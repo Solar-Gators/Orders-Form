@@ -293,7 +293,7 @@ await test('the website cannot change the schema version', async () => {
   const general = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
   await as(ce, () => rpc('update_settings', ['general', { ...general, schemaVersion: 99 }]));
   const after = (await db.query(`select value from app_settings where key = 'general'`)).rows[0].value;
-  assert.equal(after.schemaVersion, 32);
+  assert.equal(after.schemaVersion, 33);
 });
 
 console.log('Form fields');
@@ -1374,7 +1374,7 @@ await test('Sponsors (027): ask past sponsors again, claim and log contact, trac
   await as(ce, () => rpc('log_sponsor_contact', [ask.id, null, 'Emailed Cindy about honeycomb']));
   const after = (await db.query(`select owner_id, contacted_on::text d from sponsor_cards where id = $1`, [ask.id])).rows[0];
   assert.equal(after.owner_id, ce);
-  assert.equal(after.d, new Date().toISOString().slice(0, 10));
+  assert.equal(after.d, (await db.query(`select current_date::text d`)).rows[0].d); // the database's today, not UTC's
   const kinds = (await db.query(`select kind, body from sponsor_activity where card_id = $1 order by id`, [ask.id])).rows;
   assert.deepEqual(kinds.slice(1).map((k) => k.kind), ['claimed', 'contacted']);
   assert.equal(kinds[2].body, 'Contacted them: Emailed Cindy about honeycomb');
@@ -1777,6 +1777,26 @@ await test('Items arriving one by one; Received marks the rest (025)', async () 
   await as(treasurer, () => rpc('mark_received', [id, '2026-10-07', 'In our office']));
   const arrived = (await db.query(`select arrived_on::text d, arrived_note from request_items where request_id = $1 order by position`, [id])).rows;
   assert.deepEqual(arrived.map((r) => `${r.d} ${r.arrived_note}`), ['2026-10-05 1 bag short', '2026-10-07 ', '2026-10-07 ']);
+
+  // 033: undo it. Only the item ticked on its own stays arrived; nobody is emailed.
+  await as(other, () => rejects(rpc('undo_received', [id]), /Only the Treasurer or the person/));
+  await as(admin, () => rpc('update_settings', ['notifications', { enabled: true, events: { ordered: { email: true }, request_update: { email: true } } }]));
+  const before = (await db.query(`select count(*)::int n from notification_outbox where request_id = $1`, [id])).rows[0].n;
+  assert.equal((await as(treasurer, () => rpc('undo_received', [id]))).rows[0].result, 2);
+  assert.equal(await statusOf(number), 'Ordered');
+  const back = (await db.query(`select arrived_on::text d, arrived_note from request_items where request_id = $1 order by position`, [id])).rows;
+  assert.deepEqual(back.map((r) => `${r.d} ${r.arrived_note}`), ['2026-10-05 1 bag short', 'null ', 'null ']);
+  const oi = (await db.query(`select received_date, received_notes from order_information where request_id = $1`, [id])).rows[0];
+  assert.deepEqual(oi, { received_date: null, received_notes: '' });
+  assert.equal((await db.query(`select count(*)::int n from notification_outbox where request_id = $1`, [id])).rows[0].n, before);
+  assert.equal((await db.query(`select note from request_events where request_id = $1 and kind = 'unreceived'`, [id])).rows[0].note, '2 items back to not arrived');
+  await as(treasurer, () => rejects(rpc('undo_received', [id]), /not Received/));
+  // Ticking keeps working, and Received again marks only the rest.
+  await as(treasurer, () => rpc('set_items_arrived', [id, [items[1]], true, '2026-10-06', '']));
+  await as(member, () => rpc('mark_received', [id, '2026-10-08', 'Picked up']));
+  await as(member, () => rpc('undo_received', [id]));
+  const again = (await db.query(`select arrived_on::text d from request_items where request_id = $1 order by position`, [id])).rows.map((r) => r.d);
+  assert.deepEqual(again, ['2026-10-05', '2026-10-06', null]);
 });
 
 console.log('Solar Evals (028)');
