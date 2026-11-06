@@ -1,85 +1,17 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>OneSolar</title>
-  <link rel="icon" type="image/png" href="assets/favicon.png">
-  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
-  <!-- Installable as an app (PWA): manifest.webmanifest + sw.js. -->
-  <link rel="manifest" href="manifest.webmanifest">
-  <meta name="theme-color" content="#ffffff">
-  <!-- Light or dark before the page draws (no white flash): "auto" follows the device;
-       the account menu's Appearance sets light or dark (js/main.js applyTheme). -->
-  <script>
-    (function () {
-      var t = null;
-      try { t = localStorage.getItem('theme'); } catch (e) {}
-      var dark = t === 'dark' || (t !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
-      document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
-    })();
-  </script>
-  <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-title" content="OneSolar">
-  <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <!-- Relative paths so the site works under a GitHub Pages sub-path (/<repo>/). -->
-  <link rel="stylesheet" href="css/styles.css">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Orders has moved to OneSolar</title>
+<meta name="robots" content="noindex">
+<script>
+  // Keep ?… (sign-in links) and #… (the page you were on) so old links and bookmarks still land in the right place.
+  location.replace("/one.solar/orders/" + location.search + location.hash);
+</script>
+<noscript><meta http-equiv="refresh" content="0; url=/one.solar/orders/"></noscript>
 </head>
-<body class="signed-out">
-  <header class="topbar">
-    <div class="topbar-inner">
-      <!-- The logo goes to the OneSolar home screen (every Solar Gators app); Home in the menu is this app's dashboard. -->
-      <a class="brand" href="https://solar-gators.github.io/one.solar/" aria-label="OneSolar: all Solar Gators apps">
-        <img class="brand-logo" src="assets/solar-gators-logo.png" alt="Solar Gators" width="800" height="237">
-        <span class="brand-divider" aria-hidden="true"></span>
-        <span id="brand-name">One<span class="brand-accent">Solar</span></span>
-      </a>
-
-      <!-- Phones and tablets: the links fold into this menu. -->
-      <button type="button" class="menu-btn signed-in-only" id="menu-btn" aria-expanded="false" aria-controls="main-nav">
-        <span class="menu-icon" aria-hidden="true"></span><span class="menu-label">Menu</span><span class="nav-count" id="count-menu" hidden></span>
-      </button>
-
-      <!-- Each role only sees what it uses. Requests also holds the Archive and Excel download;
-           Queue holds approving (Chief Engineer) and ordering (Treasurer). -->
-      <nav class="nav signed-in-only" id="main-nav" aria-label="Main">
-        <a href="#/home" data-nav="home">Home</a>
-        <a href="#/requests" data-nav="requests">Requests <span class="nav-count" id="count-requests" hidden title="Your requests sent back for changes"></span></a>
-        <a href="#/queue" data-nav="queue" data-perm="request.review request.order" hidden>Queue <span class="nav-count" id="count-queue" hidden title="Waiting on you"></span></a>
-        <a href="#/finances" data-nav="finances" data-perm="finances.view finances.edit" hidden>Finances</a>
-        <a href="#/sponsors" data-nav="sponsors" data-perm="sponsors.view sponsors.edit" hidden>Sponsors</a>
-        <a href="#/admin" data-nav="admin" data-perm="users.manage settings.edit site.customize seasons.manage workflow.edit" hidden>Admin</a>
-      </nav>
-
-      <a class="btn btn-primary new-cta signed-in-only" href="#/new" data-nav="new" aria-label="New request"><span aria-hidden="true">+</span><span class="cta-label"> New Request</span></a>
-
-      <div class="account-menu signed-in-only">
-        <button type="button" class="account-link" id="account-btn" aria-expanded="false" aria-controls="account-pop" aria-haspopup="true"></button>
-        <div class="account-pop" id="account-pop" hidden>
-          <a href="#/account" data-nav="account">My account &amp; notifications</a>
-          <a href="#/help" data-nav="help" id="nav-help" hidden>Help</a>
-          <div class="theme-pick" role="group" aria-label="Appearance">
-            <span>Appearance</span>
-            <div class="theme-options">
-              <button type="button" data-theme-set="auto" title="Follow this device's setting">Auto</button>
-              <button type="button" data-theme-set="light">Light</button>
-              <button type="button" data-theme-set="dark">Dark</button>
-            </div>
-          </div>
-          <button type="button" id="menu-install" hidden>Install the app</button>
-          <button type="button" id="menu-sign-out">Sign out</button>
-        </div>
-      </div>
-    </div>
-  </header>
-
-  <div class="banner" id="banner" hidden></div>
-  <div class="announcement" id="announcement" role="status" hidden></div>
-
-  <main id="app" class="container" tabindex="-1"></main>
-
-  <footer class="footer container" id="footer"></footer>
-
-  <script type="module" src="js/main.js"></script>
+<body style="font-family:system-ui,sans-serif;padding:40px;text-align:center">
+<p>Orders is now part of <a href="/one.solar/">OneSolar</a>. Taking you to <a href="/one.solar/orders/">its new address</a>…</p>
 </body>
 </html>
